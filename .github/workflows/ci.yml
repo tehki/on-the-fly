@@ -58,7 +58,7 @@ jobs:
         run: python -m ruff format --check .
 
       - name: Type check
-        run: python -m mypy scripts tests
+        run: python -m mypy src scripts tests
 
       - name: Tests
         run: python -m pytest -q

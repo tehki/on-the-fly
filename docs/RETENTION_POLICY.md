@@ -72,18 +72,51 @@ Deletion must reach every location the policy lists: primary storage, process me
 replicas, caches, indexes, queues, temporary directories, local workspaces, generated
 exports, and any observability storage holding content.
 
-## Implementation status
+## Implementation
 
-Not yet implemented. `src/on_the_fly/domain/retention/` is reserved for this code and is
-listed as a security-sensitive path so that it arrives under code ownership from its first
-commit.
+`src/on_the_fly/domain/retention/` implements this policy. Every test named in
+`retention.required_tests` exists in `tests/test_retention.py`, and a meta-test reads that
+list from the policy file and fails the build if a required test is missing — so the list
+cannot become aspirational.
 
-The policy names the enforcement mechanism as scheduled expiry. When the module is built,
-the tests listed under `retention.required_tests` in `CODING_AGENT_POLICY_v1.2.yaml` are
-required, not optional — including automatic expiry without a follow-up read, post-use
-refresh, no premature deletion during active use, cleanup after restart, and deletion
-failure behaviour. They must use a controllable clock rather than real sleeps, so they
-stay deterministic (handbook 18).
+```python
+store = EphemeralStore("on-the-fly", deleters=[spill_directory])
+store.cleanup_after_restart()
 
-Until that module exists, this repository holds no runtime retention enforcement, and no
-document here should be read as claiming otherwise.
+with ThreadedReaper(store):
+    handle = store.put(audio_frame, label="captured_audio_frames")
+    with store.borrow(handle) as frame:
+        transcript = recognise(frame)
+    # the window on `handle` restarts here and runs out ten seconds later,
+    # whether or not anyone touches it again
+```
+
+Four design decisions are worth knowing before using it:
+
+**Expiry does not wait to be asked.** `reap()` is driven by a clock, and `ThreadedReaper`
+drives it on a background thread. A store that expired content on the next read would keep
+everything forever in the case that matters most — content nobody looks at again.
+
+**Active use is explicit.** Content is read through `borrow()`, which holds a lease.
+Nothing is deleted under an open lease, and the post-use window restarts when the lease
+closes. Inferring "in use" from the last read would delete a buffer halfway through a long
+transcription; that case is covered by `test_no_premature_deletion_during_active_use`.
+
+**A failed deletion is not a deletion.** It has its own terminal state
+(`DELETION_FAILED`), emits a metadata-only `DeletionFailureEvent`, and retries a bounded
+number of times. Process memory is purged first and unconditionally, so a location that
+cannot be cleaned does not also leave content in the heap awaiting retry.
+
+**Longer retention needs a real exception.** `RetentionOverride` requires all nine
+Article 13 fields, must be timezone-aware, and stops authorising anything past its own
+`expires_at` — checked at construction, not left to whoever reads the register.
+
+Tests run on an injected `ManualClock`, not real sleeps, so a ten-second deadline is
+asserted at 9.999s and 10.001s rather than waited out (handbook 18).
+
+### What is not done yet
+
+The module is built and tested but **not yet wired to anything**, because no audio
+pipeline exists. `Deleter` implementations for real spill locations — temporary
+directories, model caches — are written when those locations are.
+`OPERATIONAL_METADATA` has a constant here and no storage behind it.
