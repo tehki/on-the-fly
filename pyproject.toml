@@ -1,0 +1,30 @@
+[project]
+name = "on-the-fly"
+version = "0.0.0"
+description = "On the fly live translator - speak without bounds with anyone worldwide"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "RUF"]
+# S603/S607: subprocess use in the provenance script is argument-array form with a
+# fixed executable, which is the safe construction the policy asks for.
+ignore = ["S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # pytest assertions
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

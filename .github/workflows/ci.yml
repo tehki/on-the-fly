@@ -1,0 +1,85 @@
+# The `quality` job is the required status check named by REPOSITORY_GOVERNANCE_v1.1.yaml.
+# Renaming, removing, skipping or weakening it to make CI faster is prohibited
+# (handbook 34 and 64M). Add gates here; do not subtract them.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Superseded pull-request runs are cancelled. Runs on main are not, because the
+  # provenance check below is a compensating security control while main is unprotected.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # Full history so the provenance check can test ancestry rather than trusting
+          # the pushed ref alone.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Versions are pinned but not hash-pinned yet. A --require-hashes install with a
+          # fallback would advertise verification it does not perform, so it is not used
+          # here. Tracked as a follow-up: generate hashes with pip-compile.
+          python -m pip install -r requirements-dev.txt
+
+      - name: Policy validation
+        run: python scripts/validate_coding_agent_policy.py
+
+      - name: Repository governance validation
+        run: python scripts/validate_repository_governance.py
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Format check
+        run: python -m ruff format --check .
+
+      - name: Type check
+        run: python -m mypy scripts tests
+
+      - name: Tests
+        run: python -m pytest -q
+
+  main-push-provenance:
+    # Compensating control required by REPOSITORY_GOVERNANCE_v1.1.yaml while remote
+    # branch protection is not yet configured. It cannot prevent an unauthorised push;
+    # it makes one visible. It is not a substitute for branch protection.
+    name: main push provenance
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify main push provenance
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/verify_main_push_provenance.py

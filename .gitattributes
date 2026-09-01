@@ -1,0 +1,7 @@
+# Normalize line endings so a cross-platform team does not produce phantom diffs.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.wav binary
+*.onnx binary
+*.bin binary

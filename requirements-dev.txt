@@ -1,0 +1,17 @@
+# Development and CI tooling. Application dependencies do not belong here.
+#
+# Dependency admission (Constitution Article 12): each entry below is a widely used,
+# permissively licensed, actively maintained tool with no install-time scripts and a
+# small transitive footprint. Versions are pinned so CI is reproducible; Dependabot
+# raises visible pull requests when they go stale.
+#
+# PyYAML   MIT        - parses the policy and governance manifests. Loaded with
+#                       yaml.safe_load only; never yaml.load (safe deserialization,
+#                       policy input_and_execution_security.safe_deserialization_required).
+# ruff     MIT        - linter and formatter.
+# mypy     MIT        - static type checking.
+# pytest   MIT        - test runner.
+PyYAML==6.0.2
+ruff==0.6.9
+mypy==1.11.2
+pytest==8.3.3
