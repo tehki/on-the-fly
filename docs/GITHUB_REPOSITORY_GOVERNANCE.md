@@ -14,17 +14,34 @@ describing this repository as protected on the strength of the files in it.
 
 | Checked | Date | Result |
 | --- | --- | --- |
-| `main` branch protection | 2026-09-01 | **Absent** — API returned `404 Branch not protected` |
-| Repository rulesets | 2026-09-01 | **None** — empty array |
-| Actions workflows | 2026-09-01 | **None** |
-| Dependabot vulnerability alerts | 2026-09-01 | **Disabled** |
+| `main` protection | 2026-09-01 | **Active** — ruleset `main-protection`, id `22044161` |
+| Enforcement | 2026-09-01 | `active`, `bypass_actors: []`, `current_user_can_bypass: never` |
+| Rules present | 2026-09-01 | `deletion`, `non_fast_forward`, `required_linear_history`, `pull_request`, `required_status_checks` |
+| Required check | 2026-09-01 | `quality`, with `strict_required_status_checks_policy: true` |
+| Required approvals | 2026-09-01 | 0 — see `EXC-2026-09-01-001` |
+| Actions workflows | 2026-09-01 | Present; `quality` and `main push provenance` both reporting |
+| Dependabot vulnerability alerts | 2026-09-01 | **Enabled** |
 | Collaborators with write access | 2026-09-01 | 1 (`tehki`) |
 | Repository visibility | 2026-09-01 | Public |
+
+Verified by reading the ruleset back from
+`GET /repos/tehki/on-the-fly/rulesets/22044161` after creation, rather than trusting the
+response to the write, and confirmed behaviourally by observing a direct push to `main`
+be rejected.
 
 This table is a record of a point in time, not a claim about now. Re-run the verification
 below after any administrative change and update it.
 
-Tracked as `EXC-2026-09-01-002` in `docs/EXCEPTIONS.md`, expiring 2026-09-08.
+`EXC-2026-09-01-002` is closed. Its compensating provenance check was kept rather than
+removed: it now guards against the ruleset being disabled as much as against a direct
+push, which is the failure mode a table like this one cannot detect on its own.
+
+### Prior state, for the record
+
+Before 2026-09-01 this repository had no branch protection, no rulesets, no workflows,
+and Dependabot alerts disabled. Kept here because a governance document that quietly
+replaces its own history makes it impossible to tell an enforced control from one that
+was always assumed.
 
 ## Order of operations
 
@@ -131,13 +148,17 @@ Article 3 that is a capability, not an authorisation: `ADMIN` is a distinct perm
 repository write, and an agent must hold an explicit scoped grant before using it. The
 manifest records the capability as available and the grant as separately required.
 
-## While protection is absent
+## The provenance check, kept
 
 `scripts/verify_main_push_provenance.py` runs on every push to `main` and fails when the
 push was forced, was not a fast-forward, or carries a commit GitHub did not sign — the
 signature being what distinguishes a merge performed through a pull request from a commit
 pushed straight to the branch.
 
-It is detection, not prevention. It reports an unauthorised write after it has already
-landed. It is not a substitute for the ruleset above and does not extend
-`EXC-2026-09-01-002`.
+It was written as a compensating control for the window before the ruleset existed. It is
+kept now that the ruleset is active, because the two controls fail differently: the
+ruleset prevents an unauthorised push while it is configured, and the provenance check
+notices if it stops being configured. A ruleset can be deleted by an administrator in a
+few seconds, and nothing else in this repository would report that.
+
+It remains detection, not prevention, and is not a substitute for the ruleset.

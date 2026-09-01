@@ -54,15 +54,17 @@ looked thorough and enforced very little. The specific defects, and what was don
 
 Stated plainly, because the failure mode of governance work is believing it is finished:
 
-- **Remote branch protection is not configured.** Verified absent on 2026-09-01. Every
-  local file in this repository can be bypassed by anyone with push access until the
-  ruleset in `docs/GITHUB_REPOSITORY_GOVERNANCE.md` is applied and read back.
-  Tracked as `EXC-2026-09-01-002`, expiring 2026-09-08.
 - **No runtime retention enforcement exists.** The policy describes ten-second expiry;
-  no code implements it, because no application code exists yet.
+  no code implements it, because no application code exists yet. This is the largest gap
+  between what the stack says and what the repository does.
 - **Human review is not enforced** and cannot be at the current maintainer count
-  (`EXC-2026-09-01-001`).
+  (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
+  the exception says so rather than the manifest pretending otherwise.
 - **Dependencies are version-pinned but not hash-pinned.**
+
+Remote branch protection *is* now configured and verified — ruleset `22044161`, applied
+2026-09-01, read back from the API and observed rejecting a direct push. `EXC-2026-09-01-002`
+is closed. See `docs/GITHUB_REPOSITORY_GOVERNANCE.md` for the evidence.
 
 ## Working under this stack
 

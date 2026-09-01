@@ -158,11 +158,28 @@ truthfulness:
   local_ci_manifest_does_not_equal_remote_enforcement: true
   last_verified_remote_state:
     verified_at: "2026-09-01"
-    branch_protection_present: false
-    rulesets_present: false
-    workflows_present: false
-    vulnerability_alerts_enabled: false
+    branch_protection_present: true
+    branch_protection_mechanism: repository_ruleset
+    ruleset_id: 22044161
+    ruleset_name: main-protection
+    ruleset_enforcement: active
+    bypass_actors_count: 0
+    current_user_can_bypass: never
+    rules_present:
+      - deletion
+      - non_fast_forward
+      - required_linear_history
+      - pull_request
+      - required_status_checks
+    required_status_checks_verified:
+      - quality
+    strict_required_status_checks_policy: true
+    workflows_present: true
+    vulnerability_alerts_enabled: true
+    verification_method: >-
+      Read back independently from GET /repos/tehki/on-the-fly/rulesets/22044161 after
+      creation, rather than trusting the response to the write. Additionally confirmed
+      by observing the ruleset reject a direct push to main.
     note: >-
-      Baseline captured before this manifest was applied. Re-verify after any
-      administrative configuration change; this record is evidence of a point in time,
-      not a claim of current enforcement.
+      Evidence of a point in time, not a standing claim. Re-verify after any
+      administrative configuration change before describing main as protected.
