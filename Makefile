@@ -29,7 +29,7 @@ format:
 	$(PYTHON) -m ruff format .
 
 typecheck:
-	$(PYTHON) -m mypy scripts tests
+	$(PYTHON) -m mypy src scripts tests
 
 test:
 	$(PYTHON) -m pytest -q

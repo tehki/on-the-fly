@@ -54,9 +54,11 @@ looked thorough and enforced very little. The specific defects, and what was don
 
 Stated plainly, because the failure mode of governance work is believing it is finished:
 
-- **No runtime retention enforcement exists.** The policy describes ten-second expiry;
-  no code implements it, because no application code exists yet. This is the largest gap
-  between what the stack says and what the repository does.
+- **Retention enforcement exists but is not yet wired to anything.**
+  `src/on_the_fly/domain/retention/` implements the ten-second rule and is covered by
+  every test the policy requires, but no audio pipeline calls it yet, and no `Deleter`
+  for a real spill location has been written. The mechanism is real; its coverage of the
+  product is currently zero, because the product is zero.
 - **Human review is not enforced** and cannot be at the current maintainer count
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.
