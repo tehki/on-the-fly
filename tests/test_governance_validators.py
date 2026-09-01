@@ -14,12 +14,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import validate_coding_agent_policy as policy_validator
+import validate_repository_governance as governance_validator
 
+# scripts/ is placed on the import path by pythonpath in pyproject.toml.
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
-
-import validate_coding_agent_policy as policy_validator  # noqa: E402
-import validate_repository_governance as governance_validator  # noqa: E402
 
 
 # --------------------------------------------------------------------------------------

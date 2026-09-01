@@ -21,6 +21,10 @@ ignore = ["S603", "S607"]
 python_version = "3.11"
 strict = true
 warn_unused_configs = true
+# The validators are standalone scripts rather than an installed package. Putting scripts/
+# on the search path here lets the tests import them normally, instead of each test file
+# mutating sys.path before its imports.
+mypy_path = "scripts"
 
 [[tool.mypy.overrides]]
 module = "yaml"
@@ -28,3 +32,4 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["scripts"]

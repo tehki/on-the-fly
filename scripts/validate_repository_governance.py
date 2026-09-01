@@ -117,9 +117,7 @@ def check_sensitive_paths(governance: dict[str, Any], errors: list[str]) -> None
         errors.append(".github/CODEOWNERS does not exist but sensitive paths are declared")
         codeowner_patterns: list[str] = []
     else:
-        codeowner_patterns = parse_codeowners_patterns(
-            CODEOWNERS_FILE.read_text(encoding="utf-8")
-        )
+        codeowner_patterns = parse_codeowners_patterns(CODEOWNERS_FILE.read_text(encoding="utf-8"))
 
     for declared in declared_paths:
         relative = str(declared).lstrip("/")
@@ -189,7 +187,10 @@ def check_truthfulness(governance: dict[str, Any], errors: list[str]) -> None:
     # While main is unprotected the compensating detection must be declared AND wired.
     last_verified = truthfulness.get("last_verified_remote_state", {})
     if last_verified.get("branch_protection_present") is False:
-        if control_plane.get("compensating_main_push_detection_required_while_unprotected") is not True:
+        detection_required = control_plane.get(
+            "compensating_main_push_detection_required_while_unprotected"
+        )
+        if detection_required is not True:
             errors.append(
                 "remote branch protection is recorded as absent, so "
                 "compensating_main_push_detection_required_while_unprotected must be true"

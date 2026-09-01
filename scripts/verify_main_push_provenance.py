@@ -90,7 +90,11 @@ def fetch_commit_verification(repository: str, sha: str) -> dict[str, Any]:
     if not api_base.startswith("https://"):
         raise ValueError(f"refusing to use a non-HTTPS API base: {api_base!r}")
 
-    request = urllib.request.Request(  # noqa: S310 - scheme asserted https above
+    # S310 is suppressed on this call and the urlopen below, and nowhere else. It warns
+    # that a caller-supplied URL could carry a file: or custom scheme; here the scheme is
+    # asserted https immediately above and the path is assembled only from values already
+    # matched against strict patterns, so that risk cannot arise.
+    request = urllib.request.Request(  # noqa: S310
         f"{api_base}/repos/{repository}/commits/{sha}",
         headers={
             "Accept": "application/vnd.github+json",
@@ -102,7 +106,7 @@ def fetch_commit_verification(repository: str, sha: str) -> dict[str, Any]:
     if token:
         request.add_header("Authorization", f"Bearer {token}")
 
-    with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:
+    with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:  # noqa: S310
         payload = json.load(response)
     if not isinstance(payload, dict):
         raise TypeError("commit response was not a JSON object")
@@ -148,7 +152,13 @@ def main() -> int:
 
     try:
         verification = fetch_commit_verification(repository, after)
-    except (urllib.error.URLError, TimeoutError, ValueError, TypeError, json.JSONDecodeError) as exc:
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+    ) as exc:
         # Fail closed. An unreachable verification service is an unverified push, and an
         # unverified push is exactly what this control exists to surface.
         return fail(f"could not establish provenance for {after[:12]}: {exc}")
