@@ -1,0 +1,95 @@
+# Performance budget — phase 1 desktop
+
+**Status: PROVISIONAL. No baseline has been measured.**
+
+Every number below is a target derived from what conversation tolerates, not from a
+measurement of this system. Nothing here may be cited as an achieved result, and no claim
+that the project is fast, light, or efficient may be made on the strength of this document
+(handbook 0L.2). The first honest use of this file is as the thing a baseline is compared
+against once one exists.
+
+Recorded now because handbook 64B requires the metric and success condition to be chosen
+*before* optimisation, so that the target is set by what users need rather than by whatever
+the first implementation happens to produce.
+
+## Why latency is the metric
+
+A translator is judged on whether a conversation stays a conversation. Above roughly a
+second of lag, people stop waiting and start talking over each other; the tool then costs
+more than it gives. That makes end-to-end latency the user-critical path, and the tail
+matters more than the mean — a p50 of 400 ms with a p99 of four seconds is experienced as a
+tool that keeps breaking, not a fast one (handbook 0L.7).
+
+## Critical path
+
+```text
+speech ends (VAD endpoint detected)
+   → recognition
+   → translation
+   → caption rendered
+```
+
+Measured from the VAD endpoint, not from the start of the utterance: the speaker is still
+talking before that, so time spent there is not lag the user perceives.
+
+## Targets
+
+| Metric | Target | Hard limit | Notes |
+| --- | --- | --- | --- |
+| Endpoint → caption, p50 | 700 ms | — | Conversational feel |
+| Endpoint → caption, p95 | 1500 ms | 2500 ms | Tail is the real experience |
+| Endpoint → caption, p99 | — | 4000 ms | Above this, treated as a dropped turn |
+| VAD endpoint detection | 300 ms | 500 ms | Trades against clipping the speaker |
+| Application start → ready to listen | 3 s | 6 s | Excludes first-run model download |
+| Steady-state resident memory | 1200 MB | 2000 MB | Dominated by loaded models |
+| CPU, one active stream | < 60% of 4 cores | — | Must leave the machine usable |
+| Retention deletion after post-use | ≤ 10 s | 10 s | Not a performance target. A policy invariant that happens to be timed |
+
+## Reference environment
+
+Targets are meaningless without the machine they apply to.
+
+- 4-core x86-64 laptop CPU, no GPU acceleration.
+- 8 GB RAM.
+- Models resident, process warm. Cold-start figures are reported separately and never
+  compared against warm ones (handbook 64S).
+- Workload: recorded conversational speech, 3–15 second utterances, at least three
+  language pairs including one non-Latin script.
+- Fixed recorded audio, never live microphone input, so runs are comparable.
+
+GPU acceleration, if added, is reported as a separate configuration. It never replaces the
+CPU baseline, because the CPU path is what most users will actually run.
+
+## Measurement method
+
+- Correlation ID attached at capture, carried through the pipeline; stage boundaries
+  recorded as timestamps.
+- Timings are `OPERATIONAL_METADATA`: duration, language pair, model identifier, audio
+  length, outcome. **Never the transcript, the translation, or the audio.** A benchmark
+  corpus does not get an exemption from `docs/RETENTION_POLICY.md`.
+- Minimum 50 utterances per configuration. A single fast run is not evidence
+  (handbook 64N.1).
+- Report p50, p95, p99 and the distribution — never the mean alone.
+- Record commit, model versions, dependency lock state, machine, and background load.
+
+## Rules that outrank this budget
+
+The budget never justifies weakening something else. Specifically, it is not a reason to:
+
+- retain audio, transcripts, or translations past their window to avoid recomputation;
+- skip model integrity verification on load;
+- move inference off-device (ADR 0001 settles this);
+- log content in order to measure something;
+- remove a required CI gate to make the loop feel faster.
+
+If the secure implementation cannot meet a target, the target changes or the design
+changes — explicitly, in this file. The invariant does not quietly give way
+(handbook 64C).
+
+## Owner and review
+
+**Owner:** @tehki
+
+**Review trigger:** when the first end-to-end pipeline exists and a real baseline can be
+recorded. At that point every number here is either confirmed against measurement or
+revised, and this status line stops saying PROVISIONAL.
