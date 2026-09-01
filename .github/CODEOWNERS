@@ -34,5 +34,6 @@
 /docs/EXCEPTIONS.md                                       @tehki
 /docs/CODING_AGENT_ADOPTION.md                            @tehki
 
-# Retention enforcement code
+# Retention enforcement and the audio path it protects
 /src/on_the_fly/domain/retention/                         @tehki
+/src/on_the_fly/domain/audio/                             @tehki

@@ -2,10 +2,11 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: no application code yet.** This repository currently contains the policy stack
-> that governs the project, the scaffolding that enforces it, and the architectural
-> decisions taken so far. Nothing here should be read as a claim that a working translator,
-> or any runtime control it describes, exists.
+> **Status: early. There is no working translator yet.** What exists is the retention
+> engine, the audio capture and segmentation pipeline, the policy stack that governs them,
+> and the CI that enforces it. What does not exist: a microphone adapter, speech
+> recognition, or translation — each of which is a dependency decision not yet made.
+> Nothing here should be read as a claim beyond that.
 
 ## What it is meant to be
 
@@ -43,7 +44,8 @@ rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
 | `docs/` | Security, retention, governance, performance, exceptions, ADRs |
 | `scripts/` | Validators that enforce the policy stack in CI |
 | `tests/` | Tests for those validators |
-| `src/on_the_fly/` | Application code — not written yet |
+| `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
+| `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 
 ## Working here
 
