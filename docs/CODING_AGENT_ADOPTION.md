@@ -48,17 +48,22 @@ looked thorough and enforced very little. The specific defects, and what was don
 | `docs/RETENTION_POLICY.md` | Retention classes mapped onto this application's data |
 | `docs/GITHUB_REPOSITORY_GOVERNANCE.md` | Required remote controls, how to apply them, how to verify them |
 | `docs/EXCEPTIONS.md` | The exception register |
-| `src/on_the_fly/domain/retention/` | Reserved for retention enforcement; nothing implemented |
+| `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
+| `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 
 ## What is not enforced
 
 Stated plainly, because the failure mode of governance work is believing it is finished:
 
-- **Retention enforcement exists but is not yet wired to anything.**
-  `src/on_the_fly/domain/retention/` implements the ten-second rule and is covered by
-  every test the policy requires, but no audio pipeline calls it yet, and no `Deleter`
-  for a real spill location has been written. The mechanism is real; its coverage of the
-  product is currently zero, because the product is zero.
+- **No real audio device is connected.** `src/on_the_fly/domain/audio/` implements
+  capture, voice activity detection and utterance segmentation with retention applied from
+  the first frame, but every `AudioSource` so far is a test fixture. A microphone adapter
+  needs a PortAudio binding, which is a dependency-admission decision under Article 12 and
+  has not been made.
+- **No speech recognition or translation.** `SpeechRecognizer` and `Translator` are
+  declared as ports with no implementations. Adopting a model is a separate admission
+  decision; model weights are executable trust like any dependency.
+- **No `Deleter` for a real spill location exists**, because nothing spills to disk yet.
 - **Human review is not enforced** and cannot be at the current maintainer count
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.

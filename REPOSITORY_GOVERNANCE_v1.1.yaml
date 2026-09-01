@@ -79,6 +79,7 @@ security_sensitive_paths:
     - /docs/EXCEPTIONS.md
     - /docs/CODING_AGENT_ADOPTION.md
     - /src/on_the_fly/domain/retention/
+    - /src/on_the_fly/domain/audio/
 
 risk_review:
   LOW:
