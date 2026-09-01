@@ -54,9 +54,15 @@ a change classified CRITICAL is proposed.
 
 ## EXC-2026-09-01-002 — Remote branch protection is not yet configured
 
+**REMOVED 2026-09-01.** The `main-protection` ruleset (id `22044161`) was applied and
+independently verified the same day, six days before this exception would have expired.
+Verification is recorded in `docs/GITHUB_REPOSITORY_GOVERNANCE.md`. The compensating
+provenance check was kept rather than removed — it now guards against a ruleset being
+disabled as much as against a direct push.
+
 | Field | Value |
 | --- | --- |
-| **Status** | ACTIVE |
+| **Status** | REMOVED |
 | **Owner** | @tehki |
 | **Reason** | Verified on 2026-09-01: `main` has no branch protection and the repository has no rulesets. The governance manifest requires both. Protection is deliberately applied *after* the `quality` workflow exists on `main`, because a required status check that no workflow can report would block every pull request permanently. |
 | **Scope** | The window between adopting this governance stack and applying the remote ruleset. Nothing else. |
