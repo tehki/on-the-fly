@@ -1,0 +1,18 @@
+# Dependency updates. Pinned versions in requirements-dev.txt go stale silently;
+# this makes the staleness visible as reviewable pull requests instead.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
