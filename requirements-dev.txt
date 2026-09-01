@@ -12,6 +12,6 @@
 # mypy     MIT        - static type checking.
 # pytest   MIT        - test runner.
 PyYAML==6.0.3
-ruff==0.6.9
+ruff==0.16.5
 mypy==1.11.2
 pytest==9.1.1
