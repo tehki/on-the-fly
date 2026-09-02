@@ -18,9 +18,9 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.2.yaml"
-CONSTITUTION_FILE = REPO_ROOT / "CODING_AGENT_CONSTITUTION_v1.2.md"
-HANDBOOK_FILE = REPO_ROOT / "CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.4.1.md"
+POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.2-otf1.yaml"
+CONSTITUTION_FILE = REPO_ROOT / "CODING_AGENT_CONSTITUTION_v1.2-otf1.md"
+HANDBOOK_FILE = REPO_ROOT / "CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.5-otf1.md"
 
 # Article 6: transient project content defaults to a maximum 10-second post-use window.
 MAX_EPHEMERAL_POST_USE_SECONDS = 10
@@ -207,12 +207,159 @@ def check_exceptions_and_invariants(policy: dict[str, Any], errors: list[str]) -
         )
 
 
+def check_cryptography(policy: dict[str, Any], errors: list[str]) -> None:
+    """Constitution Article 16 floors.
+
+    Nothing in this project encrypts anything yet. These checks exist so that the day
+    something does — a model cache, a spilled buffer, a settings file holding an API key
+    for an optional remote engine — the floors are already in place rather than being
+    negotiated under delivery pressure.
+    """
+    crypto = policy.get("cryptography", {})
+
+    for required in (
+        "custom_crypto_prohibited",
+        "maintained_library_required",
+        "secure_randomness_required_for_secrets_tokens_keys_nonces",
+        "authenticated_encryption_required_for_new_application_level_encryption",
+        # Encryption is not a retention or authorisation argument. Article 16 says so
+        # explicitly because it is the most tempting way to launder both.
+        "encryption_does_not_extend_retention_or_authorization",
+        "key_reuse_across_unrelated_purposes_prohibited",
+    ):
+        if crypto.get(required) is not True:
+            errors.append(f"cryptography.{required} must be true (Article 16)")
+
+    transport = crypto.get("transport", {})
+    if transport.get("tls_certificate_and_hostname_verification_required") is not True:
+        errors.append(
+            "cryptography.transport.tls_certificate_and_hostname_verification_required "
+            "must be true (Article 8, invariant 5)"
+        )
+    if transport.get("privileged_or_non_idempotent_zero_rtt_prohibited") is not True:
+        errors.append(
+            "cryptography.transport.privileged_or_non_idempotent_zero_rtt_prohibited must "
+            "be true; 0-RTT data is replayable"
+        )
+
+    at_rest = crypto.get("at_rest", {})
+    if at_rest.get("nonce_uniqueness_required") is not True:
+        errors.append("cryptography.at_rest.nonce_uniqueness_required must be true")
+    if at_rest.get("deterministic_encryption_default_allowed") is not False:
+        errors.append(
+            "cryptography.at_rest.deterministic_encryption_default_allowed must be false; "
+            "deterministic ciphertext leaks equality"
+        )
+    spill_key = "ephemeral_disk_spill_requires_encryption_and_normal_retention_expiry"
+    if at_rest.get(spill_key) is not True:
+        errors.append(
+            "cryptography.at_rest.ephemeral_disk_spill_requires_encryption_and_normal_"
+            "retention_expiry must be true; a spilled audio buffer is still EPHEMERAL"
+        )
+
+    passwords = crypto.get("passwords", {})
+    if passwords.get("reversible_encryption_default_allowed") is not False:
+        errors.append("cryptography.passwords.reversible_encryption_default_allowed must be false")
+    if not passwords.get("preferred_hash"):
+        errors.append("cryptography.passwords.preferred_hash must name an approved construction")
+
+    keys = crypto.get("key_management", {})
+    for required in (
+        "plaintext_private_keys_in_source_config_logs_ci_artifacts_or_diagnostics_prohibited",
+        "key_and_ciphertext_separation_required",
+    ):
+        if keys.get(required) is not True:
+            errors.append(f"cryptography.key_management.{required} must be true (Article 16)")
+
+
+def check_development_velocity(policy: dict[str, Any], errors: list[str]) -> None:
+    """Constitution Article 15: throughput without control dilution.
+
+    Batching related commits into one pull request is explicitly permitted. What is not
+    permitted is using a batch to hide security-sensitive work or dilute an approval
+    boundary, so the conditions and the highest-risk rule are checked rather than assumed.
+    """
+    velocity = policy.get("development_velocity", {})
+
+    if velocity.get("mixed_risk_batch_uses_highest_risk") is not True:
+        errors.append(
+            "development_velocity.mixed_risk_batch_uses_highest_risk must be true; the "
+            "effective risk of a batch is its highest included risk (Article 15)"
+        )
+    if velocity.get("full_validation_required_before_ready_merge_state") is not True:
+        errors.append(
+            "development_velocity.full_validation_required_before_ready_merge_state must "
+            "be true; a draft may accumulate commits, a merge candidate may not skip gates"
+        )
+    if not velocity.get("batch_conditions"):
+        errors.append("development_velocity.batch_conditions must state when batching is allowed")
+
+    required_separations = {
+        "unrelated_objectives",
+        "unauthorized_cross_project_changes",
+        "independent_destructive_or_privileged_authorization_boundaries",
+        "incompatible_confidentiality_or_retention_boundaries",
+    }
+    declared = set(velocity.get("separate_review_boundary_required_for") or [])
+    missing = required_separations - declared
+    if missing:
+        errors.append(
+            "development_velocity.separate_review_boundary_required_for is missing: "
+            + ", ".join(sorted(missing))
+        )
+
+
+def check_ci_acceleration(policy: dict[str, Any], errors: list[str]) -> None:
+    """A faster lane may not be a weaker gate.
+
+    Article 15 permits change-aware selection and validation reuse, both of which are ways
+    to not run something. Each is only safe while its preconditions hold, so the
+    preconditions are what this checks.
+    """
+    acceleration = policy.get("ci_acceleration", {})
+
+    selection = acceleration.get("change_aware_selection", {})
+    if selection.get("conservative_default") != "full":
+        errors.append(
+            "ci_acceleration.change_aware_selection.conservative_default must be 'full'; "
+            "ambiguous relevance fails safe to the fuller path"
+        )
+    for required in (
+        "mapping_must_be_versioned_and_tested",
+        "security_sensitive_path_bypass_prohibited",
+        "omitted_gate_must_be_provably_irrelevant",
+    ):
+        if selection.get(required) is not True:
+            errors.append(f"ci_acceleration.change_aware_selection.{required} must be true")
+
+    lanes = acceleration.get("validation_lanes", {})
+    if lanes.get("FAST", {}).get("unknown_relevance_falls_back_to_full") is not True:
+        errors.append(
+            "ci_acceleration.validation_lanes.FAST.unknown_relevance_falls_back_to_full "
+            "must be true"
+        )
+    if not lanes.get("FULL", {}).get("required_for"):
+        errors.append("ci_acceleration.validation_lanes.FULL must state what requires it")
+
+    # Reusing a previous green result means not running the gates. It is sound only while
+    # the evidence is bound to the same inputs; otherwise it is a stale claim about a
+    # different tree (Article 15).
+    reuse = acceleration.get("validation_reuse", {})
+    for required in (
+        "same_source_or_tree_only",
+        "same_dependency_lock_and_toolchain_identity_required",
+        "same_policy_and_governance_version_required",
+        "source_or_relevant_policy_change_invalidates_result",
+        "cache_miss_remains_supported",
+    ):
+        if reuse.get(required) is not True:
+            errors.append(f"ci_acceleration.validation_reuse.{required} must be true")
+
+
 def check_security_controls(policy: dict[str, Any], errors: list[str]) -> None:
     crypto = policy.get("cryptography", {})
     if crypto.get("custom_crypto_prohibited") is not True:
         errors.append("cryptography.custom_crypto_prohibited must be true")
-    if crypto.get("tls_certificate_verification_required") is not True:
-        errors.append("cryptography.tls_certificate_verification_required must be true")
 
     execution = policy.get("input_and_execution_security", {})
     for required in (
@@ -261,6 +408,9 @@ def main() -> int:
     check_retention(policy, errors)
     check_capabilities_and_isolation(policy, errors)
     check_exceptions_and_invariants(policy, errors)
+    check_cryptography(policy, errors)
+    check_development_velocity(policy, errors)
+    check_ci_acceleration(policy, errors)
     check_security_controls(policy, errors)
 
     if errors:

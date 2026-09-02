@@ -1,6 +1,6 @@
 # Retention policy
 
-This document maps the retention classes in `CODING_AGENT_POLICY_v1.2.yaml` onto the data
+This document maps the retention classes in `CODING_AGENT_POLICY_v1.2-otf1.yaml` onto the data
 this application actually handles. Constitution Article 6 requires every file, log,
 message, prompt, response, tool payload, cache, trace, and intermediary artefact to carry
 a class. Nothing is unclassified by default.

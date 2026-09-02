@@ -4,7 +4,7 @@
 This is a compensating control, not a preventive one. It cannot stop an unauthorised
 push; it makes one loud after the fact. It exists because remote branch protection is a
 provider-side control that this repository does not yet have configured, and
-REPOSITORY_GOVERNANCE_v1.1.yaml requires detection while that gap is open. Deleting this
+REPOSITORY_GOVERNANCE_v1.1-otf1.yaml requires detection while that gap is open. Deleting this
 check once branch protection is verified is a deliberate decision to record, not a
 cleanup to perform silently.
 
@@ -132,7 +132,7 @@ def main() -> int:
     if event.get("forced") is True:
         return fail(
             "main was force-pushed. Force push is prohibited by "
-            "REPOSITORY_GOVERNANCE_v1.1.yaml and rewrites history other clones depend on."
+            "REPOSITORY_GOVERNANCE_v1.1-otf1.yaml and rewrites history other clones depend on."
         )
     if event.get("deleted") is True or after == NULL_SHA:
         return fail("main was deleted. Branch deletion is prohibited.")

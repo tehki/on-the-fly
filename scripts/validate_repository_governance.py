@@ -24,8 +24,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-GOVERNANCE_FILE = REPO_ROOT / "REPOSITORY_GOVERNANCE_v1.1.yaml"
-POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.2.yaml"
+GOVERNANCE_FILE = REPO_ROOT / "REPOSITORY_GOVERNANCE_v1.1-otf1.yaml"
+POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.2-otf1.yaml"
 CODEOWNERS_FILE = REPO_ROOT / ".github" / "CODEOWNERS"
 EXCEPTIONS_FILE = REPO_ROOT / "docs" / "EXCEPTIONS.md"
 
@@ -171,6 +171,97 @@ def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"ci.{field} points at missing file {script_name!r}")
 
 
+def check_development_flow(governance: dict[str, Any], errors: list[str]) -> None:
+    """Constitution Article 15, as this repository applies it.
+
+    Batching commits into one coherent work-unit pull request is allowed. The two rules
+    that stop it becoming a way to slip work past review are checked here: the highest
+    included risk governs the batch, and independent objectives stay separate.
+    """
+    flow = governance.get("development_flow", {})
+    if not flow:
+        errors.append("development_flow is missing; Article 15 requires a stated position")
+        return
+
+    if flow.get("mixed_risk_batch_uses_highest_risk") is not True:
+        errors.append("development_flow.mixed_risk_batch_uses_highest_risk must be true")
+    if flow.get("separate_pull_request_required_for_unrelated_objectives") is not True:
+        errors.append(
+            "development_flow.separate_pull_request_required_for_unrelated_objectives must be true"
+        )
+    separate_privileged = flow.get(
+        "separate_pull_request_required_for_independent_privileged_or_destructive_authorization_boundary"
+    )
+    if separate_privileged is not True:
+        errors.append(
+            "development_flow: an independent privileged or destructive authorization "
+            "boundary must require its own pull request"
+        )
+    if flow.get("cross_project_batching_default_allowed") is not False:
+        errors.append(
+            "development_flow.cross_project_batching_default_allowed must be false "
+            "(Constitution Article 7)"
+        )
+
+
+def check_validation_lanes(governance: dict[str, Any], errors: list[str]) -> None:
+    """A declared lane must be honest about whether it exists.
+
+    Article 15 permits FAST and RELEASE lanes; it does not require them. What it does not
+    permit is a manifest describing acceleration this repository has not built, because a
+    reader would take that for an enforced control. So a lane is either implemented, or it
+    says why it is not.
+    """
+    lanes = governance.get("ci", {}).get("validation_lanes", {})
+    if not lanes:
+        errors.append("ci.validation_lanes is missing; state which lanes exist")
+        return
+
+    full = lanes.get("FULL", {})
+    if full.get("implemented") is not True:
+        errors.append(
+            "ci.validation_lanes.FULL.implemented must be true; a repository without a "
+            "full validation lane has no acceptance gate"
+        )
+    for required in (
+        "required_for_security_sensitive_paths",
+        "required_for_dependency_or_lockfile_changes",
+        "required_for_ci_or_governance_changes",
+        "required_for_high_or_critical_risk",
+        "required_when_change_impact_is_ambiguous",
+    ):
+        if full.get(required) is not True:
+            errors.append(f"ci.validation_lanes.FULL.{required} must be true")
+
+    for name in ("FAST", "RELEASE"):
+        lane = lanes.get(name, {})
+        if lane and lane.get("implemented") is not True and not lane.get("not_implemented_reason"):
+            errors.append(
+                f"ci.validation_lanes.{name} is declared but not implemented and gives no "
+                "reason; an unimplemented lane reads as a control that exists"
+            )
+
+    if lanes.get("FAST", {}).get("unknown_relevance_falls_back_to_full") is not True:
+        errors.append("ci.validation_lanes.FAST.unknown_relevance_falls_back_to_full must be true")
+
+    acceleration = governance.get("ci", {}).get("acceleration", {})
+    if acceleration.get("full_gate_semantics_must_not_be_reduced") is not True:
+        errors.append("ci.acceleration.full_gate_semantics_must_not_be_reduced must be true")
+    reuse_binding = acceleration.get(
+        "same_source_validation_reuse_requires_input_and_artifact_integrity_binding"
+    )
+    reuse_allowed = acceleration.get("same_source_validation_reuse_allowed") is True
+    if reuse_allowed and reuse_binding is not True:
+        errors.append(
+            "ci.acceleration permits validation reuse without requiring integrity binding; "
+            "reused evidence must be bound to the same inputs (Article 15)"
+        )
+
+    merge_queue = governance.get("ci", {}).get("merge_queue", {})
+    if merge_queue and merge_queue.get("full_gate_required_on_merge_group") is not True:
+        errors.append("ci.merge_queue.full_gate_required_on_merge_group must be true")
+
+
 def check_truthfulness(governance: dict[str, Any], errors: list[str]) -> None:
     truthfulness = governance.get("truthfulness", {})
     for required in (
@@ -250,6 +341,8 @@ def main() -> int:
     errors: list[str] = []
 
     check_branch_rules(governance, errors)
+    check_development_flow(governance, errors)
+    check_validation_lanes(governance, errors)
     check_sensitive_paths(governance, errors)
     check_ci_wiring(governance, errors)
     check_truthfulness(governance, errors)

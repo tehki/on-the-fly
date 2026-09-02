@@ -1,18 +1,39 @@
 # Coding agent policy stack — adoption record
 
-Adopted 2026-09-01.
+First adopted 2026-09-01. Upstream v1.5 stack adopted 2026-09-02.
 
 ## The stack
 
-| Layer | Document | Version |
-| --- | --- | --- |
-| 2 | `CODING_AGENT_CONSTITUTION_v1.2.md` | 1.2 |
-| 3 | `CODING_AGENT_POLICY_v1.2.yaml` | 1.2 |
-| 4 | `REPOSITORY_GOVERNANCE_v1.1.yaml` | 1.1 |
-| 5 | `CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.4.1.md` | 1.4.1 |
+| Layer | Document | This project | Upstream base |
+| --- | --- | --- | --- |
+| 2 | `CODING_AGENT_CONSTITUTION_v1.2-otf1.md` | 1.2-otf1 | 1.2 |
+| 3 | `CODING_AGENT_POLICY_v1.2-otf1.yaml` | 1.2-otf1 | 1.2 |
+| 4 | `REPOSITORY_GOVERNANCE_v1.1-otf1.yaml` | 1.1-otf1 | 1.1 |
+| 5 | `CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.5-otf1.md` | 1.5-otf1 | 1.5 |
 
 Layer 1 is applicable law and contractual obligation. Layer 6 is project convention. A
 lower layer may be stricter; it may never silently weaken a higher one.
+
+The `-otf<n>` suffix is not decoration. See [ADR 0004](adr/0004-policy-stack-versioning.md):
+upstream released its own v1.2 of the Constitution and policy while this project already had
+documents at v1.2, and `Article 15` meant something different in each. The suffix names the
+upstream base explicitly so that collision cannot recur.
+
+## The v1.5 adoption (2026-09-02)
+
+Upstream added two Articles and a set of CI concepts. What changed here:
+
+| Upstream addition | Effect on this project |
+| --- | --- |
+| **Article 15** — engineering throughput without control dilution | Coherent work-unit pull requests are explicitly allowed. The effective risk of a batch is its highest included risk, and unrelated objectives, cross-project changes, and independent privileged boundaries still need their own pull request. Recorded in the manifest under `development_flow`. |
+| **Article 16** — cryptographic protection and key separation | Nothing here encrypts anything yet, so this is a floor rather than a description. `validate_coding_agent_policy.py` now enforces the crypto floors so they are in place before the first thing that needs them — a model cache, a spilled buffer, a stored API key. |
+| **Article 17** — definition of done | Renumbered from 15; now also requires cryptographic controls to pass. |
+| **Validation lanes** (FAST / FULL / RELEASE) | Declared in the manifest with an honest `implemented` flag. Only FULL is implemented; it runs on every push. FAST and RELEASE record why they do not exist yet. |
+| **Validation reuse and change-aware selection** | Permitted by policy, not used. Both are ways of not running something, so the validator enforces their preconditions — conservative default of `full`, no security-sensitive-path bypass, and reuse bound to the same tree, lockfile, toolchain and policy version. |
+
+The FAST lane is deliberately **not** implemented. A change-aware lane may omit work only
+against a versioned, tested impact map; no such map exists, the suite runs in seconds, so
+there is nothing to gain and a real control to lose.
 
 ## What was inherited and what was wrong with it
 

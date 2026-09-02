@@ -1,11 +1,15 @@
 policy:
   name: coding-agent-policy
-  version: "1.2"
-  handbook_version: "1.4.1"
-  constitution_version: "1.2"
-  repository_governance_version: "1.1"
-  supersedes: "CODING_AGENT_POLICY_v1.1.yaml"
-  revision: "2026-09-01"
+  version: "1.2-otf1"
+  handbook_version: "1.5-otf1"
+  constitution_version: "1.2-otf1"
+  repository_governance_version: "1.1-otf1"
+  derived_from_upstream:
+    policy: "1.2"
+    constitution: "1.2"
+    handbook: "1.5"
+    repository_governance: "1.1"
+  revision: "2026-09-02"
   default_mode: deny_by_default
 
 precedence:
@@ -238,6 +242,91 @@ project_isolation:
     - auditability
   stricter_policy_wins: true
 
+
+development_velocity:
+  one_pull_request_per_commit_required: false
+  coherent_work_unit_pull_requests_allowed: true
+  batch_conditions:
+    - single_project_boundary
+    - single_delivery_objective_or_tightly_coupled_objectives
+    - compatible_authorization_boundary
+    - compatible_rollback_or_recovery_semantics
+    - review_surface_remains_understandable
+  separate_review_boundary_required_for:
+    - unrelated_objectives
+    - unauthorized_cross_project_changes
+    - independent_destructive_or_privileged_authorization_boundaries
+    - incompatible_confidentiality_or_retention_boundaries
+  mixed_risk_batch_uses_highest_risk: true
+  micro_pr_bloat_should_be_avoided: true
+  draft_pr_may_accumulate_reviewable_commits_before_full_gate: true
+  full_validation_required_before_ready_merge_state: true
+
+ci_acceleration:
+  objective: reduce_feedback_latency_and_duplicate_work_without_reducing_required_gate_semantics
+  validation_lanes:
+    FAST:
+      intended_for:
+        - intermediate_feature_branch_pushes
+        - low_or_moderate_risk_changes_with_proven_impact_map
+      may_use:
+        - impacted_unit_tests
+        - deterministic_static_checks
+        - incremental_typecheck_or_build
+        - trusted_dependency_or_build_cache
+      required_global_controls:
+        - policy_validation
+        - governance_validation
+        - secret_scanning_when_configured_as_global_gate
+      unknown_relevance_falls_back_to_full: true
+    FULL:
+      required_for:
+        - final_ready_for_review_head
+        - security_sensitive_paths
+        - dependency_or_lockfile_changes
+        - ci_or_governance_changes
+        - high_or_critical_risk
+        - unknown_or_ambiguous_impact
+      semantics: all_applicable_required_quality_security_integration_and_governance_gates
+    RELEASE:
+      required_for:
+        - release_candidate
+        - deployment_or_distribution_boundary
+      includes:
+        - full_validation
+        - packaging_or_distribution_checks_when_applicable
+        - release_provenance_and_signature_verification
+        - bounded_acceptance_or_smoke_tests
+
+  change_aware_selection:
+    allowed: true
+    conservative_default: full
+    mapping_must_be_versioned_and_tested: true
+    security_sensitive_path_bypass_prohibited: true
+    omitted_gate_must_be_provably_irrelevant: true
+
+  validation_reuse:
+    same_source_or_tree_only: true
+    same_dependency_lock_and_toolchain_identity_required: true
+    same_policy_and_governance_version_required: true
+    artifact_digest_binding_required_when_artifacts_are_reused: true
+    source_or_relevant_policy_change_invalidates_result: true
+    cache_miss_remains_supported: true
+
+  retries:
+    rerun_failed_jobs_only_preferred: true
+    no_source_change_required_for_transient_retry: true
+    repeated_same_failure_requires_root_cause_investigation: true
+    retry_count_bounded: true
+
+  merge_queue:
+    preferred_when_provider_supports_and_state_is_verified: true
+    merge_group_must_run_full_required_gate: true
+    post_merge_full_duplicate_may_be_replaced_by_provenance_plus_smoke_only_when_merged_tree_matches_fully_validated_merge_group: true
+
+  superseded_runs:
+    cancel_non_deployment_runs: true
+
 provenance:
   required_for_imported_or_generated_artifacts: true
   fields:
@@ -316,9 +405,59 @@ input_and_execution_security:
 
 cryptography:
   custom_crypto_prohibited: true
-  secure_randomness_required_for_secrets_tokens_keys: true
-  tls_certificate_verification_required: true
-  key_rotation_and_revocation_supported_where_applicable: true
+  maintained_library_required: true
+  secure_randomness_required_for_secrets_tokens_keys_nonces: true
+  authenticated_encryption_required_for_new_application_level_encryption: true
+  encryption_does_not_extend_retention_or_authorization: true
+  key_reuse_across_unrelated_purposes_prohibited: true
+
+  transport:
+    tls_13_preferred: true
+    current_standard_reference: RFC9846
+    tls_12_or_legacy_requires_documented_compatibility_reason: true
+    tls_certificate_and_hostname_verification_required: true
+    privileged_or_non_idempotent_zero_rtt_prohibited: true
+    mtls_preferred_for_high_trust_service_to_service_boundaries_when_operationally_appropriate: true
+
+  at_rest:
+    sensitive_durable_data_requires_encryption_when_threat_model_requires_confidentiality_beyond_access_control: true
+    preferred_aead:
+      - AES-256-GCM
+      - XChaCha20-Poly1305
+    nonce_uniqueness_required: true
+    authenticated_associated_data_recommended_for_binding_context: true
+    envelope_encryption_preferred_for_service_managed_sensitive_data: true
+    separate_data_encryption_and_key_encryption_keys: true
+    sensitive_backups_and_exports_require_equivalent_encryption: true
+    ephemeral_disk_spill_requires_encryption_and_normal_retention_expiry: true
+    deterministic_encryption_default_allowed: false
+
+  passwords:
+    reversible_encryption_default_allowed: false
+    preferred_hash: Argon2id
+    parameters_require_current_approved_baseline_and_local_resource_benchmark: true
+    fips_compatible_fallback: PBKDF2-HMAC-SHA-256
+    unique_salt_required: true
+    pepper_optional_and_must_live_outside_password_database: true
+
+  signatures_and_integrity:
+    ed25519_preferred_when_compatible_and_allowed: true
+    fips_profile_must_use_approved_signature_algorithm: true
+    artifact_and_release_signing_keys_separate_from_data_encryption_keys: true
+
+  key_management:
+    managed_keystore_preferred: true
+    preferred_storage_classes:
+      - hsm
+      - cloud_or_service_kms
+      - dedicated_secret_or_key_vault
+      - operating_system_secure_store
+    plaintext_private_keys_in_source_config_logs_ci_artifacts_or_diagnostics_prohibited: true
+    key_and_ciphertext_separation_required: true
+    key_identifier_and_version_metadata_required: true
+    rotation_and_revocation_supported_where_applicable: true
+    compromise_recovery_procedure_required_for_production_keys: true
+    least_privilege_key_usage_required: true
 
 messaging_transport_security:
   security_property_must_match_verified_transport: true
@@ -386,9 +525,12 @@ optimization:
   significant_changes_require_evidence_record: true
   benchmark_and_profile_data_follow_project_retention_and_isolation: true
   optimization_complexity_requires_measured_benefit: true
+  duplicate_ci_work_should_be_measured_and_removed: true
+  pr_cycle_count_and_time_to_green_should_be_measured: true
+  same_sha_or_tree_validation_reuse_preferred_when_integrity_bound: true
 
 repository_governance:
-  manifest: REPOSITORY_GOVERNANCE_v1.1.yaml
+  manifest: REPOSITORY_GOVERNANCE_v1.1-otf1.yaml
   default_branch: main
   remote_branch_protection_required: true
   pull_request_required: true

@@ -1,9 +1,9 @@
 # Coding Agent Constitution
 
-**Version:** 1.2  
-**Revision:** 2026-09-01 - Article 11 made repository-neutral; binds to the active Repository Governance manifest instead of a hard-coded project name  
+**Version:** 1.2-otf1 (derived from upstream 1.2)  
+**Revision:** 2026-09-02 - Article 11 rebound to the active governance manifest instead of a hard-coded project name  
 **Status:** Normative  
-**Supersedes:** `CODING_AGENT_CONSTITUTION_v1.1.md`  
+**Supersedes:** the `v1.1-otf` lineage. Upstream base: `CODING_AGENT_CONSTITUTION_v1.2.md`  
 **Applies to:** Coding agents, automation agents, project tools, supporting services, and repository governance governed by the Coding Agent Development Principles.
 
 This Constitution contains non-negotiable rules. The machine-readable policy and detailed handbook may make them stricter or explain them, but MUST NOT silently weaken them.
@@ -169,7 +169,7 @@ Force-push, production deletion, destructive schema migration, credential revoca
 
 The default branch MUST be protected by the repository provider's branch protection or ruleset control plane where the provider supports it.
 
-The governing repository and its required controls are named by the active Repository Governance manifest declared in the machine-readable Coding Agent Policy. For this project that manifest is `REPOSITORY_GOVERNANCE_v1.1.yaml`, and `main` MUST require pull requests and the required `quality` CI check, prohibit force pushes/deletion, require review, and require code-owner review for security/policy-sensitive paths as defined there.
+The governing repository and its required controls are named by the active Repository Governance manifest declared in the machine-readable Coding Agent Policy. For this project that manifest is `REPOSITORY_GOVERNANCE_v1.1-otf1.yaml`, and `main` MUST require pull requests and the required `quality` CI check, prohibit force pushes/deletion, require review, and require code-owner review for security/policy-sensitive paths as defined there.
 
 A CODEOWNERS file, PR template, CI workflow, or governance manifest is not equivalent to remote branch protection. The remote state MUST be independently configured and verified.
 
@@ -225,10 +225,40 @@ Content-bearing logs/traces are `EPHEMERAL` and inherit the 10-second default un
 
 ---
 
-## Article 15 — Definition of Done
+## Article 15 — Engineering Throughput Without Control Dilution
 
-A change is not complete until applicable policy/governance checks, tests, quality/security gates, retention requirements, capability restrictions, project-isolation rules, and documentation are satisfied.
+A pull request is a review and merge boundary; it is not inherently a one-commit or one-micro-change boundary.
 
-Known material security defects, unauthorized retention, project-isolation breaches, expired exceptions, or required failing gates block completion unless an explicit authorized exception applies.
+Agents and maintainers SHOULD group tightly related commits into one coherent work-unit pull request when they share one project boundary, one delivery objective, compatible authorization and rollback semantics, and an understandable review surface. Unrelated objectives, incompatible confidentiality boundaries, independent destructive/privileged authorization boundaries, and cross-project changes without an authorized flow MUST remain separate.
 
-The preferred solution is the smallest **safe** solution that preserves correctness, clear architecture, controlled side effects, least privilege, minimal retained data, testability, and recoverability.
+The effective risk of a batched change is the highest applicable risk of any included change. Batching MUST NOT be used to hide security-sensitive work, bypass reviewers, or dilute an approval boundary.
+
+CI MAY use conservative change-aware selection, deterministic sharding, trusted setup caching, same-source validation reuse, merge queues, and cancellation of superseded non-deployment runs when required controls preserve their semantics. Ambiguous relevance MUST fail safe to the fuller validation path.
+
+A successful validation result MAY be reused only when it is cryptographically or immutably bound to the same relevant source/tree identity, dependency/toolchain inputs, policy version, and generated artifact identity. A relevant source or policy change invalidates that evidence.
+
+---
+
+## Article 16 — Cryptographic Protection and Key Separation
+
+Custom cryptographic algorithms, password hashing, signatures, key exchange, or protocol designs are prohibited. Maintained, reviewed implementations and current standards MUST be used.
+
+Sensitive durable project data, credentials, private keys, and other explicitly classified confidential material MUST receive authenticated encryption at rest when the threat model or storage boundary requires confidentiality beyond access control. Cross-trust-boundary network traffic carrying non-public project data MUST use authenticated encrypted transport.
+
+Encryption MUST provide integrity/authenticity as well as confidentiality where application-level encryption is used. Keys MUST be generated with cryptographically secure randomness, separated from ciphertext, scoped to minimum use, protected by an appropriate managed key store/HSM/OS secure store where available, and support rotation/revocation.
+
+Passwords MUST be stored using an approved password-hashing construction rather than reversible encryption except for a separately justified legacy interoperability boundary where plaintext recovery is strictly unavoidable.
+
+Encryption does not authorize longer retention, broader access, weaker deletion, weaker authorization, or weaker project isolation. Encrypted transient content remains subject to its retention deadline.
+
+Cryptographic claims MUST match verified implementation and deployment state. The machine-readable policy and handbook define approved profiles, algorithms, protocol versions, key lifecycle requirements, and compatibility exceptions.
+
+---
+
+## Article 17 — Definition of Done
+
+A change is not complete until applicable policy/governance checks, tests, quality/security gates, retention requirements, capability restrictions, project-isolation rules, cryptographic requirements, and documentation are satisfied.
+
+Known material security defects, unauthorized retention, project-isolation breaches, expired exceptions, required failing gates, or required cryptographic-control failures block completion unless an explicit authorized exception applies.
+
+The preferred solution is the smallest **safe** solution that preserves correctness, clear architecture, controlled side effects, least privilege, minimal retained data, testability, recoverability, and verified cryptographic protection where required.

@@ -2,6 +2,21 @@
 
 <!-- The behaviour that changes, and the behaviour deliberately preserved. -->
 
+## Work unit (Article 15)
+
+A pull request is a review and merge boundary, not one-commit-per-PR. Batching related
+commits is allowed; using a batch to dilute an approval boundary is not.
+
+- [ ] One delivery objective, or tightly coupled objectives
+- [ ] One project boundary
+- [ ] Compatible authorization and rollback semantics
+- [ ] Review surface is still understandable
+- [ ] Nothing here belongs in a separate PR: unrelated objectives, cross-project changes
+      without an authorized flow, an independent privileged or destructive authorization
+      boundary, or incompatible confidentiality/retention boundaries
+
+**The highest risk of any included change governs the whole pull request.**
+
 ## Risk classification
 
 <!-- Pick one. Do not classify downward to avoid a safeguard (Constitution Article 9). -->
@@ -47,6 +62,16 @@ recorded as unsupported while the repository has a single maintainer
 - [ ] TLS/certificate verification not weakened
 - [ ] Security failures fail closed
 - [ ] New dependencies passed admission review (need, provenance, footprint, licence, install scripts)
+
+## Cryptography (Article 16)
+
+- [ ] Not applicable — this change introduces no encryption, key, or credential handling
+- [ ] Maintained library used; no custom algorithm, hashing, signature or protocol
+- [ ] Authenticated encryption (not confidentiality alone) for any application-level encryption
+- [ ] Keys generated with secure randomness, separated from ciphertext, scoped, rotatable
+- [ ] No plaintext private key in source, config, logs, CI artefacts or diagnostics
+- [ ] Encryption is not being used to justify longer retention, broader access, or weaker
+      deletion — encrypted transient content still expires on its deadline
 
 ## Destructive actions
 

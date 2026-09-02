@@ -85,7 +85,7 @@ disabled as much as against a direct push.
 
 ## Retention exceptions
 
-None. Every data path currently classified in `CODING_AGENT_POLICY_v1.2.yaml` uses its
+None. Every data path currently classified in `CODING_AGENT_POLICY_v1.2-otf1.yaml` uses its
 default class.
 
 Note for future work: any feature that lets a user scroll back through captions, replay a
