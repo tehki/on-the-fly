@@ -23,7 +23,17 @@ from on_the_fly.infrastructure.asr.model_store import (
     compute_digests,
     file_digest,
 )
-from on_the_fly.infrastructure.asr.models import DEFAULT_MODEL, KNOWN_MODELS, TINY, resolve
+from on_the_fly.infrastructure.asr.models import (
+    DEFAULT_MODEL,
+    KNOWN_MODELS,
+    STREAMING_EN,
+    TINY,
+    resolve,
+)
+from on_the_fly.infrastructure.asr.sherpa_streaming import (
+    SherpaStreamingRecognizer,
+    StreamingRecognitionError,
+)
 from on_the_fly.infrastructure.asr.whisper_recognizer import (
     REQUIRED_SAMPLE_RATE_HZ,
     FasterWhisperRecognizer,
@@ -34,6 +44,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "KNOWN_MODELS",
     "REQUIRED_SAMPLE_RATE_HZ",
+    "STREAMING_EN",
     "TINY",
     "FasterWhisperRecognizer",
     "ModelIntegrityError",
@@ -42,6 +53,8 @@ __all__ = [
     "ModelStore",
     "ModelStoreError",
     "RecognitionError",
+    "SherpaStreamingRecognizer",
+    "StreamingRecognitionError",
     "compute_digests",
     "file_digest",
     "resolve",
