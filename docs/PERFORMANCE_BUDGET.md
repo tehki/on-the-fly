@@ -118,30 +118,52 @@ on recorded speech.
 
 Recognition landed (ADR 0005), and the budget is **missed**.
 
-Measured on the reference machine, `tiny` model, int8, CPU:
+> **Corrected 2026-09-02.** The figure first recorded here, ~4400 ms, came from a handful
+> of samples and was a favourable one. A clean re-run is below. The conclusion did not
+> change; the number did, and a number that moves by 2x on re-measurement should not have
+> been stated as confidently as it was.
+
+Measured on the reference machine, `tiny` model, int8, CPU. One model instance held for the
+whole benchmark, seven samples per configuration:
+
+| Audio length | min | median | max |
+| --- | --- | --- | --- |
+| 2 s | 6.71 s | **8.87 s** | 14.78 s |
+| 10 s | 8.38 s | **8.94 s** | 13.27 s |
+| 25 s | 8.73 s | **9.44 s** | 11.16 s |
 
 | | Measured | Budget |
 | --- | --- | --- |
-| Recognition per utterance | **~4400 ms** | p95 endpoint-to-caption 1500 ms |
-| End-to-end, 3.9 s of audio | 8.9 s wall, **2.29x real time** | below 1.0x to keep up at all |
+| Recognition per utterance | **~9 s median, 6.7–14.8 s observed** | p95 endpoint-to-caption 1500 ms |
 | Model load | 2.25 s, once | startup 3 s target — within it |
 | Segmentation | 0.018x real time | not the bottleneck |
 
-**Recognition cost does not scale with utterance length.** Whisper pads every input to a
-30-second window, so a two-second utterance costs the same as a twenty-second one — about
-4.4 s either way. That is architectural, not a defect in this code, and it means short
-conversational turns are the worst case for this model rather than the best.
+**The spread is too wide to trust the absolute value.** 6.7 s to 14.8 s for identical input
+means this machine was contended during the run. `cpu_threads=4` measured *worse* than the
+default, which is a symptom of the same thing rather than a tuning result. A reliable
+baseline needs a quiet machine, and this was not one.
+
+What survives the noise: recognition is **several times over budget** whichever number is
+right, and the conclusion does not depend on picking one.
+
+**Recognition cost does not scale with utterance length — confirmed across 2 s, 10 s and
+25 s.** Whisper pads every input to a 30-second window, so a two-second utterance costs the
+same as a twenty-five-second one. That is architectural, not a defect in this code, and it
+means short conversational turns are the *worst* case for this model rather than the best.
+This was the load-bearing claim and it held up under the cleaner measurement.
 
 The pipeline currently **cannot keep up with live speech** on this machine.
 
-### What is deliberately not being done about it
+### The decision taken from it
 
-Nothing, yet. Handbook 64A: the presence of a measured problem is a reason to understand it
-before reaching for a remedy, not a licence to start optimising. The candidate remedies —
-batching utterances, a different backend, GPU acceleration, or a streaming-capable model
-that is not Whisper — are separate decisions, each needing its own evidence. One possible
-answer is that Whisper's fixed window is simply the wrong architecture for live use, and
-that is worth establishing before building machinery around it.
+A streaming-capable recogniser, not batching or tuning. See
+[ADR 0006](adr/0006-streaming-recognition.md): the `StreamingRecognizer` port now exists and
+`BatchStreamingRecognizer` presents the current Whisper path through it, finals only.
+
+That changes the shape, not the speed. **The budget is still missed**, and it stays missed
+until an engine that actually streams is adopted — which is blocked on a product question,
+because streaming models are per-language and Whisper's 99 languages in one model is what
+"speak with anyone worldwide" currently rests on.
 
 What is **not** an acceptable remedy, per this document's own rules: raising the budget to
 match the measurement without a stated reason, or weakening validation, retention or
