@@ -1,16 +1,22 @@
 governance:
   name: on-the-fly-repository-governance
-  version: "1.1"
-  revision: "2026-09-01"
-  supersedes: "REPOSITORY_GOVERNANCE_v1.0.yaml"
+  version: "1.1-otf1"
+  revision: "2026-09-02"
+  supersedes: "REPOSITORY_GOVERNANCE_v1.1.yaml (this project's own v1.1, now renamed)"
+  derived_from_upstream: "1.1"
+  # Upstream's own manifest declares itself repository-specific and requires path and
+  # control review before it is copied to another repository. This file is that review,
+  # performed for on-the-fly.
+  repository_specific_profile: true
+  cross_repository_copy_requires_path_and_control_review: true
   supersession_reason: >-
     v1.0 was authored for the ai-automation-department project. It was re-scoped to
     tehki/on-the-fly, its security-sensitive path list was corrected against files that
     actually exist, and the unsupportable two-approval control was replaced with an
     explicit documented limitation and compensating controls per Constitution Article 9.
-  handbook_version: "1.4.1"
-  constitution_version: "1.2"
-  policy_version: "1.2"
+  handbook_version: "1.5-otf1"
+  constitution_version: "1.2-otf1"
+  policy_version: "1.2-otf1"
   repository: tehki/on-the-fly
   repository_visibility: public
   default_branch: main
@@ -56,16 +62,26 @@ approval_limitation:
     A second reviewer with write access is added; required_approvals is then raised to 1
     (2 for CRITICAL) and require_code_owner_review is enabled.
 
+development_flow:
+  one_pull_request_per_commit_required: false
+  coherent_work_unit_pull_requests_allowed: true
+  draft_pr_accumulation_allowed: true
+  mixed_risk_batch_uses_highest_risk: true
+  separate_pull_request_required_for_unrelated_objectives: true
+  separate_pull_request_required_for_independent_privileged_or_destructive_authorization_boundary: true
+  cross_project_batching_default_allowed: false
+  prefer_one_reviewable_milestone_slice_over_multiple_micro_prs: true
+
 security_sensitive_paths:
   require_code_owner_review: true
   enforcement_note: >-
     CODEOWNERS assigns ownership and requests review on these paths. Blocking code-owner
     review is not active while approval_limitation applies; ownership routing is.
   paths:
-    - /CODING_AGENT_CONSTITUTION_v1.2.md
-    - /CODING_AGENT_POLICY_v1.2.yaml
-    - /CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.4.1.md
-    - /REPOSITORY_GOVERNANCE_v1.1.yaml
+    - /CODING_AGENT_CONSTITUTION_v1.2-otf1.md
+    - /CODING_AGENT_POLICY_v1.2-otf1.yaml
+    - /CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.5-otf1.md
+    - /REPOSITORY_GOVERNANCE_v1.1-otf1.yaml
     - /Makefile
     - /.github/workflows/
     - /.github/CODEOWNERS
@@ -78,6 +94,7 @@ security_sensitive_paths:
     - /docs/GITHUB_REPOSITORY_GOVERNANCE.md
     - /docs/EXCEPTIONS.md
     - /docs/CODING_AGENT_ADOPTION.md
+    - /docs/adr/
     - /src/on_the_fly/domain/retention/
     - /src/on_the_fly/domain/audio/
     - /src/on_the_fly/infrastructure/audio/
@@ -126,6 +143,49 @@ emergency_changes:
 
 ci:
   workflow: .github/workflows/ci.yml
+  validation_lanes:
+    FAST:
+      allowed_on_intermediate_pr_pushes: true
+      change_aware_selection_allowed: true
+      unknown_relevance_falls_back_to_full: true
+      implemented: false
+      not_implemented_reason: >-
+        A FAST lane may omit work only against a versioned, tested impact map. No such map
+        exists yet, and the suite runs in seconds, so there is nothing to gain and a real
+        control to lose. FULL runs on every push until that changes.
+    FULL:
+      required_on_final_ready_for_review_head: true
+      required_for_security_sensitive_paths: true
+      required_for_dependency_or_lockfile_changes: true
+      required_for_ci_or_governance_changes: true
+      required_for_high_or_critical_risk: true
+      required_when_change_impact_is_ambiguous: true
+      implemented: true
+      currently_runs_on_every_push: true
+    RELEASE:
+      required_for_release_candidate_or_deployment_boundary: true
+      implemented: false
+      not_implemented_reason: no release or distribution boundary exists yet
+
+  acceleration:
+    cancel_superseded_non_deployment_runs: true
+    rerun_failed_jobs_only_preferred: true
+    deterministic_test_partitioning_allowed: true
+    lockfile_keyed_dependency_cache_allowed: true
+    verified_toolchain_or_build_cache_allowed: true
+    same_source_validation_reuse_allowed: true
+    same_source_validation_reuse_requires_input_and_artifact_integrity_binding: true
+    full_gate_semantics_must_not_be_reduced: true
+
+  merge_queue:
+    preferred_when_supported_and_verified: true
+    full_gate_required_on_merge_group: true
+    post_merge_full_duplicate_may_be_replaced_by_provenance_plus_smoke_only_if_merged_tree_equals_validated_merge_group_tree: true
+    implemented: false
+    not_implemented_reason: >-
+      A merge queue needs more than one concurrent contributor to be worth its complexity.
+      Revisit when a second maintainer joins, alongside EXC-2026-09-01-001.
+
   required_job: quality
   required_local_targets:
     - policy

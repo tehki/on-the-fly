@@ -17,7 +17,7 @@ exception rather than a feature.
 | `reaper.py` | `ThreadedReaper`: makes expiry happen without anyone asking |
 | `errors.py` | Failure modes as distinct outcomes, none of which carry content |
 
-This directory is a security-sensitive path in `REPOSITORY_GOVERNANCE_v1.1.yaml`. Changes
+This directory is a security-sensitive path in `REPOSITORY_GOVERNANCE_v1.1-otf1.yaml`. Changes
 here need the retention test suite to pass, and `tests/test_retention.py` is checked
 against `retention.required_tests` in the policy file, so a new requirement there fails the
 build until it is actually tested.

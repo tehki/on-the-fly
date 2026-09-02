@@ -1,7 +1,7 @@
 """Retention classes and the constants that define them.
 
 These mirror Constitution Article 6 and the `retention` block of
-`CODING_AGENT_POLICY_v1.2.yaml`. The values are here in one place so that a change to the
+`CODING_AGENT_POLICY_v1.2-otf1.yaml`. The values are here in one place so that a change to the
 policy and a change to the runtime cannot drift apart quietly; `tests/test_retention.py`
 asserts these constants against the policy file itself.
 """

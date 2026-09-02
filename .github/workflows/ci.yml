@@ -1,4 +1,4 @@
-# The `quality` job is the required status check named by REPOSITORY_GOVERNANCE_v1.1.yaml.
+# The `quality` job is the required status check named by REPOSITORY_GOVERNANCE_v1.1-otf1.yaml.
 # Renaming, removing, skipping or weakening it to make CI faster is prohibited
 # (handbook 34 and 64M). Add gates here; do not subtract them.
 name: CI
@@ -73,7 +73,7 @@ jobs:
         run: python -m pytest -q
 
   main-push-provenance:
-    # Compensating control required by REPOSITORY_GOVERNANCE_v1.1.yaml while remote
+    # Compensating control required by REPOSITORY_GOVERNANCE_v1.1-otf1.yaml while remote
     # branch protection is not yet configured. It cannot prevent an unauthorised push;
     # it makes one visible. It is not a substitute for branch protection.
     name: main push provenance
