@@ -114,6 +114,39 @@ the whole budget to recognition and translation — and as nothing more.
 The status line above stays PROVISIONAL until an end-to-end path exists and can be measured
 on recorded speech.
 
+## Second measurement — 2026-09-02, with recognition
+
+Recognition landed (ADR 0005), and the budget is **missed**.
+
+Measured on the reference machine, `tiny` model, int8, CPU:
+
+| | Measured | Budget |
+| --- | --- | --- |
+| Recognition per utterance | **~4400 ms** | p95 endpoint-to-caption 1500 ms |
+| End-to-end, 3.9 s of audio | 8.9 s wall, **2.29x real time** | below 1.0x to keep up at all |
+| Model load | 2.25 s, once | startup 3 s target — within it |
+| Segmentation | 0.018x real time | not the bottleneck |
+
+**Recognition cost does not scale with utterance length.** Whisper pads every input to a
+30-second window, so a two-second utterance costs the same as a twenty-second one — about
+4.4 s either way. That is architectural, not a defect in this code, and it means short
+conversational turns are the worst case for this model rather than the best.
+
+The pipeline currently **cannot keep up with live speech** on this machine.
+
+### What is deliberately not being done about it
+
+Nothing, yet. Handbook 64A: the presence of a measured problem is a reason to understand it
+before reaching for a remedy, not a licence to start optimising. The candidate remedies —
+batching utterances, a different backend, GPU acceleration, or a streaming-capable model
+that is not Whisper — are separate decisions, each needing its own evidence. One possible
+answer is that Whisper's fixed window is simply the wrong architecture for live use, and
+that is worth establishing before building machinery around it.
+
+What is **not** an acceptable remedy, per this document's own rules: raising the budget to
+match the measurement without a stated reason, or weakening validation, retention or
+verification to buy latency.
+
 ## Owner and review
 
 **Owner:** @tehki

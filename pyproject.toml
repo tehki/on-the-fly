@@ -2,11 +2,14 @@
 name = "on-the-fly"
 version = "0.0.0"
 description = "On the fly live translator - speak without bounds with anyone worldwide"
-requires-python = ">=3.11"
+# Raised from 3.11 when numpy became a declared dependency: numpy 2.5 requires
+# 3.12, so claiming 3.11 support would have been a declaration the project
+# could not honour.
+requires-python = ">=3.12"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "RUF"]
@@ -18,7 +21,7 @@ ignore = ["S603", "S607"]
 "tests/*" = ["S101"]  # pytest assertions
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_unused_configs = true
 # The validators are standalone scripts and the application lives under src/, neither of
@@ -35,6 +38,13 @@ ignore_missing_imports = true
 # untyped surface is one file wide.
 [[tool.mypy.overrides]]
 module = "sounddevice"
+ignore_missing_imports = true
+
+# faster_whisper and huggingface_hub ship no py.typed marker. Both are used only in
+# src/on_the_fly/infrastructure/asr/, behind the SpeechRecognizer port and ModelStore, so
+# the untyped surface is two files wide.
+[[tool.mypy.overrides]]
+module = ["faster_whisper", "huggingface_hub"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

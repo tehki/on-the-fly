@@ -25,12 +25,14 @@ from on_the_fly.domain.audio import (
     EndReason,
     EnergyVoiceActivityDetector,
     SegmenterConfig,
+    SpeechRecognizer,
     VoiceActivityDetector,
 )
 from on_the_fly.domain.retention import (
     EphemeralStore,
     ReapReport,
     ThreadedReaper,
+    TransientHandle,
     TransientRetentionPolicy,
 )
 
@@ -50,6 +52,10 @@ class UtteranceRecord:
     duration_seconds: float
     frame_count: int
     ended_because: EndReason
+    # A handle is an identifier, not content: the transcript itself stays in the store,
+    # under the same ten-second rule as the audio it came from.
+    transcript_handle: TransientHandle | None = None
+    recognition_seconds: float | None = None
 
     def __str__(self) -> str:
         return (
@@ -68,6 +74,9 @@ class PipelineResult:
     wall_seconds: float
     final_reap: ReapReport
     entries_remaining: int
+    # Present so a caller that asked to keep the store can read transcripts out and then
+    # purge. None of this object's other fields carry content.
+    store: EphemeralStore | None = None
 
     @property
     def audio_seconds(self) -> float:
@@ -118,12 +127,20 @@ def run_capture(
     config: SegmenterConfig | None = None,
     store: EphemeralStore | None = None,
     retention_seconds: float | None = None,
+    recognizer: SpeechRecognizer | None = None,
+    keep_store: bool = False,
 ) -> PipelineResult:
     """Run one capture session to completion and report metadata about it.
 
-    The store is purged before returning. A run that ends leaving audio in memory has
-    retained content past the point anyone needed it, and the caller of this function is
-    not the right place to remember that.
+    With a `recognizer`, each utterance is transcribed and the text is placed in the same
+    store as the audio, under the same deadline. The result carries handles, not text: a
+    caller that wants the words borrows them deliberately.
+
+    The store is purged before returning unless `keep_store` is set. A run that ends
+    leaving audio in memory has retained content past the point anyone needed it, and the
+    caller of this function is not the right place to remember that. `keep_store` exists
+    for the one legitimate case — a caller that must read the transcripts out first — and
+    it makes that caller responsible for the purge.
     """
     active_store = (
         store if store is not None else build_store(project_id, retention_seconds=retention_seconds)
@@ -142,6 +159,29 @@ def run_capture(
     # this is the production wiring: expiry is clock-driven and does not wait to be asked.
     with ThreadedReaper(active_store), session:
         for index, utterance in enumerate(session.utterances(), start=1):
+            transcript_handle: TransientHandle | None = None
+            recognition_seconds: float | None = None
+
+            if recognizer is not None:
+                # Borrowing holds the audio against deletion for exactly as long as the
+                # recogniser needs it, and restarts its window afterwards.
+                recognition_started = time.monotonic()
+                with active_store.borrow(utterance.handle) as audio:
+                    if not isinstance(audio, bytes):
+                        # The store can hold text as well as audio. Reaching a recogniser
+                        # with the wrong one means a handle was crossed somewhere, which
+                        # is a defect rather than something to coerce past.
+                        raise TypeError(
+                            f"utterance {utterance.handle.entry_id} holds "
+                            f"{type(audio).__name__}, not audio"
+                        )
+                    text = recognizer.transcribe(audio, utterance.audio_format)
+                recognition_seconds = time.monotonic() - recognition_started
+                if text:
+                    transcript_handle = active_store.put(
+                        text, label="speech_recognition_transcript"
+                    )
+
             records.append(
                 UtteranceRecord(
                     index=index,
@@ -149,6 +189,8 @@ def run_capture(
                     duration_seconds=utterance.duration_seconds,
                     frame_count=utterance.frame_count,
                     ended_because=utterance.ended_because,
+                    transcript_handle=transcript_handle,
+                    recognition_seconds=recognition_seconds,
                 )
             )
             elapsed_audio = session.stats.audio_seconds_seen
@@ -157,7 +199,7 @@ def run_capture(
 
     # Shutdown deletes everything regardless of deadline (handbook 35). The report is kept
     # so a failed deletion is visible in the result rather than swallowed here.
-    final_reap = active_store.purge_all()
+    final_reap = ReapReport() if keep_store else active_store.purge_all()
 
     return PipelineResult(
         utterances=tuple(records),
@@ -165,4 +207,5 @@ def run_capture(
         wall_seconds=wall_seconds,
         final_reap=final_reap,
         entries_remaining=len(active_store),
+        store=active_store,
     )

@@ -23,7 +23,22 @@ from pathlib import Path
 
 from on_the_fly.app.pipeline import PipelineResult, run_capture
 from on_the_fly.domain.audio import SegmenterConfig
+from on_the_fly.infrastructure.asr import (
+    DEFAULT_MODEL,
+    KNOWN_MODELS,
+    FasterWhisperRecognizer,
+    ModelStore,
+    ModelStoreError,
+    RecognitionError,
+    resolve,
+)
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
+
+# Models are DURABLE_PROJECT_ARTIFACT, not project content: intentionally persistent, and
+# carrying nothing anyone said. They live outside the repository so a checkout stays small.
+DEFAULT_MODEL_CACHE = Path.home() / ".cache" / "on-the-fly" / "models"
+
+LINE_BREAK = chr(10)
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -57,6 +72,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="confine the input path to this directory",
     )
     segment.add_argument("--json", action="store_true", help="emit machine-readable output")
+
+    transcribe = subcommands.add_parser(
+        "transcribe",
+        help="segment a WAV file and transcribe each utterance with a local model",
+        description=(
+            "Transcribes on your machine with a pinned, integrity-verified model. "
+            "The text is shown to you and is not retained by this program - but if you "
+            "redirect this output to a file, that file is yours to look after."
+        ),
+    )
+    transcribe.add_argument("path", type=Path, help="path to a mono 16 kHz WAV file")
+    transcribe.add_argument(
+        "--model",
+        default=DEFAULT_MODEL.name,
+        choices=sorted(KNOWN_MODELS),
+        help=f"pinned model to use (default: {DEFAULT_MODEL.name})",
+    )
+    transcribe.add_argument(
+        "--cache-dir", type=Path, default=DEFAULT_MODEL_CACHE, help="where models are stored"
+    )
+    transcribe.add_argument(
+        "--allow-download",
+        action="store_true",
+        help="permit fetching the model if it is not already present (off by default)",
+    )
+    transcribe.add_argument("--language", default=None, help="force a language, e.g. en")
+    transcribe.add_argument("--frame-ms", type=int, default=20)
+    transcribe.add_argument("--hangover-ms", type=int, default=500)
+    transcribe.add_argument("--json", action="store_true")
     return parser
 
 
@@ -142,6 +186,95 @@ def run_segment(args: argparse.Namespace) -> int:
     return EXIT_OK if result.retention_clean else EXIT_RETENTION_FAILURE
 
 
+def run_transcribe(args: argparse.Namespace) -> int:
+    """Segment, then transcribe each utterance with a verified local model."""
+    source = WavFileSource(args.path, frame_ms=args.frame_ms)
+    config = SegmenterConfig(frame_ms=args.frame_ms, hangover_ms=args.hangover_ms)
+
+    pin = resolve(args.model)
+    store = ModelStore(args.cache_dir, allow_download=args.allow_download)
+    # Raises unless every pinned file matched its digest. There is no path from here to an
+    # unverified model.
+    model_dir = store.ensure(pin)
+    recognizer = FasterWhisperRecognizer(model_dir, language=args.language)
+
+    # keep_store, so the transcripts survive long enough to be shown. This function then
+    # owns the purge, and does it in a finally.
+    result = run_capture(source, config=config, recognizer=recognizer, keep_store=True)
+    purge_failed = False
+    try:
+        print(format_transcript(result, source, pin.name, as_json=args.json))
+    finally:
+        # The purge runs whatever happened above, but the exit code is decided afterwards:
+        # returning from a finally would swallow whatever exception got us here.
+        final = result.store.purge_all() if result.store is not None else None
+        if final is not None and not final.ok:
+            print(
+                f"warning: {len(final.failed)} transcript(s) could not be deleted",
+                file=sys.stderr,
+            )
+            purge_failed = True
+
+    return EXIT_RETENTION_FAILURE if purge_failed else EXIT_OK
+
+
+def format_transcript(
+    result: PipelineResult, source: WavFileSource, model_name: str, *, as_json: bool
+) -> str:
+    """Render the transcripts. This is the one place content is deliberately shown."""
+    store = result.store
+    lines: list[str] = []
+    payload: list[dict[str, object]] = []
+
+    for record in result.utterances:
+        text = ""
+        if store is not None and record.transcript_handle is not None:
+            with store.borrow(record.transcript_handle) as content:
+                text = str(content)
+        if as_json:
+            payload.append(
+                {
+                    "index": record.index,
+                    "start_seconds": round(record.start_seconds, 3),
+                    "duration_seconds": round(record.duration_seconds, 3),
+                    "recognition_seconds": round(record.recognition_seconds or 0.0, 3),
+                    "text": text,
+                }
+            )
+        else:
+            timing = f"[{record.start_seconds:7.2f}s +{record.duration_seconds:4.2f}s]"
+            lines.append(f"  {timing} {text or '(nothing recognised)'}")
+
+    if as_json:
+        return json.dumps(
+            {
+                "file": source.path.name,
+                "model": model_name,
+                "audio_seconds": round(result.audio_seconds, 3),
+                "wall_seconds": round(result.wall_seconds, 3),
+                "real_time_factor": round(result.real_time_factor, 4),
+                "utterances": payload,
+            },
+            indent=2,
+        )
+
+    recognition_total = sum(r.recognition_seconds or 0.0 for r in result.utterances)
+    header = [
+        f"file          {source.path.name}",
+        f"model         {model_name} (local, verified)",
+        f"audio         {result.audio_seconds:.2f}s",
+        "",
+    ]
+    footer = [
+        "",
+        f"wall time     {result.wall_seconds:.2f}s",
+        f"recognition   {recognition_total:.2f}s of that",
+        f"real-time     {result.real_time_factor:.2f}x",
+    ]
+    body = lines or ["  (no utterances detected)"]
+    return LINE_BREAK.join(header + body + footer)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -149,7 +282,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "segment":
             return run_segment(args)
-    except (WavSourceError, ValueError) as exc:
+        if args.command == "transcribe":
+            return run_transcribe(args)
+    except (WavSourceError, ModelStoreError, RecognitionError, ValueError, KeyError) as exc:
         # Expected failures: an unreadable file, an unusable format, a nonsensical
         # configuration. The user gets the reason, not a traceback (handbook 48).
         print(f"error: {exc}", file=sys.stderr)

@@ -43,5 +43,8 @@
 /src/on_the_fly/infrastructure/audio/                     @tehki
 # The composition root: if it stops wiring the retention store, nothing else notices.
 /src/on_the_fly/app/                                      @tehki
+# Model trust: which weights may be loaded, and the digests that decide it.
+/src/on_the_fly/infrastructure/asr/                       @tehki
+/scripts/pin_model.py                                     @tehki
 # Runtime dependencies are executable trust (Article 12).
 /requirements.txt                                         @tehki
