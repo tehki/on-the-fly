@@ -2,10 +2,9 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: early. There is no working translator yet.** What exists is the retention
-> engine, the audio capture and segmentation pipeline, a microphone adapter, the policy
-> stack that governs them, and the CI that enforces it. What does not exist: speech
-> recognition and translation, each a dependency decision not yet made.
+> **Status: it runs, but it does not translate yet.** You can point it at a WAV file and
+> it will find the utterances in it. What is missing is the part that makes it a
+> translator: speech recognition and translation, each a dependency decision not yet made.
 >
 > The microphone adapter has not been run against a real microphone — the machine it was
 > written on has output devices only. Its logic, error mapping and device enumeration are
@@ -49,7 +48,36 @@ rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
 | `tests/` | Tests for those validators |
 | `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
-| `src/on_the_fly/infrastructure/audio/` | The microphone adapter — the only place PortAudio exists |
+| `src/on_the_fly/infrastructure/audio/` | Microphone and WAV adapters — the only place PortAudio exists |
+| `src/on_the_fly/app/` | Composition root and command line |
+
+## Try it
+
+```bash
+python -m on_the_fly segment recording.wav
+```
+
+```text
+file          recording.wav
+format        16000 Hz mono 16-bit
+audio         3.90s in 195 frames
+
+2 utterance(s):
+  #1   start=   0.00s duration= 2.00s frames=100   ended=SILENCE
+  #2   start=   2.10s duration= 1.70s frames=85    ended=SILENCE
+
+wall time     0.050s
+real-time     0.0128x  (segmentation only)
+invalid       0 frame(s)
+retention     clean - nothing retained, no deletion failed
+```
+
+Mono 16-bit WAV; the file is not resampled. `--json` gives the same thing machine-readably,
+and `--allowed-root` confines the input path when it comes from somewhere less trustworthy
+than your own shell.
+
+The last line is the one worth reading. Every run states whether it finished holding
+nothing, and exits non-zero if it could not delete what it held.
 
 ## Working here
 

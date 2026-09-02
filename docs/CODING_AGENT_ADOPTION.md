@@ -72,6 +72,7 @@ looked thorough and enforced very little. The specific defects, and what was don
 | `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 | `src/on_the_fly/infrastructure/audio/` | Microphone adapter (ADR 0003); the only place PortAudio is imported |
+| `src/on_the_fly/app/` | Composition root and CLI — where the retention store is wired in |
 | `requirements.txt` | Runtime dependencies, each with a recorded admission decision |
 
 ## What is not enforced
@@ -88,6 +89,9 @@ Stated plainly, because the failure mode of governance work is believing it is f
   declared as ports with no implementations. Adopting a model is a separate admission
   decision; model weights are executable trust like any dependency.
 - **No `Deleter` for a real spill location exists**, because nothing spills to disk yet.
+- **The performance budget is still PROVISIONAL.** Segmentation is now measured (median
+  0.018x real time over 9 runs), but the endpoint-to-caption targets cover stages that
+  do not exist, and the measurement used synthetic tones rather than speech.
 - **Human review is not enforced** and cannot be at the current maintainer count
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.

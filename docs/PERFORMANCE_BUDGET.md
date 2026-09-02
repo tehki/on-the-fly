@@ -86,6 +86,34 @@ If the secure implementation cannot meet a target, the target changes or the des
 changes — explicitly, in this file. The invariant does not quietly give way
 (handbook 64C).
 
+## First measurement — 2026-09-02
+
+The pipeline became runnable end to end, so there is now one measured number where before
+there were none. It is **not** the baseline this document is waiting for, and the gap is
+worth being precise about.
+
+| | |
+| --- | --- |
+| What ran | WAV file → VAD → utterance segmentation → retention store |
+| What did not | Recognition and translation, which do not exist |
+| Workload | 33 s of synthesised tone bursts, 11 utterances |
+| Runs | 9 |
+| Real-time factor | min 0.015×, **median 0.018×**, max 0.025× |
+| Utterance count | 11 on every run |
+| Retention | clean on every run — nothing retained, no deletion failure |
+
+Reproduce with `python -m on_the_fly segment <file.wav> --json`.
+
+**Why this is not the baseline.** The targets above are for *endpoint to caption*, and the
+two most expensive stages are missing. Synthetic tones are also not speech: they are
+trivially separable by an energy detector, so they exercise the plumbing and say nothing
+about detection quality on a real voice in a real room. Treat the number as evidence that
+segmentation is not the bottleneck — roughly 55× faster than real time, leaving essentially
+the whole budget to recognition and translation — and as nothing more.
+
+The status line above stays PROVISIONAL until an end-to-end path exists and can be measured
+on recorded speech.
+
 ## Owner and review
 
 **Owner:** @tehki
