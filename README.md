@@ -26,8 +26,9 @@ people ([ADR 0007](docs/adr/0007-supported-languages.md)):
 
 Tajik is the honest problem here. A search of 134 published streaming model repositories
 found none for it; the one model covering it well is non-commercially licensed and therefore
-unusable in an Apache-2.0 project. It attempts Tajik. Nobody has yet confirmed it is any
-good at it.
+unusable in an Apache-2.0 project; and the one licence-clean Tajik-specific model is in a
+format faster-whisper cannot load without reintroducing a multi-gigabyte dependency. It
+attempts Tajik through base Whisper. Nobody has yet confirmed it is any good at it.
 >
 > The microphone adapter has not been run against a real microphone — the machine it was
 > written on has output devices only. Its logic, error mapping and device enumeration are
