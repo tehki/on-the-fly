@@ -67,13 +67,48 @@ listens to the output, the honest statement is "it attempts Tajik", not "it supp
 That is a real gap and it should be closed by evidence, not by optimism. The options if base
 Whisper proves inadequate:
 
-1. Pin `abduaziz/whisper-small-tajik` (Apache-2.0) after evaluating it — the only
-   licence-clean Tajik-specific model found.
+1. ~~Pin `abduaziz/whisper-small-tajik` (Apache-2.0)~~ — **investigated 2026-09-02 and
+   blocked.** See below.
 2. Fine-tune from open Tajik speech data, which is a project of its own.
 3. Tell users plainly that Tajik is best-effort.
 
 Not: use MMS. The licence forbids it, and "it is only for testing" is how licence violations
 begin.
+
+### Why option 1 is blocked
+
+`abduaziz/whisper-small-tajik` is the only licence-clean Tajik-specific model found, and it
+cannot currently be used. Checked directly against the model hub:
+
+| | |
+| --- | --- |
+| Licence | Apache-2.0 — the one thing that is fine |
+| Format | **transformers checkpoint** (`model.safetensors`), not CTranslate2 |
+| Loadable by faster-whisper | **No.** It needs `model.bin` in CTranslate2 format |
+
+Converting it needs `ct2-transformers-converter`, which is not installed here — only the
+fairseq, marian and gpt2 converters ship on the path — and which pulls **`transformers` plus
+`torch`**. That is the multi-gigabyte dependency ADR 0005 specifically avoided, and it would
+come back as a build-time requirement.
+
+Worse, converting locally does not fit the pinning model. A pin is a set of SHA-256 digests
+of files that arrived from a publisher. A locally converted artefact has digests that are
+whatever this machine produced, so a pin over it verifies nothing except that the file has
+not changed since we made it — and every contributor would produce a different one unless
+the conversion is byte-reproducible, which has not been established.
+
+The honest routes are therefore:
+
+- **Publish a converted model.** Convert once, publish it as a repository with its own
+  licence and provenance, and pin that like any other. This project would then be the
+  publisher, with the obligations that carries.
+- **Evaluate base Whisper's Tajik first.** It may be adequate, in which case none of this
+  matters. It may be unusable, in which case the conversion work has a justification.
+- **Leave Tajik best-effort** and say so, which is what the code and README already do.
+
+Evaluating base Whisper is the cheapest of the three and gates the other two. It needs Tajik
+speech and someone who can read the output — neither of which exists on the machine this was
+written on.
 
 ## Consequences
 
