@@ -98,6 +98,7 @@ security_sensitive_paths:
     - /src/on_the_fly/domain/retention/
     - /src/on_the_fly/domain/audio/
     - /src/on_the_fly/infrastructure/audio/
+    - /src/on_the_fly/app/
     - /requirements.txt
 
 risk_review:

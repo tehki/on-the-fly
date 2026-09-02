@@ -36,6 +36,7 @@ from on_the_fly.infrastructure.audio.backend import (
     SoundDeviceBackend,
 )
 from on_the_fly.infrastructure.audio.microphone import DEFAULT_FRAME_MS, MicrophoneSource
+from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
 
 __all__ = [
     "DEFAULT_FRAME_MS",
@@ -45,4 +46,6 @@ __all__ = [
     "InputStream",
     "MicrophoneSource",
     "SoundDeviceBackend",
+    "WavFileSource",
+    "WavSourceError",
 ]

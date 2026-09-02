@@ -41,5 +41,7 @@
 /src/on_the_fly/domain/audio/                             @tehki
 # Device access: the most privileged thing this project does.
 /src/on_the_fly/infrastructure/audio/                     @tehki
+# The composition root: if it stops wiring the retention store, nothing else notices.
+/src/on_the_fly/app/                                      @tehki
 # Runtime dependencies are executable trust (Article 12).
 /requirements.txt                                         @tehki
