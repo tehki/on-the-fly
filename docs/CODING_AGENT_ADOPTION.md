@@ -89,8 +89,10 @@ Stated plainly, because the failure mode of governance work is believing it is f
   someone runs it on hardware with an input device.
 - **No translation.** `Translator` is still a port with no implementation. Speech
   recognition now exists (ADR 0005) with weights pinned by digest and verified on load.
-- **Recognition misses the performance budget by roughly 3x** and the pipeline runs slower
-  than real time. Measured and recorded, not yet solved.
+- **Recognition misses the performance budget by several times over** and the pipeline runs
+  slower than real time. The pipeline is now written against a streaming interface
+  (ADR 0006), but no engine that actually streams has been adopted — that is blocked on a
+  product decision about language coverage.
 - **No `Deleter` for a real spill location exists**, because nothing spills to disk yet.
 - **The performance budget is still PROVISIONAL.** Segmentation is now measured (median
   0.018x real time over 9 runs), but the endpoint-to-caption targets cover stages that

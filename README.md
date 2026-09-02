@@ -6,9 +6,15 @@ Live speech translation. Speak without bounds with anyone worldwide.
 > will find the utterances and transcribe them with a local, integrity-verified Whisper
 > model. Translation is the remaining piece.
 >
-> **It is currently too slow for live use** — about 2.3x real time on a laptop CPU, because
-> Whisper pads every utterance to a 30-second window. Measured, recorded, and not yet
-> solved: see [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
+> **It is currently too slow for live use.** Whisper pads every utterance to a 30-second
+> window, so a two-second turn costs the same as a twenty-five-second one — several seconds
+> either way, far over budget. Measured and recorded, not yet solved:
+> [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
+>
+> The pipeline is now written against a **streaming** recognition interface
+> ([ADR 0006](docs/adr/0006-streaming-recognition.md)) so a real streaming engine can drop
+> in. Which engine is an open product question: streaming models are per-language, and
+> "anyone worldwide" currently rests on Whisper's 99 languages in one model.
 >
 > The microphone adapter has not been run against a real microphone — the machine it was
 > written on has output devices only. Its logic, error mapping and device enumeration are

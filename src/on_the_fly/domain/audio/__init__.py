@@ -67,6 +67,11 @@ from on_the_fly.domain.audio.session import (
     CaptureSession,
     CaptureStats,
 )
+from on_the_fly.domain.audio.streaming import (
+    BatchStreamingRecognizer,
+    StreamingRecognizer,
+    TranscriptEvent,
+)
 from on_the_fly.domain.audio.vad import (
     DEFAULT_ABSOLUTE_SILENCE_RMS,
     DEFAULT_ADAPTATION_RATE,
@@ -88,6 +93,7 @@ __all__ = [
     "SUPPORTED_SAMPLE_WIDTH_BYTES",
     "AudioFormat",
     "AudioSource",
+    "BatchStreamingRecognizer",
     "CaptureError",
     "CaptureSession",
     "CaptureStats",
@@ -95,6 +101,8 @@ __all__ = [
     "EnergyVoiceActivityDetector",
     "SegmenterConfig",
     "SpeechRecognizer",
+    "StreamingRecognizer",
+    "TranscriptEvent",
     "Translator",
     "Utterance",
     "UtteranceSegmenter",

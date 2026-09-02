@@ -93,6 +93,10 @@ first use. The Python floor rose to **3.12**, because numpy 2.5 requires it — 
 
 ### The measurement, and the problem it found
 
+> **Superseded numbers.** The per-utterance figure below was re-measured more carefully in
+> [ADR 0006](0006-streaming-recognition.md) and is closer to 9 s median with a wide spread.
+> The flat-cost finding held; the magnitude did not. Kept here as written for the record.
+
 Measured on this machine, `tiny` / int8 / CPU:
 
 | | |
