@@ -11,10 +11,23 @@ Live speech translation. Speak without bounds with anyone worldwide.
 > either way, far over budget. Measured and recorded, not yet solved:
 > [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 >
-> The pipeline is now written against a **streaming** recognition interface
-> ([ADR 0006](docs/adr/0006-streaming-recognition.md)) so a real streaming engine can drop
-> in. Which engine is an open product question: streaming models are per-language, and
-> "anyone worldwide" currently rests on Whisper's 99 languages in one model.
+> The pipeline is written against a **streaming** recognition interface
+> ([ADR 0006](docs/adr/0006-streaming-recognition.md)) so a streaming engine can drop in.
+
+## Languages
+
+Eight, at two tiers — because the tiers are real and pretending otherwise would mislead
+people ([ADR 0007](docs/adr/0007-supported-languages.md)):
+
+| Tier | Languages | What it means |
+| --- | --- | --- |
+| **Streaming** | English, Russian, Spanish, Italian, French, Portuguese, German | Published streaming models exist; results appear while you speak |
+| **Batch** | Tajik | No streaming model exists anywhere. Recognised an utterance at a time, several seconds behind, and **accuracy is unverified** |
+
+Tajik is the honest problem here. A search of 134 published streaming model repositories
+found none for it; the one model covering it well is non-commercially licensed and therefore
+unusable in an Apache-2.0 project. It attempts Tajik. Nobody has yet confirmed it is any
+good at it.
 >
 > The microphone adapter has not been run against a real microphone — the machine it was
 > written on has output devices only. Its logic, error mapping and device enumeration are
