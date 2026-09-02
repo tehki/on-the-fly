@@ -100,7 +100,35 @@ Mono 16-bit WAV; the file is not resampled. `--json` gives the same thing machin
 and `--allowed-root` confines the input path when it comes from somewhere less trustworthy
 than your own shell.
 
-To transcribe, first fetch the pinned model (78 MB, once):
+To stream English — text appears while the speaker is still talking:
+
+```bash
+python -m on_the_fly stream recording.wav --allow-download
+```
+
+```text
+file          recording.wav
+language      English (en, streaming)
+model         streaming-en (local, verified, Apache-2.0)
+model load    2.31s
+
+  [   0.00s partial] AFTER
+  [   0.00s partial] AFTER EARLY
+  [   0.00s final  ] AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP
+
+audio         6.62s in 331 frames
+wall time     2.64s
+real-time     0.399x  (keeps up)  excludes model load
+first text    1.10s into the audio
+events        16 partial, 1 final
+retention     clean - nothing retained, no deletion failed
+```
+
+Only languages with a pinned streaming model are accepted. Asking to stream Tajik is
+refused rather than silently downgraded to batch latency — being told "no, use transcribe"
+is better than wondering why it is slow.
+
+For the batch engine, first fetch the pinned model (78 MB, once):
 
 ```bash
 python -m on_the_fly transcribe recording.wav --allow-download

@@ -11,6 +11,8 @@ from __future__ import annotations
 from on_the_fly.app.pipeline import (
     DEFAULT_PROJECT_ID,
     PipelineResult,
+    StreamingRun,
+    StreamingStats,
     UtteranceRecord,
     build_store,
     run_capture,
@@ -19,6 +21,8 @@ from on_the_fly.app.pipeline import (
 __all__ = [
     "DEFAULT_PROJECT_ID",
     "PipelineResult",
+    "StreamingRun",
+    "StreamingStats",
     "UtteranceRecord",
     "build_store",
     "run_capture",

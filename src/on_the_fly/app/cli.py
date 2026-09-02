@@ -18,11 +18,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from on_the_fly.app.pipeline import PipelineResult, run_capture
+from on_the_fly.app.pipeline import PipelineResult, StreamingRun, run_capture
 from on_the_fly.domain.audio import SegmenterConfig
+from on_the_fly.domain.languages import RecognitionTier
+from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure.asr import (
     DEFAULT_MODEL,
     KNOWN_MODELS,
@@ -30,6 +33,8 @@ from on_the_fly.infrastructure.asr import (
     ModelStore,
     ModelStoreError,
     RecognitionError,
+    SherpaStreamingRecognizer,
+    StreamingRecognitionError,
     resolve,
 )
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
@@ -101,6 +106,35 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("--frame-ms", type=int, default=20)
     transcribe.add_argument("--hangover-ms", type=int, default=500)
     transcribe.add_argument("--json", action="store_true")
+
+    stream = subcommands.add_parser(
+        "stream",
+        help="transcribe a WAV file with the streaming engine, showing text as it appears",
+        description=(
+            "Uses a streaming model, so text appears while the speaker is still talking. "
+            "Partial results may be replaced as the model revises them. Only languages "
+            "with a pinned streaming model can be used; the rest run through 'transcribe'."
+        ),
+    )
+    stream.add_argument("path", type=Path, help="path to a mono 16 kHz WAV file")
+    stream.add_argument(
+        "--language",
+        default="en",
+        help="language to recognise (default: en). Only streaming-tier languages are accepted",
+    )
+    stream.add_argument("--cache-dir", type=Path, default=DEFAULT_MODEL_CACHE)
+    stream.add_argument(
+        "--allow-download",
+        action="store_true",
+        help="permit fetching the model if it is not already present (off by default)",
+    )
+    stream.add_argument(
+        "--finals-only",
+        action="store_true",
+        help="hide partial results and show only finalised text",
+    )
+    stream.add_argument("--frame-ms", type=int, default=20)
+    stream.add_argument("--threads", type=int, default=2)
     return parser
 
 
@@ -275,6 +309,73 @@ def format_transcript(
     return LINE_BREAK.join(header + body + footer)
 
 
+def run_stream(args: argparse.Namespace) -> int:
+    """Stream a file through the streaming recogniser, printing text as it appears."""
+    language = resolve_language(args.language)
+    if language.tier is not RecognitionTier.STREAMING:
+        # Refused rather than silently downgraded. A user who asked to stream and got
+        # batch latency would reasonably conclude the tool was broken.
+        raise ValueError(
+            f"{language.name} is not a streaming language: {language.note}. "
+            f"Use 'transcribe' instead, which runs it through the batch engine."
+        )
+
+    pin_name = f"streaming-{language.code}"
+    try:
+        pin = resolve(pin_name)
+    except KeyError:
+        raise ValueError(
+            f"{language.name} has no pinned streaming model yet (looked for {pin_name!r}). "
+            "Pin one with scripts/pin_model.py after checking its licence."
+        ) from None
+
+    source = WavFileSource(args.path, frame_ms=args.frame_ms)
+    model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
+    recognizer = SherpaStreamingRecognizer(model_dir, num_threads=args.threads)
+    recognizer.validate_format(source.audio_format)
+
+    # Loading is paid before the clock starts and reported on its own line. Folding it
+    # into the streaming measurement would make a recogniser that keeps up comfortably
+    # look like one that cannot.
+    load_started = time.monotonic()
+    recognizer.warm_up()
+    load_seconds = time.monotonic() - load_started
+
+    print(f"file          {source.path.name}")
+    print(f"language      {language.name} ({language.code}, streaming)")
+    print(f"model         {pin.name} (local, verified, {pin.licence})")
+    print(f"model load    {load_seconds:.2f}s")
+    print()
+
+    run = StreamingRun(source, recognizer)
+    for event in run.events():
+        if event.is_final:
+            print(f"  {event}")
+        elif not args.finals_only:
+            print(f"  {event}")
+
+    stats = run.stats
+    if stats is None:  # pragma: no cover - events() always sets it
+        return EXIT_FAILURE
+
+    print()
+    print(f"audio         {stats.audio_seconds:.2f}s in {stats.frames_read} frames")
+    print(f"wall time     {stats.wall_seconds:.2f}s")
+    pace = "keeps up" if stats.keeps_up else "TOO SLOW"
+    print(f"real-time     {stats.real_time_factor:.3f}x  ({pace})  excludes model load")
+    if stats.first_text_after_seconds is not None:
+        print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
+    print(f"events        {stats.partials} partial, {stats.finals} final")
+    if stats.retention_clean:
+        print("retention     clean - nothing retained, no deletion failed")
+    else:
+        print(
+            f"retention     FAILED - {stats.entries_remaining} entr(ies) remain, "
+            f"{len(stats.final_reap.failed)} deletion failure(s)"
+        )
+    return EXIT_OK if stats.retention_clean else EXIT_RETENTION_FAILURE
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -284,7 +385,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_segment(args)
         if args.command == "transcribe":
             return run_transcribe(args)
-    except (WavSourceError, ModelStoreError, RecognitionError, ValueError, KeyError) as exc:
+        if args.command == "stream":
+            return run_stream(args)
+    except (
+        WavSourceError,
+        ModelStoreError,
+        RecognitionError,
+        StreamingRecognitionError,
+        ValueError,
+        KeyError,
+    ) as exc:
         # Expected failures: an unreadable file, an unusable format, a nonsensical
         # configuration. The user gets the reason, not a traceback (handbook 48).
         print(f"error: {exc}", file=sys.stderr)

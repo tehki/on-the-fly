@@ -134,6 +134,15 @@ class SherpaStreamingRecognizer:
         self._stream = self._recognizer.create_stream()
         return self._recognizer
 
+    def warm_up(self) -> None:
+        """Load the model now rather than on the first frame.
+
+        Loading costs seconds and happens once per session. A caller that measures
+        throughput wants that cost outside its timer, and a caller that wants a responsive
+        first utterance wants it paid before audio arrives. Both are served by asking.
+        """
+        self._load()
+
     def accept(self, frame: bytes) -> Sequence[TranscriptEvent]:
         """Feed one frame and return whatever became available."""
         if not frame:

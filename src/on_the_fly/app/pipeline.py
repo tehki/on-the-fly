@@ -16,6 +16,7 @@ Everything this returns is metadata. Utterance audio stays in the store and expi
 from __future__ import annotations
 
 import time
+from collections.abc import Generator
 from dataclasses import dataclass
 
 from on_the_fly.domain.audio import (
@@ -26,6 +27,8 @@ from on_the_fly.domain.audio import (
     EnergyVoiceActivityDetector,
     SegmenterConfig,
     SpeechRecognizer,
+    StreamingRecognizer,
+    TranscriptEvent,
     VoiceActivityDetector,
 )
 from on_the_fly.domain.retention import (
@@ -209,3 +212,135 @@ def run_capture(
         entries_remaining=len(active_store),
         store=active_store,
     )
+
+
+@dataclass(frozen=True)
+class StreamingStats:
+    """What a streaming run did. Metadata only — the text went to the caller live."""
+
+    frames_read: int
+    audio_seconds: float
+    wall_seconds: float
+    partials: int
+    finals: int
+    first_text_after_seconds: float | None
+    final_reap: ReapReport
+    entries_remaining: int
+
+    @property
+    def real_time_factor(self) -> float:
+        if self.audio_seconds <= 0:
+            return 0.0
+        return self.wall_seconds / self.audio_seconds
+
+    @property
+    def keeps_up(self) -> bool:
+        """True when the run processed audio at least as fast as it arrived."""
+        return self.real_time_factor < 1.0
+
+    @property
+    def retention_clean(self) -> bool:
+        return self.entries_remaining == 0 and self.final_reap.ok
+
+
+class StreamingRun:
+    """Drives a streaming recogniser over a source, yielding results as they appear.
+
+    The batch path returns everything at the end because it has nothing to say until then.
+    This yields, because the entire point of a streaming recogniser is that text exists
+    before the speaker has finished — a caller that waited for a return value would throw
+    that away.
+
+    Retention: finals are placed in the store as they are produced, so the transcript is
+    accounted for and deleted on the usual clock rather than living as an untracked local
+    variable. Partials are **not** stored — each is superseded within milliseconds, and
+    keeping a trail of half-sentences would retain more content than the finished text does.
+
+    Audio does not enter the store on this path at all. A transducer holds its own bounded
+    internal buffers and does its own endpointing, so there is no assembled utterance to
+    store; the bound the pre-roll ring provides on the batch path is the model's fixed
+    chunk and left-context configuration here (ADR 0008).
+    """
+
+    def __init__(
+        self,
+        source: AudioSource,
+        recognizer: StreamingRecognizer,
+        *,
+        project_id: str = DEFAULT_PROJECT_ID,
+        store: EphemeralStore | None = None,
+    ) -> None:
+        self._source = source
+        self._recognizer = recognizer
+        self._store = store if store is not None else build_store(project_id)
+        self._format = source.audio_format
+        self._final_handles: list[TransientHandle] = []
+        self._stats: StreamingStats | None = None
+
+    @property
+    def store(self) -> EphemeralStore:
+        return self._store
+
+    @property
+    def final_handles(self) -> tuple[TransientHandle, ...]:
+        """Handles to the finalised transcripts, in order. Identifiers, not content."""
+        return tuple(self._final_handles)
+
+    @property
+    def stats(self) -> StreamingStats | None:
+        """Available once the event stream has been consumed to completion."""
+        return self._stats
+
+    def events(self) -> Generator[TranscriptEvent, None, None]:
+        """Yield transcript events as the audio is consumed.
+
+        The source is closed and the store purged on every exit path, including a caller
+        that stops consuming partway through.
+        """
+        frames = 0
+        audio_seconds = 0.0
+        partials = 0
+        finals = 0
+        first_text_after: float | None = None
+        started = time.monotonic()
+
+        try:
+            for frame in self._source.frames():
+                frames += 1
+                audio_seconds += self._format.duration_seconds(len(frame))
+
+                for event in self._recognizer.accept(frame):
+                    if first_text_after is None:
+                        first_text_after = audio_seconds
+                    if event.is_final:
+                        finals += 1
+                        self._final_handles.append(
+                            self._store.put(event.text, label="speech_recognition_transcript")
+                        )
+                    else:
+                        partials += 1
+                    yield event
+
+            for event in self._recognizer.finish():
+                if event.is_final:
+                    finals += 1
+                    self._final_handles.append(
+                        self._store.put(event.text, label="speech_recognition_transcript")
+                    )
+                else:
+                    partials += 1
+                yield event
+        finally:
+            wall = time.monotonic() - started
+            self._source.close()
+            reap = self._store.purge_all()
+            self._stats = StreamingStats(
+                frames_read=frames,
+                audio_seconds=audio_seconds,
+                wall_seconds=wall,
+                partials=partials,
+                finals=finals,
+                first_text_after_seconds=first_text_after,
+                final_reap=reap,
+                entries_remaining=len(self._store),
+            )
