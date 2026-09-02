@@ -2,9 +2,13 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: it runs, but it does not translate yet.** You can point it at a WAV file and
-> it will find the utterances in it. What is missing is the part that makes it a
-> translator: speech recognition and translation, each a dependency decision not yet made.
+> **Status: it transcribes, but it does not translate yet.** Point it at a WAV file and it
+> will find the utterances and transcribe them with a local, integrity-verified Whisper
+> model. Translation is the remaining piece.
+>
+> **It is currently too slow for live use** — about 2.3x real time on a laptop CPU, because
+> Whisper pads every utterance to a 30-second window. Measured, recorded, and not yet
+> solved: see [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 >
 > The microphone adapter has not been run against a real microphone — the machine it was
 > written on has output devices only. Its logic, error mapping and device enumeration are
@@ -49,6 +53,7 @@ rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
 | `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 | `src/on_the_fly/infrastructure/audio/` | Microphone and WAV adapters — the only place PortAudio exists |
+| `src/on_the_fly/infrastructure/asr/` | Pinned models and the Whisper recogniser |
 | `src/on_the_fly/app/` | Composition root and command line |
 
 ## Try it
@@ -75,6 +80,30 @@ retention     clean - nothing retained, no deletion failed
 Mono 16-bit WAV; the file is not resampled. `--json` gives the same thing machine-readably,
 and `--allowed-root` confines the input path when it comes from somewhere less trustworthy
 than your own shell.
+
+To transcribe, first fetch the pinned model (78 MB, once):
+
+```bash
+python -m on_the_fly transcribe recording.wav --allow-download
+```
+
+```text
+file          recording.wav
+model         tiny (local, verified)
+audio         3.90s
+
+  [   0.00s +2.00s] good morning, how are you
+  [   2.10s +1.70s] very well thank you
+
+wall time     8.94s
+recognition   8.90s of that
+real-time     2.29x
+```
+
+The model is pinned by revision and SHA-256 in
+[`models.py`](src/on_the_fly/infrastructure/asr/models.py) and verified on every load. A
+file that does not match is refused and left in place for inspection — never silently
+re-downloaded. Downloading is off unless you ask for it.
 
 The last line is the one worth reading. Every run states whether it finished holding
 nothing, and exits non-zero if it could not delete what it held.

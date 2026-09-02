@@ -10,3 +10,16 @@
 #                     Imported only in src/on_the_fly/infrastructure/audio/, never in
 #                     domain/, and only lazily.
 sounddevice==0.5.6
+
+# faster-whisper  MIT  - local speech recognition (Whisper via CTranslate2). See ADR 0005.
+#                        Brings 19 transitive packages, all permissively licensed, and
+#                        about 265 MB installed. Imported only in
+#                        src/on_the_fly/infrastructure/asr/, never in domain/, and lazily.
+#                        Model weights are NOT bundled: they are fetched at runtime and
+#                        refused unless they match a digest pinned in
+#                        src/on_the_fly/infrastructure/asr/models.py.
+# numpy           BSD   - arrives with faster-whisper, but this project passes audio arrays
+#                        to the model directly, so it is declared rather than relied on as
+#                        a transitive accident.
+faster-whisper==1.2.1
+numpy==2.5.2

@@ -72,6 +72,8 @@ looked thorough and enforced very little. The specific defects, and what was don
 | `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 | `src/on_the_fly/infrastructure/audio/` | Microphone adapter (ADR 0003); the only place PortAudio is imported |
+| `src/on_the_fly/infrastructure/asr/` | Pinned model trust and the Whisper recogniser (ADR 0005) |
+| `scripts/pin_model.py` | Produces a model pin for review; the loader never invents one |
 | `src/on_the_fly/app/` | Composition root and CLI — where the retention store is wired in |
 | `requirements.txt` | Runtime dependencies, each with a recorded admission decision |
 
@@ -85,9 +87,10 @@ Stated plainly, because the failure mode of governance work is believing it is f
   mapping. But the machine it was written on reports six audio devices, all output-only,
   so no frame has ever come from a physical microphone. That gap closes the first time
   someone runs it on hardware with an input device.
-- **No speech recognition or translation.** `SpeechRecognizer` and `Translator` are
-  declared as ports with no implementations. Adopting a model is a separate admission
-  decision; model weights are executable trust like any dependency.
+- **No translation.** `Translator` is still a port with no implementation. Speech
+  recognition now exists (ADR 0005) with weights pinned by digest and verified on load.
+- **Recognition misses the performance budget by roughly 3x** and the pipeline runs slower
+  than real time. Measured and recorded, not yet solved.
 - **No `Deleter` for a real spill location exists**, because nothing spills to disk yet.
 - **The performance budget is still PROVISIONAL.** Segmentation is now measured (median
   0.018x real time over 9 runs), but the endpoint-to-caption targets cover stages that
