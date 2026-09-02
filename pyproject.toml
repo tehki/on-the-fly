@@ -30,6 +30,13 @@ mypy_path = "scripts:src"
 module = "yaml"
 ignore_missing_imports = true
 
+# sounddevice ships no py.typed marker. It is used only in
+# src/on_the_fly/infrastructure/audio/, behind the CaptureBackend port, so the
+# untyped surface is one file wide.
+[[tool.mypy.overrides]]
+module = "sounddevice"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["scripts", "src"]

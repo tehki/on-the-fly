@@ -50,16 +50,19 @@ looked thorough and enforced very little. The specific defects, and what was don
 | `docs/EXCEPTIONS.md` | The exception register |
 | `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
+| `src/on_the_fly/infrastructure/audio/` | Microphone adapter (ADR 0003); the only place PortAudio is imported |
+| `requirements.txt` | Runtime dependencies, each with a recorded admission decision |
 
 ## What is not enforced
 
 Stated plainly, because the failure mode of governance work is believing it is finished:
 
-- **No real audio device is connected.** `src/on_the_fly/domain/audio/` implements
-  capture, voice activity detection and utterance segmentation with retention applied from
-  the first frame, but every `AudioSource` so far is a test fixture. A microphone adapter
-  needs a PortAudio binding, which is a dependency-admission decision under Article 12 and
-  has not been made.
+- **The microphone adapter has never captured real audio.** `MicrophoneSource` is
+  implemented, tested against a fake backend, and mutation-tested, and the real
+  `sounddevice` backend is exercised in CI for import, device enumeration and error
+  mapping. But the machine it was written on reports six audio devices, all output-only,
+  so no frame has ever come from a physical microphone. That gap closes the first time
+  someone runs it on hardware with an input device.
 - **No speech recognition or translation.** `SpeechRecognizer` and `Translator` are
   declared as ports with no implementations. Adopting a model is a separate admission
   decision; model weights are executable trust like any dependency.

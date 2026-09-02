@@ -1,0 +1,12 @@
+# Runtime dependencies. Development and CI tooling belongs in requirements-dev.txt.
+#
+# Every entry here passed the Article 12 admission review recorded in docs/adr/.
+# Versions are pinned so a build is reproducible in the weak sense (same declared inputs);
+# they are not hash-pinned yet, which is a known gap tracked in docs/CODING_AGENT_ADOPTION.md.
+#
+# sounddevice  MIT  - PortAudio binding for microphone capture. See ADR 0003.
+#                     Brings cffi (and pycparser). Ships prebuilt PortAudio binaries on
+#                     Windows and macOS; on Linux it needs the system libportaudio2.
+#                     Imported only in src/on_the_fly/infrastructure/audio/, never in
+#                     domain/, and only lazily.
+sounddevice==0.5.6
