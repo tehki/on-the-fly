@@ -169,6 +169,37 @@ What is **not** an acceptable remedy, per this document's own rules: raising the
 match the measurement without a stated reason, or weakening validation, retention or
 verification to buy latency.
 
+## Third measurement — 2026-09-02, streaming
+
+The streaming engine landed (ADR 0008) and **the latency target is met for English**.
+
+Real English speech, 6.62 s, published alongside the pinned model, fed 20 ms at a time:
+
+| | sherpa-onnx streaming | faster-whisper batch | Budget |
+| --- | --- | --- | --- |
+| Real-time factor | **0.399x** | several times over 1.0x | under 1.0x to keep up |
+| First text visible | **1.10 s into the audio** | only after the utterance ends | — |
+| Endpoint → caption | keeps pace; the work happens as audio arrives | ~9 s median | p95 1500 ms |
+| Model load | 13.46 s | 2.25 s | 3 s target |
+
+The transcript was correct, and partials grew rather than being rewritten wholesale.
+
+**What this changes.** The budget's central failure — recognition several times slower than
+speech — is resolved for English. The pipeline can now keep up with a live conversation in
+the language it has a streaming model for.
+
+**What it does not change.** Two things get worse or stay open:
+
+- **Model load is 13.46 s against a 3 s target.** A cold ONNX session on a contended
+  machine, and a one-off per session rather than per utterance — but over budget as
+  measured, and recorded as such rather than explained away.
+- **Seven of eight languages are still unmeasured**, and six of them are not even licence-
+  cleared yet (ADR 0008). Tajik has no streaming path at all.
+
+The status line stays PROVISIONAL. One language measured on one publisher's own sample is a
+demonstration, not a baseline. The reference workload this document asks for — recorded
+conversational speech, three language pairs, one non-Latin script — has still never been run.
+
 ## Owner and review
 
 **Owner:** @tehki

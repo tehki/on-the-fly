@@ -6,13 +6,12 @@ Live speech translation. Speak without bounds with anyone worldwide.
 > will find the utterances and transcribe them with a local, integrity-verified Whisper
 > model. Translation is the remaining piece.
 >
-> **It is currently too slow for live use.** Whisper pads every utterance to a 30-second
-> window, so a two-second turn costs the same as a twenty-five-second one — several seconds
-> either way, far over budget. Measured and recorded, not yet solved:
+> **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
+> using sherpa-onnx with a pinned Apache-2.0 model
+> ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md)). The other seven languages still run
+> through Whisper, which pads every utterance to a 30-second window and is several times too
+> slow for live use. Measurements in
 > [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
->
-> The pipeline is written against a **streaming** recognition interface
-> ([ADR 0006](docs/adr/0006-streaming-recognition.md)) so a streaming engine can drop in.
 
 ## Languages
 

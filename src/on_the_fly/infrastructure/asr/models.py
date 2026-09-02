@@ -29,7 +29,32 @@ TINY = ModelPin(
     },
 )
 
-KNOWN_MODELS: dict[str, ModelPin] = {TINY.name: TINY}
+# The chunk/left-context variant of the pinned English model. Named once so the digest
+# entries stay readable rather than wrapping mid-hash.
+_EN_VARIANT = "epoch-99-avg-1-chunk-16-left-64.int8.onnx"
+
+# Streaming English (ADR 0006, ADR 0008). Apache-2.0, 72.7 MB. The int8 chunk-16-left-64
+# variant: the smaller left context is the lower-latency one, which is the whole point.
+STREAMING_EN = ModelPin(
+    name="streaming-en",
+    repo_id="csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26",
+    revision="672fbf1b30579d6585301139bb363f42a0ad4a24",
+    licence="Apache-2.0",
+    digests={
+        f"decoder-{_EN_VARIANT}": (
+            "98da299f471e38bb4e1a8df579b8cc9122d6039576a77e357b3c60f17dd83b02"
+        ),
+        f"encoder-{_EN_VARIANT}": (
+            "0d072fd4ef956294ba9db9e9a71a541ac70659095ec4934c8453d8b2fe740187"
+        ),
+        f"joiner-{_EN_VARIANT}": (
+            "d944208d660d67c8d72cd2acaeac971fa5ceb8c80e76c1968148846fedd6e297"
+        ),
+        "tokens.txt": "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb",
+    },
+)
+
+KNOWN_MODELS: dict[str, ModelPin] = {TINY.name: TINY, STREAMING_EN.name: STREAMING_EN}
 
 DEFAULT_MODEL = TINY
 

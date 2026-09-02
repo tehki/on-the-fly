@@ -23,3 +23,11 @@ sounddevice==0.5.6
 #                        a transitive accident.
 faster-whisper==1.2.1
 numpy==2.5.2
+
+# sherpa-onnx  Apache-2.0  - streaming speech recognition (Zipformer transducers via ONNX
+#                            Runtime). See ADR 0008. One transitive package
+#                            (sherpa-onnx-core), ~49 MB installed - a fraction of
+#                            faster-whisper, and it targets mobile, which is where ADR 0002
+#                            goes in phase 2. Imported only in
+#                            src/on_the_fly/infrastructure/asr/, and lazily.
+sherpa-onnx==1.13.7
