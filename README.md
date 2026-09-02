@@ -3,10 +3,13 @@
 Live speech translation. Speak without bounds with anyone worldwide.
 
 > **Status: early. There is no working translator yet.** What exists is the retention
-> engine, the audio capture and segmentation pipeline, the policy stack that governs them,
-> and the CI that enforces it. What does not exist: a microphone adapter, speech
-> recognition, or translation — each of which is a dependency decision not yet made.
-> Nothing here should be read as a claim beyond that.
+> engine, the audio capture and segmentation pipeline, a microphone adapter, the policy
+> stack that governs them, and the CI that enforces it. What does not exist: speech
+> recognition and translation, each a dependency decision not yet made.
+>
+> The microphone adapter has not been run against a real microphone — the machine it was
+> written on has output devices only. Its logic, error mapping and device enumeration are
+> tested; an actual capture is not. Nothing here should be read as a claim beyond that.
 
 ## What it is meant to be
 
@@ -46,6 +49,7 @@ rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
 | `tests/` | Tests for those validators |
 | `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
+| `src/on_the_fly/infrastructure/audio/` | The microphone adapter — the only place PortAudio exists |
 
 ## Working here
 

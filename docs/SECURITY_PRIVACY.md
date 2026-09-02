@@ -52,6 +52,26 @@ recorded exception.
 | Dependency trust is not implicit | Model weights are dependencies. See below. |
 | No unverified security claims | This repository does not describe audio as encrypted, deleted, or isolated unless that has been verified. |
 
+## Device access
+
+Opening a microphone is the most privileged thing this project does, and it is the one the
+user can see — the indicator light on their machine is part of the interface whether we
+intend it or not.
+
+`MicrophoneSource` therefore opens nothing at construction. The device is acquired when
+capture starts and released on every exit path: normal end, exception, and a caller that
+stops consuming. Holding a microphone open while idle is a privacy problem even if nothing
+reads from it.
+
+Device names are metadata, but not innocuous ones: people name hardware after themselves,
+so "Ilya's AirPods" identifies a person. Device names may be shown to the user who owns the
+device. They must not enter logs, metrics, telemetry or crash reports, and the adapter's
+`repr` deliberately omits them.
+
+The PortAudio binding ships prebuilt native binaries on Windows and macOS. That exposure is
+recorded in ADR 0003 rather than glossed over; it is mitigated by a pinned version and
+published build provenance, and it is explicitly **not** a reproducible-build claim.
+
 ## Model weights are dependencies
 
 A speech or translation model is executable trust in the same way a package is: it is

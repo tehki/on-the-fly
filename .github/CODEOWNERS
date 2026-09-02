@@ -37,3 +37,7 @@
 # Retention enforcement and the audio path it protects
 /src/on_the_fly/domain/retention/                         @tehki
 /src/on_the_fly/domain/audio/                             @tehki
+# Device access: the most privileged thing this project does.
+/src/on_the_fly/infrastructure/audio/                     @tehki
+# Runtime dependencies are executable trust (Article 12).
+/requirements.txt                                         @tehki
