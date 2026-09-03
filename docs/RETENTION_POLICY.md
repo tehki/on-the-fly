@@ -114,9 +114,18 @@ Article 13 fields, must be timezone-aware, and stops authorising anything past i
 Tests run on an injected `ManualClock`, not real sleeps, so a ten-second deadline is
 asserted at 9.999s and 10.001s rather than waited out (handbook 18).
 
-### What is not done yet
+### What is wired, and what is not
 
-The module is built and tested but **not yet wired to anything**, because no audio
-pipeline exists. `Deleter` implementations for real spill locations — temporary
-directories, model caches — are written when those locations are.
-`OPERATIONAL_METADATA` has a constant here and no storage behind it.
+The module is wired in. `app/pipeline.py` constructs an `EphemeralStore` and starts a
+`ThreadedReaper` for every run; the segmenter puts captured audio frames through it and the
+pipeline puts recognition transcripts through it; and every CLI command ends by stating
+whether the run finished holding nothing, returning a distinct exit code when it did not.
+
+Still outstanding:
+
+- **No `Deleter` for a real spill location.** Nothing spills to disk yet, so the store is
+  constructed with an empty deleter list and only process memory is purged. The temporary
+  directories and model caches that will need one get theirs when those locations exist.
+- **`OPERATIONAL_METADATA` has a constant here and no storage behind it.** The counters in
+  `domain/audio/session.py` and the microphone adapter are metadata-shaped and in-memory;
+  nothing is retained for 30 days because nothing is written down at all.

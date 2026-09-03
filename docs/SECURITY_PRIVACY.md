@@ -6,10 +6,35 @@ specifically, and what is and is not built yet.
 
 ## Current status
 
-**No application code exists.** This repository currently contains the policy stack, the
-governance scaffolding that enforces it, and documentation. Nothing here should be read as
-a claim that any runtime control is implemented. When the application lands, this section
-is updated to describe what is actually running, verified rather than intended.
+Application code exists. This section describes what it enforces at runtime, established
+by reading the tree rather than by intent, because a status section that has fallen behind
+the code is the exact failure Article 2 and handbook 52 exist to prevent.
+
+**Enforced now:**
+
+| Control | Where | What that means concretely |
+| --- | --- | --- |
+| Ten-second post-use expiry, driven by a scheduler | `app/pipeline.py` builds an `EphemeralStore` and runs a `ThreadedReaper` for every run | Captured audio frames (`domain/audio/segmenter.py`) and recognition transcripts (`app/pipeline.py`) are held *through* the store rather than beside it |
+| Deletion failure is reported, never swallowed | `app/cli.py` | Every command ends by stating whether the run finished holding nothing, and returns a distinct exit code when it could not delete what it held |
+| Model weights verified before use | `infrastructure/asr/model_store.py` | A model declaring no digests refuses to load; a file whose SHA-256 does not match its pin is refused and left in place for inspection; `allow_download` defaults to false |
+| The microphone is acquired late and released on every path | `infrastructure/audio/microphone.py` | Nothing is opened at construction, and device names are kept out of `repr` |
+
+**Not built, and therefore claimed by nothing:**
+
+- **No translation.** `Translator` in `domain/audio/ports.py` is a port with no
+  implementation.
+- **No `Deleter` for a real spill location.** Nothing spills to disk yet, so the store is
+  constructed with an empty deleter list and only process memory is purged.
+- **`OPERATIONAL_METADATA` has a constant and no storage behind it.** The counters that
+  exist are in-memory and metadata-shaped; nothing is written anywhere for 30 days.
+- **Nothing is encrypted.** Constitution Article 16 is a floor this project has not yet
+  had to stand on, not a description of it.
+- **The microphone adapter has never captured real audio.** It is tested against a fake
+  backend, and CI installs PortAudio so the real `sounddevice` backend is exercised for
+  import, device enumeration and error mapping — but no frame has ever arrived from
+  physical hardware.
+
+When any of that changes, this section changes with it.
 
 ## What this application will handle
 
@@ -104,5 +129,5 @@ must name the mechanism and be verifiable.
 Open a private security advisory on the repository rather than a public issue. Do not
 include audio samples, transcripts, credentials, or other sensitive content in a report —
 a reproduction case with the content removed is more useful and does not create a second
-disclosure. Article 15 of the handbook governs the response: contain, preserve minimum
+disclosure. Handbook 60 governs the response: contain, preserve minimum
 evidence, rotate anything exposed, fix the root cause, add a regression test.
