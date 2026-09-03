@@ -8,26 +8,23 @@ Live speech translation. Speak without bounds with anyone worldwide.
 >
 > **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
 > using sherpa-onnx with a pinned Apache-2.0 model
-> ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md)). The other seven languages still run
+> ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md)). The other six languages still run
 > through Whisper, which pads every utterance to a 30-second window and is several times too
 > slow for live use. Measurements in
 > [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 
 ## Languages
 
-Eight, at two tiers — because the tiers are real and pretending otherwise would mislead
-people ([ADR 0007](docs/adr/0007-supported-languages.md)):
+Seven: English, Russian, Spanish, Italian, French, Portuguese, German. Each has a published
+streaming model, so results can appear while you speak
+([ADR 0007](docs/adr/0007-supported-languages.md)). Only English is pinned and measured so
+far; the rest are named because a model exists for them, not because one has been adopted.
 
-| Tier | Languages | What it means |
-| --- | --- | --- |
-| **Streaming** | English, Russian, Spanish, Italian, French, Portuguese, German | Published streaming models exist; results appear while you speak |
-| **Batch** | Tajik | No streaming model exists anywhere. Recognised an utterance at a time, several seconds behind, and **accuracy is unverified** |
-
-Tajik is the honest problem here. A search of 134 published streaming model repositories
-found none for it; the one model covering it well is non-commercially licensed and therefore
-unusable in an Apache-2.0 project; and the one licence-clean Tajik-specific model is in a
-format faster-whisper cannot load without reintroducing a multi-gigabyte dependency. It
-attempts Tajik through base Whisper. Nobody has yet confirmed it is any good at it.
+**Tajik was the eighth and has been removed** ([ADR 0010](docs/adr/0010-drop-tajik.md)). It
+had no streaming model anywhere, no licence-clean batch model this project could load
+without a multi-gigabyte dependency, and no licence-clean translation model either. Three
+unverified stages behind the word "supported" is not support, and nobody here can read Tajik
+well enough to tell when it goes wrong. It comes back when a model does.
 >
 > The microphone adapter has not been run against a real microphone — the machine it was
 > written on has output devices only. Its logic, error mapping and device enumeration are
@@ -124,7 +121,7 @@ events        16 partial, 1 final
 retention     clean - nothing retained, no deletion failed
 ```
 
-Only languages with a pinned streaming model are accepted. Asking to stream Tajik is
+Only languages with a pinned streaming model are accepted. A language without one is
 refused rather than silently downgraded to batch latency — being told "no, use transcribe"
 is better than wondering why it is slow.
 
