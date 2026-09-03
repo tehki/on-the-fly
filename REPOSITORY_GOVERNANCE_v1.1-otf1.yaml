@@ -100,6 +100,7 @@ security_sensitive_paths:
     - /src/on_the_fly/infrastructure/audio/
     - /src/on_the_fly/app/
     - /src/on_the_fly/infrastructure/asr/
+    - /src/on_the_fly/infrastructure/translation/
     - /scripts/pin_model.py
     - /requirements.txt
 

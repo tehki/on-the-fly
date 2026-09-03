@@ -19,6 +19,10 @@ ignore = ["S603", "S607"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]  # pytest assertions
+# RUF002 flags Cyrillic characters that resemble Latin ones. This module's docstring quotes
+# real Russian model output as evidence that uppercase input is mistranslated (ADR 0009);
+# the characters are the point, not a typo. Narrow to one file and one rule.
+"src/on_the_fly/infrastructure/translation/opus_mt.py" = ["RUF002"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -45,6 +49,14 @@ ignore_missing_imports = true
 # the untyped surface is two files wide.
 [[tool.mypy.overrides]]
 module = ["faster_whisper", "huggingface_hub", "sherpa_onnx"]
+ignore_missing_imports = true
+
+# ctranslate2 ships no py.typed marker. It is used only in
+# src/on_the_fly/infrastructure/translation/, behind the Translator port and
+# TranslationModelStore, so the untyped surface is two files wide. sentencepiece needs no
+# override: it ships stubs, and the protocols in opus_mt.py are written to match them.
+[[tool.mypy.overrides]]
+module = ["ctranslate2", "ctranslate2.converters"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

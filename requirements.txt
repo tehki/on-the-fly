@@ -31,3 +31,20 @@ numpy==2.5.2
 #                            goes in phase 2. Imported only in
 #                            src/on_the_fly/infrastructure/asr/, and lazily.
 sherpa-onnx==1.13.7
+
+# ctranslate2    MIT  - the inference engine for translation. See ADR 0009. It was already
+#                       present transitively via faster-whisper, which is not the same as
+#                       being admitted: a transitive dependency is another package's
+#                       choice, and this project now depends on it directly. Declaring it
+#                       adds no bytes and removes the risk of faster-whisper dropping it.
+#                       Requires only numpy (already declared) and pyyaml. Imported only in
+#                       src/on_the_fly/infrastructure/translation/, and lazily.
+# sentencepiece  Apache-2.0 - tokenisation for OPUS-MT. The one genuinely new runtime
+#                       dependency this milestone adds, and a small one: verified to have
+#                       *no* transitive dependencies at all, no install scripts, and it
+#                       ships type stubs. Published by Google. Required because CTranslate2
+#                       takes tokens rather than text, and the OPUS-MT release supplies its
+#                       vocabulary as sentencepiece models. Imported only in
+#                       src/on_the_fly/infrastructure/translation/, and lazily.
+ctranslate2==4.8.2
+sentencepiece==0.2.2
