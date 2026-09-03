@@ -16,7 +16,7 @@ Everything this returns is metadata. Utterance audio stays in the store and expi
 from __future__ import annotations
 
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 
 from on_the_fly.domain.audio import (
@@ -29,6 +29,7 @@ from on_the_fly.domain.audio import (
     SpeechRecognizer,
     StreamingRecognizer,
     TranscriptEvent,
+    Translator,
     VoiceActivityDetector,
 )
 from on_the_fly.domain.retention import (
@@ -212,6 +213,75 @@ def run_capture(
         entries_remaining=len(active_store),
         store=active_store,
     )
+
+
+@dataclass(frozen=True)
+class TranslatedEvent:
+    """A transcript event, and its translation if it had one.
+
+    `translation` is `None` for every partial. That is ADR 0009's decision showing through
+    the type: translating text that is about to be revised costs an inference per partial —
+    sixteen on the measured English sample — and produces a caption that rewrites itself.
+    It also manufactures fifteen pieces of `EPHEMERAL` content nobody reads.
+
+    The cost is real and is not hidden: no translated text appears until the speaker stops.
+    The source-language caption still streams, so the screen is not empty while someone
+    talks, but this is prompt translation rather than live translation and interface copy
+    should say so.
+    """
+
+    event: TranscriptEvent
+    translation: str | None = None
+    translation_seconds: float | None = None
+
+    @property
+    def is_final(self) -> bool:
+        return self.event.is_final
+
+
+def translate_finals(
+    events: Iterable[TranscriptEvent],
+    translator: Translator,
+    *,
+    source_language: str,
+    target_language: str,
+    store: EphemeralStore | None = None,
+) -> Generator[TranslatedEvent, None, None]:
+    """Translate final transcript events as they arrive, passing partials straight through.
+
+    Yields rather than returns, for the same reason `StreamingRun.events()` does: a caller
+    that waited for the whole list would discard the latency the streaming recogniser
+    bought.
+
+    Retention: a translation is `EPHEMERAL` project content the moment it exists, so it is
+    placed in the store under the policy's `translation_output` profile and deleted on the
+    usual clock. Passing no store is for callers that own the lifetime themselves; it does
+    not mean the text is exempt.
+
+    A translation failure does not end the run. The transcript still reached the user, and
+    losing the source caption as well because the translator broke would take away the part
+    that was working — the event is yielded with `translation` left as `None`.
+    """
+    for event in events:
+        if not event.is_final:
+            yield TranslatedEvent(event)
+            continue
+
+        started = time.monotonic()
+        try:
+            translation = translator.translate(
+                event.text,
+                source_language=source_language,
+                target_language=target_language,
+            )
+        except Exception:
+            yield TranslatedEvent(event)
+            continue
+        elapsed = time.monotonic() - started
+
+        if store is not None and translation:
+            store.put(translation, label="translation_output")
+        yield TranslatedEvent(event, translation or None, elapsed)
 
 
 @dataclass(frozen=True)

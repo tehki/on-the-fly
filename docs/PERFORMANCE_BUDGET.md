@@ -200,6 +200,64 @@ The status line stays PROVISIONAL. One language measured on one publisher's own 
 demonstration, not a baseline. The reference workload this document asks for — recorded
 conversational speech, three language pairs, one non-Latin script — has still never been run.
 
+## Fourth measurement — 2026-09-04, end to end with translation
+
+Translation landed (ADR 0009) and was wired into the streaming path, so for the first time
+there is a number for the thing this document actually budgets: **endpoint to caption.**
+
+Real English speech, the 6.62 s sample published alongside the pinned recognition model,
+`stream --language en --translate-to ru` on the reference machine:
+
+| | Measured | Budget |
+| --- | --- | --- |
+| **Endpoint → caption** | **1476 ms** | p50 700 ms, **p95 1500 ms**, hard limit 2500 ms |
+| Real-time factor, recognition + translation | 0.539x (keeps up) | under 1.0x |
+| First source text visible | 1.12 s into the audio | — |
+| Recognition model load | 5.35 s | 3 s startup target |
+| Translation model load | 0.61 s | included in the above |
+| Retention | clean; nothing retained, no deletion failed | invariant, not a target |
+
+The transcript was correct and the Russian was correct.
+
+**Inside the p95 target, and only just.** 1476 ms against 1500 ms is not headroom, it is a
+coin landing on its edge — and it is the *worst case* for utterance length, an eighteen-word
+sentence. The shorter conversational turns measured during implementation take 490–570 ms,
+comfortably inside. So the honest summary is: typical turns are fine, long sentences are at
+the limit, and nothing here has been measured under CPU contention.
+
+**Why the real-time factor rose from 0.399x to 0.539x.** Translation is real work added to
+the same wall clock. It still keeps up, which is the property that matters, but the margin
+narrowed by a third and a second language pair running concurrently has never been tried.
+
+### Why this is still not the baseline
+
+The status line above stays **PROVISIONAL**, and the gap is now smaller but specific:
+
+- **One utterance.** This document asks for at least 50 per configuration. A single run is
+  not a distribution, and p95 is a word that requires one (handbook 64N.1).
+- **One language pair.** The reference workload asks for three.
+- **One publisher's own sample**, chosen to demonstrate their model. It is not adversarial,
+  and it is not a real room with a real microphone.
+- **Startup is still over budget.** 5.35 s of recognition model load against a 3 s target,
+  better than the 13.46 s of ADR 0008 but not fixed — and the first run for a new language
+  pair additionally pays a one-off 16.5 s to verify, extract and convert the translation
+  model.
+
+What did change: the budget's central question is no longer unanswerable. Before this run,
+endpoint-to-caption could not be measured at all because the stages did not exist.
+
+### One thing the measurement exposed that no budget line covers
+
+The recogniser emits uppercase text and the translator was trained on cased prose. Fed the
+raw recogniser output, the same sentence takes **5596 ms** instead of 1524 ms *and* comes
+back mistranslated — yellow lamps become white ones. Uppercase fragments into far more
+sentencepiece pieces, so the wrong answer is also the slow one.
+
+Recorded here because it would otherwise look like a pure quality defect. It was a latency
+defect too, and a budget that only tracked milliseconds would have caught it while a review
+that only read the Russian would also have caught it — but neither alone would have
+explained it.
+
 ## Owner and review
 
 **Owner:** @tehki

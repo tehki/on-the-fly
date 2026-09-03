@@ -13,9 +13,11 @@ from on_the_fly.app.pipeline import (
     PipelineResult,
     StreamingRun,
     StreamingStats,
+    TranslatedEvent,
     UtteranceRecord,
     build_store,
     run_capture,
+    translate_finals,
 )
 
 __all__ = [
@@ -23,7 +25,9 @@ __all__ = [
     "PipelineResult",
     "StreamingRun",
     "StreamingStats",
+    "TranslatedEvent",
     "UtteranceRecord",
     "build_store",
     "run_capture",
+    "translate_finals",
 ]
