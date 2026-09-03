@@ -1,7 +1,8 @@
 # ADR 0009 — Translation: CTranslate2 and OPUS-MT, on finals only
 
-**Status:** Proposed — the engine and the event shape are decided; **the language-coverage question needs a product decision**, and the model-format question below is open
-**Revision:** 2026-09-04 — added "Model format, and the pinning problem inherited from ADR 0007", found the day after drafting
+**Status:** **Accepted** for English→Russian — see "Decision 5", which records the product
+decisions and narrows the model-format question to something a measurement settles
+**Revision:** 2026-09-04 — added "Model format, and the pinning problem inherited from ADR 0007", then Decision 5 on acceptance
 **Date:** 2026-09-04
 **Deciders:** @tehki
 **Risk:** MODERATE — third model trust surface, and it commits the shape of the last stage in the pipeline
@@ -240,6 +241,71 @@ evidence: CTranslate2 is MIT, already present, and runs these models on CPU. Not
 argues for a different engine — it argues that "which artefact, from whom" is a separate
 decision that this ADR had quietly assumed away.
 
+## Decision 5 — English→Russian first, and what actually gets pinned
+
+Decided 2026-09-04 by @tehki: **English→Russian is the first pair**, and **Tajik is removed
+from the project entirely** ([ADR 0010](0010-drop-tajik.md)), which closes the third question
+this ADR left open.
+
+### The rule: pin a first-party artefact; never pin a conversion
+
+The three routes above collapse into one principle once it is stated properly.
+
+A pin's job is to attest that particular bytes came from a particular publisher. **A
+conversion's output cannot do that job, whoever performs it.** If this project converts, the
+digests attest to this machine. If an individual publishes a conversion, they attest to that
+individual. Neither is upstream provenance, and no amount of care by the converter changes
+what the digest is capable of proving.
+
+So: **pin what the publisher published, and treat the CTranslate2 model as a derived cache.**
+Trust flows from a verified input through a build step; the conversion does not need to be
+byte-reproducible, because nothing trusts its output digest. That answers ADR 0007's
+objection rather than working around it.
+
+This removes the third-party conversion as the primary route — not because the publisher
+examined earlier was careless, they were conscientious, but because conscientiousness is not
+the property in question.
+
+### Two first-party artefacts exist, and choosing between them is a real trade-off
+
+Both verified 2026-09-04:
+
+| | Marian release (`object.pouta.csc.fi`) | Hugging Face checkpoint |
+| --- | --- | --- |
+| Publisher | Helsinki-NLP / OPUS-MT, first-party | Helsinki-NLP, first-party |
+| en→ru | HTTP 200, 284,142,010 bytes, last modified 2020-02-14 | `Helsinki-NLP/opus-mt-en-ru` |
+| ru→en | HTTP 200, 284,237,045 bytes — **and a second release** dated 2020-02-26 | `Helsinki-NLP/opus-mt-ru-en` |
+| Ships | `decoder.yml`, `.npz` weights, `vocab.yml`, `source.spm`, `target.spm`, **its own `LICENSE`**, plus `preprocess.sh`, `postprocess.sh`, `source.tcmodel` | transformers checkpoint and tokeniser config |
+| Converter | `OpusMTConverter` — **no torch** | `ct2-transformers-converter` — **needs `transformers` and `torch`** |
+| Pinning machinery | new: URL plus digest | **existing**: `ModelStore` already pins Hugging Face repos by revision and file digest |
+
+The archive listing was read over an HTTP range request against the central directory, so
+the layout above is observed rather than assumed. Note that ru→en publishes **two** releases:
+"the" OPUS-MT model for a pair is not a well-defined object, which is an argument for pinning
+an exact artefact and a trap for anyone who assumes otherwise.
+
+The trade-off is not provenance — both are first-party. It is this:
+
+- **The Marian release costs preprocessing fidelity.** It ships `preprocess.sh`,
+  `postprocess.sh` and a truecasing model, meaning the input pipeline is the publisher's
+  shell scripts rather than a bundled tokeniser. Getting that subtly wrong raises no error;
+  it quietly produces worse translations. For a tool whose output nobody present can
+  spot-check in the target language, silent quality loss is the failure mode that matters
+  most — the same argument that removed Tajik.
+- **The Hugging Face checkpoint costs a build-time dependency.** Conversion needs
+  `transformers` and `torch`. That is the pair ADR 0005 avoided, but here it is needed
+  **only at build time and never at runtime**, which is a materially weaker objection than
+  ADR 0007's, where the same dependency would have been required to load the model at all.
+
+**Measurement settles this, not argument.** The first implementation converts both, translates
+the same sentences, and compares. If the outputs agree, the Marian release wins and the
+dependency question evaporates. If they differ, the checkpoint route is correct and torch at
+build time is the price of not shipping silently degraded translation.
+
+That comparison is the first task, before any pin is committed. The `LICENSE` inside the
+Marian archive is read at the same time and reconciled with the `apache-2.0` the Hugging Face
+page declares; a disagreement between them is itself a finding.
+
 ## Consequences
 
 - The pipeline gains its last stage, and the interface it is written against does not
@@ -262,12 +328,15 @@ decision that this ADR had quietly assumed away.
 
 ## Not decided here
 
-- Which language pair is implemented first.
-- Whether unsupported directions pivot through English, or are refused the way
-  `stream --language tg` is refused today.
-- Tajik's fate.
+- Whether unsupported directions pivot through English, or are refused the way a language
+  with no pinned model is refused today. Moot for English↔Russian, which is direct; it
+  returns with the third language.
 - Whether partial translation is ever revisited. The conditions are written above.
-- **Which of the three model-format routes above is taken.** This one gates the first pin.
+- **Which first-party artefact is pinned** — the Marian release or the Hugging Face
+  checkpoint. Decision 5 narrows this to a measurement and names the experiment.
+
+Settled since drafting: the first pair is English→Russian, Tajik is gone (ADR 0010), and
+conversions are never what gets pinned.
 
 ## Review trigger
 
