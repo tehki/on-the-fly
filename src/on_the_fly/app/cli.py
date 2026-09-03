@@ -22,7 +22,13 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from on_the_fly.app.pipeline import PipelineResult, StreamingRun, run_capture
+from on_the_fly.app.pipeline import (
+    PipelineResult,
+    StreamingRun,
+    TranslatedEvent,
+    run_capture,
+    translate_finals,
+)
 from on_the_fly.domain.audio import SegmenterConfig
 from on_the_fly.domain.languages import RecognitionTier
 from on_the_fly.domain.languages import resolve as resolve_language
@@ -38,12 +44,21 @@ from on_the_fly.infrastructure.asr import (
     resolve,
 )
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
+from on_the_fly.infrastructure.translation import (
+    TranslationArtifactError,
+    TranslationError,
+    TranslationModelStore,
+)
+from on_the_fly.infrastructure.translation import load as load_translator
+from on_the_fly.infrastructure.translation import resolve as resolve_artifact
 
 # Models are DURABLE_PROJECT_ARTIFACT, not project content: intentionally persistent, and
 # carrying nothing anyone said. They live outside the repository so a checkout stays small.
 DEFAULT_MODEL_CACHE = Path.home() / ".cache" / "on-the-fly" / "models"
 
 LINE_BREAK = chr(10)
+# Marks a translated line under the transcript it came from.
+ARROW = chr(8594)
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -132,6 +147,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--finals-only",
         action="store_true",
         help="hide partial results and show only finalised text",
+    )
+    stream.add_argument(
+        "--translate-to",
+        default=None,
+        metavar="LANG",
+        help=(
+            "translate finalised text into this language, e.g. ru. Only pairs with a "
+            "pinned model are accepted. Partials are never translated (ADR 0009)"
+        ),
     )
     stream.add_argument("--frame-ms", type=int, default=20)
     stream.add_argument("--threads", type=int, default=2)
@@ -329,6 +353,17 @@ def run_stream(args: argparse.Namespace) -> int:
             "Pin one with scripts/pin_model.py after checking its licence."
         ) from None
 
+    # Resolved before anything is downloaded or loaded. Asking for a pair this project
+    # cannot serve should cost a message, not a 73 MB recogniser fetch first (handbook 14:
+    # validate before you execute).
+    target = None
+    artefact = None
+    if args.translate_to is not None:
+        target = resolve_language(args.translate_to)
+        if target.code == language.code:
+            raise ValueError(f"source and target are both {target.name}; nothing to translate.")
+        artefact = resolve_artifact((language.code, target.code))
+
     source = WavFileSource(args.path, frame_ms=args.frame_ms)
     model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
     recognizer = SherpaStreamingRecognizer(model_dir, num_threads=args.threads)
@@ -345,14 +380,48 @@ def run_stream(args: argparse.Namespace) -> int:
     print(f"language      {language.name} ({language.code}, streaming)")
     print(f"model         {pin.name} (local, verified, {pin.licence})")
     print(f"model load    {load_seconds:.2f}s")
+
+    translator = None
+    if artefact is not None and target is not None:
+        translation_store = TranslationModelStore(
+            args.cache_dir, allow_download=args.allow_download
+        )
+        converted, spm = translation_store.ensure(artefact)
+        translator = load_translator(
+            converted, spm, source_language=language.code, target_language=target.code
+        )
+        print(f"translation   {artefact.name} (local, verified, {artefact.licence})")
+        # CC-BY-4.0 requires attribution reachable by a user. This line is where that
+        # obligation is met for the command line; a graphical interface owes its own.
+        print(f"attribution   {artefact.attribution}")
+
     print()
 
     run = StreamingRun(source, recognizer)
-    for event in run.events():
-        if event.is_final:
-            print(f"  {event}")
-        elif not args.finals_only:
-            print(f"  {event}")
+    translation_times: list[float] = []
+    translated = 0
+
+    events = run.events()
+    stream_out = (
+        translate_finals(
+            events,
+            translator,
+            source_language=language.code,
+            target_language=target.code,
+            store=run.store,
+        )
+        if translator is not None and target is not None
+        else (TranslatedEvent(event) for event in events)
+    )
+
+    for item in stream_out:
+        if item.is_final or not args.finals_only:
+            print(f"  {item.event}")
+        if item.translation is not None:
+            translated += 1
+            if item.translation_seconds is not None:
+                translation_times.append(item.translation_seconds)
+            print(f"  {'':>7}  {ARROW} {item.translation}")
 
     stats = run.stats
     if stats is None:  # pragma: no cover - events() always sets it
@@ -366,6 +435,18 @@ def run_stream(args: argparse.Namespace) -> int:
     if stats.first_text_after_seconds is not None:
         print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
     print(f"events        {stats.partials} partial, {stats.finals} final")
+    if translator is not None:
+        if translation_times:
+            ordered = sorted(translation_times)
+            median = ordered[len(ordered) // 2]
+            print(
+                f"translation   {translated} of {stats.finals} final(s), "
+                f"median {median * 1000:.0f}ms, max {max(ordered) * 1000:.0f}ms"
+            )
+        else:
+            # Distinguishable from "fast": nothing was translated at all. A silent zero
+            # would read as success.
+            print(f"translation   none produced from {stats.finals} final(s)")
     if stats.retention_clean:
         print("retention     clean - nothing retained, no deletion failed")
     else:
@@ -392,6 +473,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ModelStoreError,
         RecognitionError,
         StreamingRecognitionError,
+        TranslationArtifactError,
+        TranslationError,
         ValueError,
         KeyError,
     ) as exc:

@@ -2,9 +2,10 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: it transcribes, but it does not translate yet.** Point it at a WAV file and it
-> will find the utterances and transcribe them with a local, integrity-verified Whisper
-> model. Translation is the remaining piece.
+> **Status: it translates English to Russian, on one machine, on one sample.** Point it at
+> a WAV file and it will find the utterances, transcribe them with a local,
+> integrity-verified model, and — with `--translate-to ru` — translate the finalised text.
+> Every other language pair still has no translation model pinned.
 >
 > **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
 > using sherpa-onnx with a pinned Apache-2.0 model
@@ -70,6 +71,7 @@ rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 | `src/on_the_fly/infrastructure/audio/` | Microphone and WAV adapters — the only place PortAudio exists |
 | `src/on_the_fly/infrastructure/asr/` | Pinned models and the Whisper recogniser |
+| `src/on_the_fly/infrastructure/translation/` | Pinned translation artefacts and the CTranslate2 translator |
 | `src/on_the_fly/app/` | Composition root and command line |
 
 ## Try it
@@ -124,6 +126,30 @@ retention     clean - nothing retained, no deletion failed
 Only languages with a pinned streaming model are accepted. A language without one is
 refused rather than silently downgraded to batch latency — being told "no, use transcribe"
 is better than wondering why it is slow.
+
+Add `--translate-to ru` and finalised text is translated as well:
+
+```text
+translation   opus-mt-en-ru (local, verified, CC-BY-4.0)
+attribution   English-Russian translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-11,
+              licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT
+
+  [   0.00s final  ] AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE
+           → После раннего наступления темноты, желтые лампы загорались здесь и там
+
+translation   1 of 1 final(s), median 1476ms, max 1476ms
+```
+
+**Partials are never translated** ([ADR 0009](docs/adr/0009-translation.md)). Translating
+text that is about to be revised costs an inference per partial — sixteen on the sample
+above — and produces a caption that rewrites itself. So the source caption streams and the
+translation arrives when the speaker stops. That is prompt translation, not live
+translation, and it should not be described as the latter.
+
+The model is Helsinki-NLP's own OPUS-MT release, pinned by URL and SHA-256 and converted
+locally; the conversion is a derived cache and is never what gets trusted. Its licence is
+CC-BY-4.0, which requires attribution, which is why the attribution line is printed rather
+than buried in a source file.
 
 For the batch engine, first fetch the pinned model (78 MB, once):
 
