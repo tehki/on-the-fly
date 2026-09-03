@@ -16,7 +16,9 @@ import pytest
 
 from on_the_fly.app import StreamingRun
 from on_the_fly.app.cli import main
+from on_the_fly.domain import languages
 from on_the_fly.domain.audio import AudioFormat, TranscriptEvent
+from on_the_fly.domain.languages import Language, RecognitionTier
 from on_the_fly.infrastructure.audio import WavFileSource
 
 RATE = 16_000
@@ -229,17 +231,42 @@ def test_finals_only_hides_partials(
 
 
 def test_a_batch_only_language_is_refused_not_downgraded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Silently giving batch latency to someone who asked to stream is worse than refusing.
+
+    Tajik used to supply this case; ADR 0010 removed it, and no shipped language is BATCH
+    today. The guard in the CLI is still live, so the language is injected rather than the
+    test deleted — a control that stops being exercised is a control on its way out.
+    """
+    path = speech_wav(tmp_path / "a.wav")
+    batch_only = Language(
+        "xx",
+        "Example",
+        RecognitionTier.BATCH,
+        note="no streaming model exists",
+    )
+    monkeypatch.setitem(languages.SUPPORTED, "xx", batch_only)
+
+    exit_code = main(["stream", str(path), "--language", "xx", "--cache-dir", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "not a streaming language" in captured.err
+    assert "transcribe" in captured.err, "the error must say what to use instead"
+
+
+def test_a_removed_language_is_refused_outright(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Tajik. Silently giving batch latency to someone who asked to stream is worse."""
+    """ADR 0010: Tajik is gone, and asking for it fails closed rather than guessing."""
     path = speech_wav(tmp_path / "a.wav")
 
     exit_code = main(["stream", str(path), "--language", "tg", "--cache-dir", str(tmp_path)])
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "not a streaming language" in captured.err
-    assert "transcribe" in captured.err, "the error must say what to use instead"
+    assert "unsupported language" in captured.err
 
 
 def test_a_streaming_language_with_no_pinned_model_says_so(

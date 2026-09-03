@@ -6,18 +6,22 @@ mislead a user. So each language carries the tier it is actually served at, and 
 application is expected to tell the truth about it.
 
 The tiers come from ADR 0007, which records the evidence: a search of 134 published
-sherpa-onnx streaming model repositories, plus a licence check on every Tajik option found
-on the model hub.
+sherpa-onnx streaming model repositories, plus a licence check on every option found for the
+one language that had none.
 
 ```text
 STREAMING → a streaming model exists; results appear while the speaker is talking
 BATCH     → recognised an utterance at a time, several seconds behind
 ```
 
-Tajik is the reason this module exists. It is in the requested set, it has **no streaming
-model at all**, and its batch options are a licence minefield — so it is served at a
-different tier from the other seven, and saying otherwise in a UI would be a lie the code
-had helped tell.
+Tajik is why this module exists and is no longer in it. It had no streaming model, no
+licence-clean batch model this project could load, and — after ADR 0009 — no licence-clean
+translation model either, so ADR 0010 removed it rather than let three unverified stages
+compound behind the word "supported".
+
+`BATCH` therefore has no members today. It stays because the distinction it draws is the
+honest one, and the next language admitted may well need it; a registry that could only
+express "supported" is the thing ADR 0007 argued against.
 """
 
 from __future__ import annotations
@@ -59,7 +63,8 @@ class Language:
         return f"{self.name} ({self.code}, {self.tier}){suffix}"
 
 
-# The eight requested languages. Seven have published streaming models; Tajik has none.
+# Every language here has a published streaming model. Tajik was the eighth and was removed
+# by ADR 0010; re-adding it means finding a model, pinning it, and recording its tier.
 SUPPORTED: dict[str, Language] = {
     "en": Language("en", "English", RecognitionTier.STREAMING),
     "ru": Language("ru", "Russian", RecognitionTier.STREAMING),
@@ -68,15 +73,6 @@ SUPPORTED: dict[str, Language] = {
     "fr": Language("fr", "French", RecognitionTier.STREAMING),
     "pt": Language("pt", "Portuguese", RecognitionTier.STREAMING),
     "de": Language("de", "German", RecognitionTier.STREAMING),
-    "tg": Language(
-        "tg",
-        "Tajik",
-        RecognitionTier.BATCH,
-        note=(
-            "no streaming model exists; recognised an utterance at a time with several "
-            "seconds of delay, and accuracy is unverified"
-        ),
-    ),
 }
 
 
@@ -104,5 +100,9 @@ def streaming_languages() -> tuple[Language, ...]:
 
 
 def batch_languages() -> tuple[Language, ...]:
-    """The languages that work, but not live."""
+    """The languages that work, but not live. Empty since ADR 0010 removed Tajik.
+
+    Kept rather than deleted: the CLI refuses to stream a non-streaming language, and that
+    guard should exist before the language that needs it does, not after.
+    """
     return tuple(lang for lang in SUPPORTED.values() if not lang.is_streaming)

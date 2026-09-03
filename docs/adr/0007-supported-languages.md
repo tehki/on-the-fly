@@ -1,6 +1,9 @@
 # ADR 0007 — Eight languages, at two tiers, because Tajik has no streaming model
 
-**Status:** Accepted
+**Status:** Accepted, **amended 2026-09-04 by [ADR 0010](0010-drop-tajik.md)** — Tajik has
+been removed from the supported set, so the second tier now has no members. The reasoning
+below stands and is why the tier distinction is kept; the language set it concludes with is
+superseded.
 **Date:** 2026-09-02
 **Deciders:** @tehki
 **Risk:** MODERATE — sets what the product may claim
