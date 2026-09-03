@@ -86,10 +86,19 @@ cannot currently be used. Checked directly against the model hub:
 | Format | **transformers checkpoint** (`model.safetensors`), not CTranslate2 |
 | Loadable by faster-whisper | **No.** It needs `model.bin` in CTranslate2 format |
 
-Converting it needs `ct2-transformers-converter`, which is not installed here — only the
-fairseq, marian and gpt2 converters ship on the path — and which pulls **`transformers` plus
+Converting it needs `ct2-transformers-converter`, which pulls **`transformers` plus
 `torch`**. That is the multi-gigabyte dependency ADR 0005 specifically avoided, and it would
 come back as a build-time requirement.
+
+> **Corrected 2026-09-04.** This paragraph first said that converter "is not installed here
+> — only the fairseq, marian and gpt2 converters ship on the path". That is wrong. CTranslate2
+> 4.8.2 ships **all seven** converters, `ct2-transformers-converter` and `ct2-opus-mt-converter`
+> among them; verified against the installed package. What is absent is `transformers` and
+> `torch`, without which the converter raises `NameError: name 'torch' is not defined`.
+> The conclusion below is unchanged — conversion still drags in the dependency ADR 0005
+> avoided — but the evidence given for it was not checked and was not true. The distinction
+> matters beyond this ADR: a missing converter would be a permanent property of the engine,
+> while a missing dependency is a choice. See ADR 0009, which depends on which of those it is.
 
 Worse, converting locally does not fit the pinning model. A pin is a set of SHA-256 digests
 of files that arrived from a publisher. A locally converted artefact has digests that are

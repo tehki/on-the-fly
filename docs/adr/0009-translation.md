@@ -1,6 +1,7 @@
 # ADR 0009 — Translation: CTranslate2 and OPUS-MT, on finals only
 
-**Status:** Proposed — the engine and the event shape are decided; **the language-coverage question needs a product decision**
+**Status:** Proposed — the engine and the event shape are decided; **the language-coverage question needs a product decision**, and the model-format question below is open
+**Revision:** 2026-09-04 — added "Model format, and the pinning problem inherited from ADR 0007", found the day after drafting
 **Date:** 2026-09-04
 **Deciders:** @tehki
 **Risk:** MODERATE — third model trust surface, and it commits the shape of the last stage in the pipeline
@@ -175,6 +176,70 @@ licences are checkable. `m2m100_418M` stays the recorded fallback if pair covera
 sprawl turns out to be the real problem — it is MIT, covers 100 languages in one model, and
 its cost is size and speed. That is a decision to take on measurement, not in advance.
 
+## Model format, and the pinning problem inherited from ADR 0007
+
+**This was missed when this ADR was first drafted.** ADR 0007, investigating Tajik, made an
+argument that applies squarely here and was not carried across:
+
+> A pin is a set of SHA-256 digests of files that arrived from a publisher. A locally
+> converted artefact has digests that are whatever this machine produced, so a pin over it
+> verifies nothing except that the file has not changed since we made it.
+
+Helsinki-NLP publishes OPUS-MT as Marian and transformers checkpoints. **It does not publish
+CTranslate2 format.** So "OPUS-MT through CTranslate2" is not a thing that can simply be
+pinned and loaded the way `streaming-en` is; something has to convert it first, and whatever
+comes out of that conversion is the artefact the digests would cover.
+
+One part of ADR 0007's blocker does *not* apply, and one part applies with full force.
+
+**The dependency blocker is absent here.** `OpusMTConverter` and `MarianConverter` import and
+run without `torch` — verified against the installed package on 2026-09-04. Converting from
+Helsinki-NLP's *original Marian release* therefore needs no `transformers` and no `torch`.
+Only `ct2-transformers-converter`, which reads the Hugging Face checkpoint, drags those in.
+ADR 0007's Tajik model is a transformers checkpoint, which is why it hit the dependency wall
+and this does not.
+
+**The provenance blocker applies unchanged.** A model this project converts is a model this
+project publishes, with the obligations ADR 0007 already spelled out.
+
+### Pre-converted models exist, and they move the problem rather than solve it
+
+Third-party CTranslate2 conversions of OPUS-MT are published on Hugging Face by individuals —
+`ordois`, `michaelfeil`, `gaudi`, `manancode` among them. One was checked in detail on
+2026-09-04:
+
+| `ordois/opus-mt-en-ru-ctranslate2-int8` | |
+| --- | --- |
+| Licence | `apache-2.0`, matching upstream |
+| Source stated | `Helsinki-NLP/opus-mt-en-ru`, with the conversion command recorded |
+| Integrity reference | a SHA-256 of **its own** artefact |
+
+That is a conscientious model card, and it is still not what a pin needs. The digest attests
+that the bytes came from `ordois` — it does not establish that the conversion faithfully
+represents Helsinki-NLP's weights, and short of repeating the conversion (which needs `torch`)
+and finding it byte-reproducible (which nobody has established), there is no way to check.
+
+So pinning a pre-converted model does not remove ADR 0007's problem. It **exchanges it for an
+Article 12 publisher-trust problem**, and puts an individual, rather than an institution, in
+the supply chain for every sentence this application translates. That may still be the right
+trade — it is how most of this ecosystem works — but it is a dependency-admission decision
+about a *person*, and it must be recorded as one rather than slipped in as a file path.
+
+### Three routes, none free
+
+1. **Pin a third-party conversion**, and admit that publisher under Article 12 with the same
+   scrutiny any dependency gets.
+2. **Convert from Helsinki-NLP's original Marian release** — torch-free, unlike the Tajik
+   case — and accept becoming the publisher, with provenance recorded and the artefact
+   published so the pin covers something a contributor can also obtain.
+3. **Find a translation model whose own author publishes CTranslate2 format.** Not surveyed.
+   If one exists, it is strictly the cleanest of the three.
+
+**This blocks the first pin. It does not block the engine choice**, which stands on its own
+evidence: CTranslate2 is MIT, already present, and runs these models on CPU. Nothing above
+argues for a different engine — it argues that "which artefact, from whom" is a separate
+decision that this ADR had quietly assumed away.
+
 ## Consequences
 
 - The pipeline gains its last stage, and the interface it is written against does not
@@ -202,10 +267,12 @@ its cost is size and speed. That is a decision to take on measurement, not in ad
   `stream --language tg` is refused today.
 - Tajik's fate.
 - Whether partial translation is ever revisited. The conditions are written above.
+- **Which of the three model-format routes above is taken.** This one gates the first pin.
 
 ## Review trigger
 
-Before the first model is pinned — its licence, and any attribution obligation, checked
-individually. Again if measured translation p95 misses 1500 ms on the reference machine, in
+Before the first model is pinned — its licence, any attribution obligation, **and the
+format route above, including a publisher-trust review if the artefact comes from a
+third-party converter** — checked individually. Again if measured translation p95 misses 1500 ms on the reference machine, in
 which case the per-pair-versus-multilingual choice reopens with evidence behind it rather
 than reasoning.
