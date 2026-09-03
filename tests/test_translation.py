@@ -30,7 +30,11 @@ from on_the_fly.infrastructure.translation import (
     resolve,
     sentence_case,
 )
-from on_the_fly.infrastructure.translation.artifacts import OPUS_MT_EN_RU, file_digest
+from on_the_fly.infrastructure.translation.artifacts import (
+    OPUS_MT_EN_RU,
+    OPUS_MT_RU_EN,
+    file_digest,
+)
 
 
 class FakeResult:
@@ -271,6 +275,39 @@ def test_an_artefact_must_carry_a_real_digest() -> None:
             licence="CC-BY-4.0",
             attribution="x",
         )
+
+
+def test_the_pinned_russian_english_artefact_is_declared_correctly() -> None:
+    assert OPUS_MT_RU_EN.pair == ("ru", "en")
+    assert OPUS_MT_RU_EN.licence == "CC-BY-4.0"
+    assert len(OPUS_MT_RU_EN.sha256) == 64
+
+
+def test_the_two_directions_are_separate_artefacts() -> None:
+    """OPUS-MT models are directional; one pin cannot serve both ways."""
+    assert OPUS_MT_EN_RU.sha256 != OPUS_MT_RU_EN.sha256
+    assert OPUS_MT_EN_RU.url != OPUS_MT_RU_EN.url
+    assert OPUS_MT_EN_RU.pair == tuple(reversed(OPUS_MT_RU_EN.pair))
+
+
+def test_the_later_russian_english_release_is_the_pinned_one() -> None:
+    """Two releases exist for this pair. ADR 0011 takes the one that scores better.
+
+    Pinned by exact URL rather than by name, because "the ru-en model" names two things.
+    """
+    assert "opus-2020-02-26" in OPUS_MT_RU_EN.url
+
+
+def test_both_directions_carry_their_attribution() -> None:
+    """CC-BY-4.0 obliges attribution for each artefact actually used, not once overall."""
+    for artefact in (OPUS_MT_EN_RU, OPUS_MT_RU_EN):
+        assert "CC-BY-4.0" in artefact.attribution
+        assert "Helsinki-NLP" in artefact.attribution
+
+
+def test_resolving_the_reverse_pair_finds_the_reverse_artefact() -> None:
+    assert resolve(("ru", "en")) is OPUS_MT_RU_EN
+    assert resolve(("en", "ru")) is OPUS_MT_EN_RU
 
 
 def test_resolving_a_pair_with_no_pinned_model_is_refused() -> None:

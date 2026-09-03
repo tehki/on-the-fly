@@ -18,6 +18,7 @@ its retention window.
 from on_the_fly.infrastructure.translation.artifacts import (
     KNOWN_ARTIFACTS,
     OPUS_MT_EN_RU,
+    OPUS_MT_RU_EN,
     ArtifactIntegrityError,
     ArtifactNotPresentError,
     MarianArtifact,
@@ -36,6 +37,7 @@ from on_the_fly.infrastructure.translation.opus_mt import (
 __all__ = [
     "KNOWN_ARTIFACTS",
     "OPUS_MT_EN_RU",
+    "OPUS_MT_RU_EN",
     "ArtifactIntegrityError",
     "ArtifactNotPresentError",
     "MarianArtifact",

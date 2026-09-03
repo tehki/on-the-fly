@@ -2,10 +2,12 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: it translates English to Russian, on one machine, on one sample.** Point it at
-> a WAV file and it will find the utterances, transcribe them with a local,
-> integrity-verified model, and — with `--translate-to ru` — translate the finalised text.
-> Every other language pair still has no translation model pinned.
+> **Status: it translates English and Russian, both directions, on one machine.** Point it
+> at a WAV file and it will find the utterances, transcribe them with a local,
+> integrity-verified model, and translate them with `--translate-to`. English→Russian
+> streams; Russian→English runs through `transcribe` at batch latency, because Russian has
+> no licence-clean streaming model ([ADR 0011](docs/adr/0011-russian-recognition.md)).
+> No other pair has a translation model pinned.
 >
 > **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
 > using sherpa-onnx with a pinned Apache-2.0 model
@@ -16,10 +18,19 @@ Live speech translation. Speak without bounds with anyone worldwide.
 
 ## Languages
 
-Seven: English, Russian, Spanish, Italian, French, Portuguese, German. Each has a published
-streaming model, so results can appear while you speak
-([ADR 0007](docs/adr/0007-supported-languages.md)). Only English is pinned and measured so
-far; the rest are named because a model exists for them, not because one has been adopted.
+Seven, at two tiers ([ADR 0007](docs/adr/0007-supported-languages.md)):
+
+| Tier | Languages | What it means |
+| --- | --- | --- |
+| **Streaming** | English, Spanish, Italian, French, Portuguese, German | A streaming model exists; results appear while you speak. **Only English is pinned and measured** — the rest are named because a model exists, not because one has been adopted |
+| **Batch** | Russian | Recognised an utterance at a time through Whisper, several seconds behind |
+
+**Russian is batch for a licence reason, not a technical one**
+([ADR 0011](docs/adr/0011-russian-recognition.md)). A streaming Russian model exists and
+cannot be used: the sherpa-onnx republication declares no licence at all, and the upstream
+publisher's Apache-2.0 model says `non-streaming zipformer2` in its own metadata and loads
+only as an offline recogniser. That distinction matters — "nobody built one" waits, "the
+one that exists is unlicensed" is fixable by someone today.
 
 **Tajik was the eighth and has been removed** ([ADR 0010](docs/adr/0010-drop-tajik.md)). It
 had no streaming model anywhere, no licence-clean batch model this project could load
@@ -138,6 +149,13 @@ attribution   English-Russian translation by OPUS-MT (Helsinki-NLP), model opus-
            → После раннего наступления темноты, желтые лампы загорались здесь и там
 
 translation   1 of 1 final(s), median 1476ms, max 1476ms
+```
+
+For the other direction, Russian speech into English text — batch, several seconds behind,
+because Russian cannot stream:
+
+```bash
+python -m on_the_fly transcribe recording.wav --language ru --translate-to en --allow-download
 ```
 
 **Partials are never translated** ([ADR 0009](docs/adr/0009-translation.md)). Translating

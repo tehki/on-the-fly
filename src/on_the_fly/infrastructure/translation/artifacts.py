@@ -112,7 +112,40 @@ OPUS_MT_EN_RU = MarianArtifact(
     ),
 )
 
-KNOWN_ARTIFACTS: dict[str, MarianArtifact] = {OPUS_MT_EN_RU.name: OPUS_MT_EN_RU}
+# The other direction, so two people can hold a conversation rather than one being
+# understood. Verified 2026-09-04: HTTP 200, 284239842 bytes, and the same CC-BY-4.0
+# LICENSE travelling inside the archive.
+#
+# This pair publishes **two** releases, 2020-02-11 and 2020-02-26. The later one is taken:
+# on the publisher's own evaluation it scores BLEU 61.1 against 60.8 and chrF2 0.736
+# against 0.734. A small margin, but there is no reason to pin the worse of two artefacts,
+# and "the OPUS-MT model for ru-en" is not a well-defined phrase — which is the argument
+# for pinning an exact URL rather than a name.
+OPUS_MT_RU_EN = MarianArtifact(
+    name="opus-mt-ru-en",
+    url="https://object.pouta.csc.fi/OPUS-MT-models/ru-en/opus-2020-02-26.zip",
+    sha256="0dec3116acadd21b647cbcf8455a5bea22e5242e82633c7551e4c4767e799e83",
+    source_language="ru",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "Russian-English translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+    members=(
+        "decoder.yml",
+        "opus.spm32k-spm32k.transformer-align.model1.npz.best-perplexity.npz",
+        "opus.spm32k-spm32k.vocab.yml",
+        "source.spm",
+        "target.spm",
+        "LICENSE",
+    ),
+)
+
+KNOWN_ARTIFACTS: dict[str, MarianArtifact] = {
+    OPUS_MT_EN_RU.name: OPUS_MT_EN_RU,
+    OPUS_MT_RU_EN.name: OPUS_MT_RU_EN,
+}
 
 
 def resolve(pair: tuple[str, str]) -> MarianArtifact:
