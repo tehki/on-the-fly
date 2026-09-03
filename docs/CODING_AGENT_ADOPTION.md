@@ -93,9 +93,10 @@ Stated plainly, because the failure mode of governance work is believing it is f
   slower than real time. The pipeline is now written against a streaming interface
   (ADR 0006), but no engine that actually streams has been adopted. The language set is now
   decided (ADR 0007) and reduced to seven (ADR 0010).
-- **Six of the seven languages are unmeasured.** Only English has a pinned streaming model
-  and a measurement behind it. The other six are named on the strength of a published model
-  existing, which is not the same as one having been adopted, licence-checked or tested.
+- **Five of the six streaming languages are unmeasured.** Only English has a pinned
+  streaming model and a measurement behind it. The other five are named on the strength of
+  a published model existing, which is not the same as one having been adopted,
+  licence-checked or tested. Russian was demoted to batch on exactly that check (ADR 0011).
 - **No `Deleter` for a real spill location exists**, because nothing spills to disk yet.
 - **The performance budget is still PROVISIONAL.** Segmentation is now measured (median
   0.018x real time over 9 runs), but the endpoint-to-caption targets cover stages that

@@ -45,6 +45,7 @@ from on_the_fly.infrastructure.asr import (
 )
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
 from on_the_fly.infrastructure.translation import (
+    MarianArtifact,
     TranslationArtifactError,
     TranslationError,
     TranslationModelStore,
@@ -118,6 +119,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="permit fetching the model if it is not already present (off by default)",
     )
     transcribe.add_argument("--language", default=None, help="force a language, e.g. en")
+    transcribe.add_argument(
+        "--translate-to",
+        default=None,
+        metavar="LANG",
+        help=(
+            "translate each utterance into this language, e.g. en. Requires --language so "
+            "the pair is explicit; only pairs with a pinned model are accepted"
+        ),
+    )
     transcribe.add_argument("--frame-ms", type=int, default=20)
     transcribe.add_argument("--hangover-ms", type=int, default=500)
     transcribe.add_argument("--json", action="store_true")
@@ -246,6 +256,24 @@ def run_segment(args: argparse.Namespace) -> int:
 
 def run_transcribe(args: argparse.Namespace) -> int:
     """Segment, then transcribe each utterance with a verified local model."""
+    # Resolved before any model is fetched, so an unsupported pair costs a message rather
+    # than a download (handbook 14).
+    artefact = None
+    if args.translate_to is not None:
+        if args.language is None:
+            # Whisper will happily detect the language, but a translation model is
+            # directional: the pair has to be known before the pin can be chosen, and
+            # guessing it from audio would pick the model after the fact.
+            raise ValueError(
+                "--translate-to requires --language, because the translation model is "
+                "pinned per direction and the source language decides which one."
+            )
+        source_language = resolve_language(args.language)
+        target = resolve_language(args.translate_to)
+        if target.code == source_language.code:
+            raise ValueError(f"source and target are both {target.name}; nothing to translate.")
+        artefact = resolve_artifact((source_language.code, target.code))
+
     source = WavFileSource(args.path, frame_ms=args.frame_ms)
     config = SegmenterConfig(frame_ms=args.frame_ms, hangover_ms=args.hangover_ms)
 
@@ -261,7 +289,16 @@ def run_transcribe(args: argparse.Namespace) -> int:
     result = run_capture(source, config=config, recognizer=recognizer, keep_store=True)
     purge_failed = False
     try:
-        print(format_transcript(result, source, pin.name, as_json=args.json))
+        translations = (
+            _translate_utterances(result, artefact, args.cache_dir, args.allow_download)
+            if artefact is not None
+            else None
+        )
+        print(
+            format_transcript(
+                result, source, pin.name, as_json=args.json, translations=translations
+            )
+        )
     finally:
         # The purge runs whatever happened above, but the exit code is decided afterwards:
         # returning from a finally would swallow whatever exception got us here.
@@ -276,8 +313,68 @@ def run_transcribe(args: argparse.Namespace) -> int:
     return EXIT_RETENTION_FAILURE if purge_failed else EXIT_OK
 
 
+def _translate_utterances(
+    result: PipelineResult,
+    artefact: MarianArtifact,
+    cache_dir: Path,
+    allow_download: bool,
+) -> dict[int, str]:
+    """Translate each recognised utterance, returning index -> translation.
+
+    Batch latency all the way through: this path exists because Russian has no
+    licence-clean streaming model (ADR 0011), not because batch is a good way to hold a
+    conversation. It is the honest option rather than the fast one.
+
+    Retention: a translation is `EPHEMERAL` the moment it exists and goes into the same
+    store as the transcript it came from, so `run_transcribe`'s purge accounts for both.
+    A translation that fails is skipped rather than fatal — the transcript is still worth
+    showing.
+    """
+    store = result.store
+    if store is None:  # pragma: no cover - run_capture(keep_store=True) always sets it
+        return {}
+
+    converted, spm = TranslationModelStore(cache_dir, allow_download=allow_download).ensure(
+        artefact
+    )
+    translator = load_translator(
+        converted,
+        spm,
+        source_language=artefact.source_language,
+        target_language=artefact.target_language,
+    )
+    print(f"translation   {artefact.name} (local, verified, {artefact.licence})")
+    print(f"attribution   {artefact.attribution}")
+
+    translations: dict[int, str] = {}
+    for record in result.utterances:
+        if record.transcript_handle is None:
+            continue
+        with store.borrow(record.transcript_handle) as content:
+            text = str(content)
+        if not text:
+            continue
+        try:
+            rendered = translator.translate(
+                text,
+                source_language=artefact.source_language,
+                target_language=artefact.target_language,
+            )
+        except TranslationError:
+            continue
+        if rendered:
+            store.put(rendered, label="translation_output")
+            translations[record.index] = rendered
+    return translations
+
+
 def format_transcript(
-    result: PipelineResult, source: WavFileSource, model_name: str, *, as_json: bool
+    result: PipelineResult,
+    source: WavFileSource,
+    model_name: str,
+    *,
+    as_json: bool,
+    translations: dict[int, str] | None = None,
 ) -> str:
     """Render the transcripts. This is the one place content is deliberately shown."""
     store = result.store
@@ -297,11 +394,15 @@ def format_transcript(
                     "duration_seconds": round(record.duration_seconds, 3),
                     "recognition_seconds": round(record.recognition_seconds or 0.0, 3),
                     "text": text,
+                    "translation": (translations or {}).get(record.index),
                 }
             )
         else:
             timing = f"[{record.start_seconds:7.2f}s +{record.duration_seconds:4.2f}s]"
             lines.append(f"  {timing} {text or '(nothing recognised)'}")
+            rendered = (translations or {}).get(record.index)
+            if rendered:
+                lines.append(f"  {'':>21} {ARROW} {rendered}")
 
     if as_json:
         return json.dumps(

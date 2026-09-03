@@ -28,13 +28,27 @@ def test_the_seven_supported_languages_are_present() -> None:
     assert set(SUPPORTED) == {"en", "ru", "es", "it", "fr", "pt", "de"}
 
 
-def test_every_supported_language_streams() -> None:
-    """The evidence in ADR 0007 and the removal in ADR 0010, expressed as a test."""
+def test_the_tiers_match_what_can_actually_be_served() -> None:
+    """ADR 0007's evidence, ADR 0010's removal, and ADR 0011's demotion of Russian."""
     streaming = {lang.code for lang in streaming_languages()}
     batch = {lang.code for lang in batch_languages()}
 
-    assert streaming == {"en", "ru", "es", "it", "fr", "pt", "de"}
-    assert batch == set()
+    assert streaming == {"en", "es", "it", "fr", "pt", "de"}
+    assert batch == {"ru"}
+
+
+def test_russian_says_why_it_is_batch() -> None:
+    """A tier without its reason invites someone to "fix" it by flipping the enum.
+
+    Russian is not batch because nobody built a streaming model. One exists and cannot be
+    used: the republication is unlicensed and the licence-clean upstream is non-streaming
+    (ADR 0011). Those have different fixes, so the note has to survive.
+    """
+    russian = resolve("ru")
+
+    assert russian.tier is RecognitionTier.BATCH
+    assert russian.has_caveat
+    assert "licence" in russian.note
 
 
 def test_tajik_is_no_longer_supported() -> None:

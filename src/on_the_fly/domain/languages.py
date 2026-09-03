@@ -19,9 +19,11 @@ licence-clean batch model this project could load, and — after ADR 0009 — no
 translation model either, so ADR 0010 removed it rather than let three unverified stages
 compound behind the word "supported".
 
-`BATCH` therefore has no members today. It stays because the distinction it draws is the
-honest one, and the next language admitted may well need it; a registry that could only
-express "supported" is the thing ADR 0007 argued against.
+Russian is why it still exists. A streaming model for it *does* exist and this project
+cannot use it: the sherpa-onnx republication declares no licence at all, and the upstream
+publisher's Apache-2.0 model says `non-streaming zipformer2` in its own metadata and loads
+only as an offline recogniser (ADR 0011). So Russian is served, and served at batch
+latency, and the registry says so rather than letting the tier flatter it.
 """
 
 from __future__ import annotations
@@ -63,11 +65,20 @@ class Language:
         return f"{self.name} ({self.code}, {self.tier}){suffix}"
 
 
-# Every language here has a published streaming model. Tajik was the eighth and was removed
-# by ADR 0010; re-adding it means finding a model, pinning it, and recording its tier.
+# Tajik was the eighth and was removed by ADR 0010. Russian is BATCH because the only
+# streaming model for it is unlicensed (ADR 0011), not because none was ever built — which
+# is a different problem with a different fix, and the note says which one applies.
 SUPPORTED: dict[str, Language] = {
     "en": Language("en", "English", RecognitionTier.STREAMING),
-    "ru": Language("ru", "Russian", RecognitionTier.STREAMING),
+    "ru": Language(
+        "ru",
+        "Russian",
+        RecognitionTier.BATCH,
+        note=(
+            "no licence-clean streaming model exists; recognised an utterance at a time "
+            "through Whisper, several seconds behind"
+        ),
+    ),
     "es": Language("es", "Spanish", RecognitionTier.STREAMING),
     "it": Language("it", "Italian", RecognitionTier.STREAMING),
     "fr": Language("fr", "French", RecognitionTier.STREAMING),

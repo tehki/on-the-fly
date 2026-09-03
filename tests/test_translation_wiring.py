@@ -251,3 +251,54 @@ def test_a_pair_with_no_pinned_model_is_refused(
 
     assert exit_code == 1
     assert "no pinned translation model" in capsys.readouterr().err
+
+
+def test_transcribe_translation_requires_an_explicit_source_language(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Whisper can detect the language; a directional model must be chosen before it runs."""
+    path = speech_wav(tmp_path / "a.wav")
+
+    exit_code = main(
+        ["transcribe", str(path), "--translate-to", "en", "--cache-dir", str(tmp_path)]
+    )
+
+    assert exit_code == 1
+    assert "requires --language" in capsys.readouterr().err
+
+
+def test_transcribe_refuses_a_pair_with_no_pinned_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = speech_wav(tmp_path / "a.wav")
+
+    exit_code = main(
+        [
+            "transcribe",
+            str(path),
+            "--language",
+            "de",
+            "--translate-to",
+            "en",
+            "--cache-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "no pinned translation model" in capsys.readouterr().err
+
+
+def test_streaming_a_batch_language_points_at_transcribe(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0011: Russian is batch, and the refusal has to say where to go instead."""
+    path = speech_wav(tmp_path / "a.wav")
+
+    exit_code = main(["stream", str(path), "--language", "ru", "--cache-dir", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "not a streaming language" in captured.err
+    assert "licence" in captured.err, "the reason must survive, not just the refusal"
+    assert "transcribe" in captured.err
