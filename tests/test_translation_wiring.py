@@ -289,16 +289,20 @@ def test_transcribe_refuses_a_pair_with_no_pinned_model(
     assert "no pinned translation model" in capsys.readouterr().err
 
 
-def test_streaming_a_batch_language_points_at_transcribe(
+def test_russian_is_accepted_for_streaming(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """ADR 0011: Russian is batch, and the refusal has to say where to go instead."""
+    """ADR 0012. It gets as far as needing the model, rather than being refused outright.
+
+    The failure asserted here is "the model is not downloaded", which is the *next* thing
+    that should happen. ADR 0011 had this refusing at the language check instead.
+    """
     path = speech_wav(tmp_path / "a.wav")
 
     exit_code = main(["stream", str(path), "--language", "ru", "--cache-dir", str(tmp_path)])
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "not a streaming language" in captured.err
-    assert "licence" in captured.err, "the reason must survive, not just the refusal"
-    assert "transcribe" in captured.err
+    assert "not a streaming language" not in captured.err
+    assert "streaming-ru" in captured.err
+    assert "downloading is not enabled" in captured.err

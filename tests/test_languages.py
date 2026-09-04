@@ -29,26 +29,22 @@ def test_the_seven_supported_languages_are_present() -> None:
 
 
 def test_the_tiers_match_what_can_actually_be_served() -> None:
-    """ADR 0007's evidence, ADR 0010's removal, and ADR 0011's demotion of Russian."""
+    """ADR 0007's evidence, ADR 0010's removal, ADR 0012's restoration of Russian."""
     streaming = {lang.code for lang in streaming_languages()}
     batch = {lang.code for lang in batch_languages()}
 
-    assert streaming == {"en", "es", "it", "fr", "pt", "de"}
-    assert batch == {"ru"}
+    assert streaming == {"en", "ru", "es", "it", "fr", "pt", "de"}
+    assert batch == set()
 
 
-def test_russian_says_why_it_is_batch() -> None:
-    """A tier without its reason invites someone to "fix" it by flipping the enum.
-
-    Russian is not batch because nobody built a streaming model. One exists and cannot be
-    used: the republication is unlicensed and the licence-clean upstream is non-streaming
-    (ADR 0011). Those have different fixes, so the note has to survive.
-    """
+def test_russian_streams_again() -> None:
+    """ADR 0011 demoted Russian on a licence finding that was incomplete; ADR 0012 found
+    the model in a third repository and pinned it. No caveat, because there is no longer
+    anything to caveat."""
     russian = resolve("ru")
 
-    assert russian.tier is RecognitionTier.BATCH
-    assert russian.has_caveat
-    assert "licence" in russian.note
+    assert russian.tier is RecognitionTier.STREAMING
+    assert not russian.has_caveat
 
 
 def test_tajik_is_no_longer_supported() -> None:

@@ -35,6 +35,7 @@ from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure.asr import (
     DEFAULT_MODEL,
     KNOWN_MODELS,
+    STREAMING_LAYOUTS,
     FasterWhisperRecognizer,
     ModelStore,
     ModelStoreError,
@@ -467,7 +468,13 @@ def run_stream(args: argparse.Namespace) -> int:
 
     source = WavFileSource(args.path, frame_ms=args.frame_ms)
     model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
-    recognizer = SherpaStreamingRecognizer(model_dir, num_threads=args.threads)
+    recognizer = SherpaStreamingRecognizer(
+        model_dir,
+        num_threads=args.threads,
+        # Which file is the encoder differs per model: the English pin names its files
+        # after a training epoch, the Russian one after a chunk size (ADR 0012).
+        layout=STREAMING_LAYOUTS[pin.name],
+    )
     recognizer.validate_format(source.audio_format)
 
     # Loading is paid before the clock starts and reported on its own line. Folding it
