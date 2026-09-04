@@ -26,6 +26,7 @@ writes them nowhere.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -37,12 +38,32 @@ REQUIRED_SAMPLE_RATE_HZ = 16_000
 # int16 full scale; sherpa-onnx wants float32 in [-1, 1).
 _INT16_FULL_SCALE = 32768.0
 
-# The pinned model's filenames. Kept here rather than discovered by globbing: a recogniser
-# that picks up whatever ONNX file it finds would happily load something nobody pinned.
+
+@dataclass(frozen=True)
+class StreamingLayout:
+    """Which file in a pinned model directory plays which role.
+
+    Named per model rather than discovered by globbing: a recogniser that loads whatever
+    ONNX file it finds would happily load something nobody pinned. It became a parameter
+    when the second language arrived — the English model names its files after a training
+    epoch, the Russian one after a chunk size, and neither is a convention.
+    """
+
+    encoder: str
+    decoder: str
+    joiner: str
+    tokens: str = "tokens.txt"
+
+
+# The English pin (ADR 0008). Kept as the default so existing callers are unaffected.
 ENCODER_FILE = "encoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx"
 DECODER_FILE = "decoder-epoch-99-avg-1-chunk-16-left-64.int8.onnx"
 JOINER_FILE = "joiner-epoch-99-avg-1-chunk-16-left-64.int8.onnx"
 TOKENS_FILE = "tokens.txt"
+
+ENGLISH_LAYOUT = StreamingLayout(
+    encoder=ENCODER_FILE, decoder=DECODER_FILE, joiner=JOINER_FILE, tokens=TOKENS_FILE
+)
 
 
 class StreamingRecognitionError(Exception):
@@ -58,6 +79,7 @@ class SherpaStreamingRecognizer:
         *,
         num_threads: int = 1,
         decoding_method: str = "greedy_search",
+        layout: StreamingLayout = ENGLISH_LAYOUT,
     ) -> None:
         if num_threads < 1:
             raise ValueError("num_threads must be at least 1")
@@ -65,6 +87,7 @@ class SherpaStreamingRecognizer:
         self._model_dir = Path(model_dir)
         self._num_threads = num_threads
         self._decoding_method = decoding_method
+        self._layout = layout
 
         self._recognizer: Any | None = None
         self._stream: Any | None = None
@@ -103,7 +126,12 @@ class SherpaStreamingRecognizer:
 
         missing = [
             name
-            for name in (ENCODER_FILE, DECODER_FILE, JOINER_FILE, TOKENS_FILE)
+            for name in (
+                self._layout.encoder,
+                self._layout.decoder,
+                self._layout.joiner,
+                self._layout.tokens,
+            )
             if not (self._model_dir / name).is_file()
         ]
         if missing:
@@ -113,10 +141,10 @@ class SherpaStreamingRecognizer:
 
         try:
             self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
-                tokens=str(self._model_dir / TOKENS_FILE),
-                encoder=str(self._model_dir / ENCODER_FILE),
-                decoder=str(self._model_dir / DECODER_FILE),
-                joiner=str(self._model_dir / JOINER_FILE),
+                tokens=str(self._model_dir / self._layout.tokens),
+                encoder=str(self._model_dir / self._layout.encoder),
+                decoder=str(self._model_dir / self._layout.decoder),
+                joiner=str(self._model_dir / self._layout.joiner),
                 num_threads=self._num_threads,
                 sample_rate=REQUIRED_SAMPLE_RATE_HZ,
                 feature_dim=80,

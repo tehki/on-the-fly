@@ -2,11 +2,10 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: it translates English and Russian, both directions, on one machine.** Point it
-> at a WAV file and it will find the utterances, transcribe them with a local,
-> integrity-verified model, and translate them with `--translate-to`. English→Russian
-> streams; Russian→English runs through `transcribe` at batch latency, because Russian has
-> no licence-clean streaming model ([ADR 0011](docs/adr/0011-russian-recognition.md)).
+> **Status: it translates English and Russian, both directions, live.** Point it at a WAV
+> file and it will find the utterances, transcribe them with a local, integrity-verified
+> streaming model, and translate the finalised text with `--translate-to`. Both directions
+> keep up with the audio — 0.54x real time for English→Russian, 0.26x for Russian→English.
 > No other pair has a translation model pinned.
 >
 > **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
@@ -20,17 +19,10 @@ Live speech translation. Speak without bounds with anyone worldwide.
 
 Seven, at two tiers ([ADR 0007](docs/adr/0007-supported-languages.md)):
 
-| Tier | Languages | What it means |
-| --- | --- | --- |
-| **Streaming** | English, Spanish, Italian, French, Portuguese, German | A streaming model exists; results appear while you speak. **Only English is pinned and measured** — the rest are named because a model exists, not because one has been adopted |
-| **Batch** | Russian | Recognised an utterance at a time through Whisper, several seconds behind |
-
-**Russian is batch for a licence reason, not a technical one**
-([ADR 0011](docs/adr/0011-russian-recognition.md)). A streaming Russian model exists and
-cannot be used: the sherpa-onnx republication declares no licence at all, and the upstream
-publisher's Apache-2.0 model says `non-streaming zipformer2` in its own metadata and loads
-only as an offline recogniser. That distinction matters — "nobody built one" waits, "the
-one that exists is unlicensed" is fixable by someone today.
+Seven: English, Russian, Spanish, Italian, French, Portuguese, German. Each has a published
+streaming model, so results appear while you speak. **English and Russian are pinned and
+measured**; the other five are named because a model exists, not because one has been
+adopted, licence-checked or tested.
 
 **Tajik was the eighth and has been removed** ([ADR 0010](docs/adr/0010-drop-tajik.md)). It
 had no streaming model anywhere, no licence-clean batch model this project could load
@@ -160,12 +152,13 @@ nothing detectable — chrF2 66.62 against 66.56 — and runs 2.3x faster.
 That workload is read speech from a file, one language pair, no microphone, so the budget
 stays marked PROVISIONAL. See [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 
-For the other direction, Russian speech into English text — batch, several seconds behind,
-because Russian cannot stream:
+The other direction streams too ([ADR 0012](docs/adr/0012-russian-streams-after-all.md)):
 
 ```bash
-python -m on_the_fly transcribe recording.wav --language ru --translate-to en --allow-download
+python -m on_the_fly stream recording.wav --language ru --translate-to en --allow-download
 ```
+
+`transcribe --translate-to` remains available for any language without a streaming pin.
 
 **Partials are never translated** ([ADR 0009](docs/adr/0009-translation.md)). Translating
 text that is about to be revised costs an inference per partial — sixteen on the sample

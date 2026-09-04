@@ -27,6 +27,7 @@ from on_the_fly.infrastructure.asr.models import (
     DEFAULT_MODEL,
     KNOWN_MODELS,
     STREAMING_EN,
+    STREAMING_LAYOUTS,
     TINY,
     resolve,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "KNOWN_MODELS",
     "REQUIRED_SAMPLE_RATE_HZ",
     "STREAMING_EN",
+    "STREAMING_LAYOUTS",
     "TINY",
     "FasterWhisperRecognizer",
     "ModelIntegrityError",

@@ -19,11 +19,12 @@ licence-clean batch model this project could load, and — after ADR 0009 — no
 translation model either, so ADR 0010 removed it rather than let three unverified stages
 compound behind the word "supported".
 
-Russian is why it still exists. A streaming model for it *does* exist and this project
-cannot use it: the sherpa-onnx republication declares no licence at all, and the upstream
-publisher's Apache-2.0 model says `non-streaming zipformer2` in its own metadata and loads
-only as an offline recogniser (ADR 0011). So Russian is served, and served at batch
-latency, and the registry says so rather than letting the tier flatter it.
+Russian was BATCH for a day, on the finding that no licence-clean streaming model existed.
+That finding was wrong — the model was in a third repository nobody had opened — and
+ADR 0012 restores it to STREAMING with an Apache-2.0 pin. The episode is why `BATCH` stays
+defined with no members: the tier that stops a language being described as better served
+than it is has now been needed once and wrongly applied once, and both are reasons to keep
+it rather than reasons to delete it.
 """
 
 from __future__ import annotations
@@ -65,20 +66,11 @@ class Language:
         return f"{self.name} ({self.code}, {self.tier}){suffix}"
 
 
-# Tajik was the eighth and was removed by ADR 0010. Russian is BATCH because the only
-# streaming model for it is unlicensed (ADR 0011), not because none was ever built — which
-# is a different problem with a different fix, and the note says which one applies.
+# Tajik was the eighth and was removed by ADR 0010. Every language here streams; Russian
+# rejoined them in ADR 0012 once the model that had been missed was found and pinned.
 SUPPORTED: dict[str, Language] = {
     "en": Language("en", "English", RecognitionTier.STREAMING),
-    "ru": Language(
-        "ru",
-        "Russian",
-        RecognitionTier.BATCH,
-        note=(
-            "no licence-clean streaming model exists; recognised an utterance at a time "
-            "through Whisper, several seconds behind"
-        ),
-    ),
+    "ru": Language("ru", "Russian", RecognitionTier.STREAMING),
     "es": Language("es", "Spanish", RecognitionTier.STREAMING),
     "it": Language("it", "Italian", RecognitionTier.STREAMING),
     "fr": Language("fr", "French", RecognitionTier.STREAMING),

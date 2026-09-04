@@ -1,6 +1,12 @@
 # ADR 0011 — Russian is a batch language, because its streaming model is unlicensed
 
-**Status:** Accepted
+**Status:** **Superseded 2026-09-04 by [ADR 0012](0012-russian-streams-after-all.md).** Its
+central finding — that no licence-clean streaming Russian model exists — is false. It checked
+two of the publisher's repositories and generalised over a search space it had not
+enumerated; the model is in a third, named in the README of the artefact this ADR already
+knew worked. The reasoning about *why* the two it examined were unusable is still correct,
+and the distinction it drew between "no model exists" and "the one that exists is unusable"
+is the distinction that turned out to matter. Left in place unedited.
 **Date:** 2026-09-04
 **Deciders:** @tehki
 **Risk:** MODERATE — narrows what one supported language can do

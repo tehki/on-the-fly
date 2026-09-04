@@ -12,6 +12,7 @@ repository is Apache-2.0 (ADR 0001).
 from __future__ import annotations
 
 from on_the_fly.infrastructure.asr.model_store import ModelPin
+from on_the_fly.infrastructure.asr.sherpa_streaming import ENGLISH_LAYOUT, StreamingLayout
 
 # 78.2 MB. The smallest useful Whisper model: fast enough to prove the pipeline on a CPU,
 # and honestly not accurate enough to ship a translator on. Larger models are added by
@@ -54,7 +55,54 @@ STREAMING_EN = ModelPin(
     },
 )
 
-KNOWN_MODELS: dict[str, ModelPin] = {TINY.name: TINY, STREAMING_EN.name: STREAMING_EN}
+# Streaming Russian (ADR 0012). Apache-2.0, first-party, 95 MB across three chunk64 files.
+#
+# ADR 0011 concluded that no licence-clean streaming Russian model existed. It was wrong:
+# it checked `alphacep/vosk-model-ru` and `alphacep/vosk-model-small-ru` and stopped, and
+# the model it needed is a third repository whose name says what it is. The sherpa-onnx
+# republication's README names it in one line, which is exactly where its maintainer
+# pointed when asked.
+#
+# `chunk64` rather than int8: those are the variants exported with the streaming metadata
+# sherpa requires. The encoder's own metadata says `streaming zipformer2` and carries the
+# `encoder_dims` the other two lacked — which is the difference the earlier ADR read as a
+# licensing problem when it was a packaging one.
+STREAMING_RU = ModelPin(
+    name="streaming-ru",
+    repo_id="alphacep/vosk-model-small-streaming-ru",
+    revision="e18123ee13f694036a1eea82eb43f9895387cb59",
+    licence="Apache-2.0",
+    digests={
+        "am-onnx/encoder.chunk64.onnx": (
+            "5423647f6fc579c765c494ef4f6747c3cfc1847d08691cceac7b6b4210620982"
+        ),
+        "am-onnx/decoder.chunk64.onnx": (
+            "3cca47e861640eed6b0693fd68fa25a48ed584ab053e0db8259fa26cbf85054e"
+        ),
+        "am-onnx/joiner.chunk64.onnx": (
+            "df4cd0d4609a5877a0b72a44c439b5baefd1788249cb59327dc3cf476ef34219"
+        ),
+        "lang/tokens.txt": "93bbbc0bae6b78c0bbb743d4aa9fded3bb5ff3aac5f0200e3a769a5a05e0fdf6",
+    },
+)
+
+# Which file plays which role, per pin. The English model names its files after a training
+# epoch and the Russian one after a chunk size; neither is a convention worth guessing at.
+STREAMING_LAYOUTS: dict[str, StreamingLayout] = {
+    STREAMING_EN.name: ENGLISH_LAYOUT,
+    STREAMING_RU.name: StreamingLayout(
+        encoder="am-onnx/encoder.chunk64.onnx",
+        decoder="am-onnx/decoder.chunk64.onnx",
+        joiner="am-onnx/joiner.chunk64.onnx",
+        tokens="lang/tokens.txt",
+    ),
+}
+
+KNOWN_MODELS: dict[str, ModelPin] = {
+    TINY.name: TINY,
+    STREAMING_EN.name: STREAMING_EN,
+    STREAMING_RU.name: STREAMING_RU,
+}
 
 DEFAULT_MODEL = TINY
 
