@@ -37,11 +37,12 @@ well enough to tell when it goes wrong. It comes back when a model does.
 > DC-offset garbage, and raw `sounddevice` produces the same, so that is the hardware
 > rather than the adapter. Recognition from a live microphone remains untested.
 >
-> The 16 kHz limitation is **fixed** ([ADR 0013](docs/adr/0013-capture-rate-negotiation.md)):
-> the adapter now negotiates a rate the device accepts and resamples to 16 kHz, verified
-> capturing from hardware that previously refused outright. One separate problem remains and
-> is not ours — one of three input devices aborts the process during blocking reads, which
-> reproduces with raw `sounddevice` and no project code involved.
+> Capture works on every input device on the reference machine. The adapter negotiates a
+> rate the device accepts and resamples to 16 kHz
+> ([ADR 0013](docs/adr/0013-capture-rate-negotiation.md)), and reads through PortAudio's
+> callback rather than blocking reads, which was aborting the process on one device
+> ([ADR 0015](docs/adr/0015-callback-capture.md)). The audio on that machine is still
+> saturated hardware, so recognition from a live microphone remains unverified.
 
 ## What it is meant to be
 
