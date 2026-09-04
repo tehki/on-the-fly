@@ -30,9 +30,17 @@ without a multi-gigabyte dependency, and no licence-clean translation model eith
 unverified stages behind the word "supported" is not support, and nobody here can read Tajik
 well enough to tell when it goes wrong. It comes back when a model does.
 >
-> The microphone adapter has not been run against a real microphone — the machine it was
-> written on has output devices only. Its logic, error mapping and device enumeration are
-> tested; an actual capture is not. Nothing here should be read as a claim beyond that.
+> The microphone adapter now runs against real hardware: it opens a device, yields
+> correctly sized frames at the right cadence, releases on every exit path, and maps real
+> ALSA failures to typed errors. What has **not** been verified is capture of *usable*
+> audio — the machine it was tested on has an input device that produces saturated,
+> DC-offset garbage, and raw `sounddevice` produces the same, so that is the hardware
+> rather than the adapter. Recognition from a live microphone remains untested.
+>
+> One real limitation surfaced: the adapter asks for 16 kHz and does not resample. Both
+> named hardware devices refused that rate outright; only the resampling system default
+> accepted it. On hardware that does not natively offer 16 kHz, capture will fail with a
+> clear error rather than silently degrade — but it will fail.
 
 ## What it is meant to be
 

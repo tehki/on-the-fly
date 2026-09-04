@@ -81,12 +81,19 @@ looked thorough and enforced very little. The specific defects, and what was don
 
 Stated plainly, because the failure mode of governance work is believing it is finished:
 
-- **The microphone adapter has never captured real audio.** `MicrophoneSource` is
-  implemented, tested against a fake backend, and mutation-tested, and the real
-  `sounddevice` backend is exercised in CI for import, device enumeration and error
-  mapping. But the machine it was written on reports six audio devices, all output-only,
-  so no frame has ever come from a physical microphone. That gap closes the first time
-  someone runs it on hardware with an input device.
+- **The microphone adapter has captured real audio; the audio was not usable.** Run on a
+  machine with input devices 2026-09-04: it opened a stream, yielded 100 frames of 640
+  bytes at real-time cadence, reported zero overflows, and released the device on exit.
+  Real ALSA open failures were mapped to `AudioDeviceError` with the device's own message,
+  which had previously only been tested against a fake.
+
+  What is still unverified is capture of *usable* audio. That machine's input produced 64%
+  clipped samples with a −15838 DC offset, and raw `sounddevice` produced the same, so it
+  is the hardware and not the adapter. Recognition from a live microphone remains untested.
+
+- **The adapter requests 16 kHz and does not resample.** Both named hardware devices
+  refused that rate; only the resampling system default accepted it. This is a real
+  limitation on real hardware, and it fails loudly rather than silently.
 - **No translation.** `Translator` is still a port with no implementation. Speech
   recognition now exists (ADR 0005) with weights pinned by digest and verified on load.
 - **Recognition misses the performance budget by several times over** and the pipeline runs
