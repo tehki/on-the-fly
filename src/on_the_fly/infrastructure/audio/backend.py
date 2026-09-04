@@ -70,6 +70,28 @@ class CaptureBackend(Protocol):
         """Open a capture stream, or raise `AudioDeviceError`."""
         ...
 
+    def default_sample_rate(self, device: int | str | None = None) -> int | None:
+        """The device's own preferred rate, or None if it cannot be determined.
+
+        Used to negotiate rather than demand (ADR 0013): a device that offers 48 kHz should
+        be asked for 48 kHz rather than refused. Returning None is not an error — it means
+        the caller falls back to a candidate list.
+        """
+        ...
+
+    def supports_rate(
+        self, sample_rate_hz: int, *, channels: int, device: int | str | None = None
+    ) -> bool:
+        """Whether the device accepts this rate, **without opening a stream**.
+
+        Negotiation probes rather than opening and retrying, because repeatedly opening a
+        stream that fails corrupts the heap in PortAudio's ALSA backend — observed as
+        `malloc(): mismatching next->prev_size` and a core dump after four failed opens in
+        one process (ADR 0013). Probing is cheap and does not touch the allocator path that
+        breaks.
+        """
+        ...
+
 
 class _SoundDeviceStream:
     """Wraps a `sounddevice.RawInputStream` behind `InputStream`."""
@@ -172,6 +194,34 @@ class SoundDeviceBackend:
                 f"could not open an input stream at {sample_rate_hz}Hz: {exc}"
             ) from exc
         return _SoundDeviceStream(raw)
+
+    def default_sample_rate(self, device: int | str | None = None) -> int | None:
+        sounddevice = self._import_sounddevice()
+        try:
+            info = sounddevice.query_devices(
+                device if device is not None else sounddevice.default.device[0]
+            )
+            rate = int(float(info["default_samplerate"]))
+        except Exception:
+            # Not knowing the native rate is a reason to try the candidate list, not a
+            # reason to fail before the device has been asked for anything.
+            return None
+        return rate if rate > 0 else None
+
+    def supports_rate(
+        self, sample_rate_hz: int, *, channels: int, device: int | str | None = None
+    ) -> bool:
+        sounddevice = self._import_sounddevice()
+        try:
+            sounddevice.check_input_settings(
+                device=device,
+                samplerate=sample_rate_hz,
+                channels=channels,
+                dtype=PCM_DTYPE,
+            )
+        except Exception:
+            return False
+        return True
 
     def input_device_names(self) -> Sequence[str]:
         """Names of available input devices, for a device picker.
