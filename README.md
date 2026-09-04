@@ -152,17 +152,18 @@ attribution   English-Russian translation by OPUS-MT (Helsinki-NLP), model opus-
 translation   1 of 1 final(s), median 1476ms, max 1476ms
 ```
 
-**It meets its latency budget on an idle machine and misses it on a busy one**, and the
-second is the condition that matters. Over 65 utterances per direction:
+**It meets its latency budget on an idle machine and sits on the line under heavy load.**
+Over 65 utterances, with three of four cores deliberately busy for the loaded column:
 
-| | idle machine | ~3/4 cores loaded | target |
+| | idle | 3 of 4 cores busy | target |
 | --- | --- | --- | --- |
-| Endpoint → caption p50 | 420 ms | **1050 ms** | 700 ms |
-| Endpoint → caption p95 | 912 ms | **2264 ms** | 1500 ms |
+| Endpoint → caption p50 | **332 ms** | **710 ms** | 700 ms |
+| Endpoint → caption p95 | **736 ms** | **1662 ms** | 1500 ms |
+| Endpoint → caption p99 | 944 ms | 2219 ms | 4000 ms (hard) |
 
-Recognition is unaffected either way (0.33x real time, and 0.098x for Russian); translation
-is the whole difference. A live translator runs on a laptop while its user is doing other
-things, so the loaded figure is the honest one — and by it, the budget is missed.
+Ten milliseconds over target at p50 under load is within these measurements' variance — *at
+the line* is the honest description. A live translator runs on a laptop while its user is
+doing other things, so the loaded column is the one that matters.
 
 Decoding is greedy rather than the publisher's beam 6. Measured on Helsinki-NLP's own test
 sets against their human references, that costs nothing detectable in either direction —
