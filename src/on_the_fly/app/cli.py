@@ -159,6 +159,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="hide partial results and show only finalised text",
     )
+    subcommands.add_parser(
+        "gui",
+        help="open the desktop window",
+        description=(
+            "Opens the desktop interface. Requires the optional UI extra: "
+            "pip install -r requirements-ui.txt"
+        ),
+    )
+
     stream.add_argument(
         "--translate-to",
         default=None,
@@ -585,6 +594,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_transcribe(args)
         if args.command == "stream":
             return run_stream(args)
+        if args.command == "gui":
+            # Imported here so the command line never needs a GUI toolkit installed.
+            from on_the_fly.ui.app import run as run_gui
+
+            return run_gui()
     except (
         WavSourceError,
         ModelStoreError,

@@ -59,6 +59,20 @@ ignore_missing_imports = true
 module = ["ctranslate2", "ctranslate2.converters"]
 ignore_missing_imports = true
 
+# PySide6 is an optional extra (ADR 0016) and CI deliberately does not install it — a 76 MB
+# wheel on every run, to type-check code that needs a display to do anything, would be
+# paying for nothing. So the type checker must pass both with it and without it.
+[[tool.mypy.overrides]]
+module = ["PySide6", "PySide6.*"]
+ignore_missing_imports = true
+
+# Without the stubs the Qt base classes resolve to Any, and strict mode refuses to subclass
+# Any. Narrowed to the two modules that touch widgets; everything interesting about the
+# window lives in ui/caption.py, which imports no Qt and is checked strictly.
+[[tool.mypy.overrides]]
+module = ["on_the_fly.ui.window", "on_the_fly.ui.app"]
+disallow_subclassing_any = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["scripts", "src"]

@@ -1,0 +1,15 @@
+# Optional extra: the desktop interface. See ADR 0016.
+#
+# Kept out of requirements.txt on purpose. The pipeline, the command line and the whole test
+# suite run without a GUI toolkit, and CI installs this file nowhere — a 76 MB wheel on every
+# run to test code that has no display would be paying for nothing.
+#
+# PySide6-Essentials  LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+#   Qt for Python, the toolkit ADR 0002 named for phase 1. 76 MB, one transitive package
+#   (shiboken6). The LGPL obligation is real and is discharged by how Python uses it: the
+#   library is imported dynamically from a wheel the user installs and can replace with
+#   `pip install`, this project makes no modifications to it, and it is an optional extra
+#   rather than something bundled. The notice belongs in any distributed build.
+#
+#   Install with:  pip install -r requirements-ui.txt
+PySide6-Essentials==6.11.2

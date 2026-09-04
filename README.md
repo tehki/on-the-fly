@@ -72,6 +72,27 @@ interface. Proves the pipeline and the retention module against real audio.
 **Phase 2 — mobile.** iOS and Android, inference moved native. A port of the edges, not a
 rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
 
+## The window
+
+```bash
+pip install -r requirements-ui.txt
+python -m on_the_fly gui
+```
+
+A dark caption window: what is being said in white, the translation under it in green,
+partials dimmed so "this may still change" is visible without a word for it.
+
+**There is no scrollback, on purpose** ([ADR 0016](docs/adr/0016-desktop-interface.md)). The
+window shows one utterance; the next one replaces it. `docs/RETENTION_POLICY.md` puts it in
+a line — *live translation is fine, scrollback is not* — and a history pane would quietly
+break the promise the project is arranged around. The cost is real and worth stating: look
+away and you miss it. Adding history later needs a record in `docs/EXCEPTIONS.md` with an
+owner and an expiry, which is the right amount of friction for a change to what the product
+retains.
+
+PySide6 is an **optional extra**. The pipeline, the command line and the whole test suite run
+without a GUI toolkit installed.
+
 ## Repository layout
 
 | Path | Contents |
@@ -86,6 +107,7 @@ rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
 | `src/on_the_fly/infrastructure/asr/` | Pinned models and the Whisper recogniser |
 | `src/on_the_fly/infrastructure/translation/` | Pinned translation artefacts and the CTranslate2 translator |
 | `src/on_the_fly/app/` | Composition root and command line |
+| `src/on_the_fly/ui/` | The desktop window — logic in `caption.py`, widgets in `window.py` |
 
 ## Try it
 
