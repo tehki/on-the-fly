@@ -55,6 +55,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Protocol
 
+# Both defaults live here because they used to live in two places and drifted: the
+# constructor said greedy while `load()` said beam 6, so every translation the application
+# actually performed used beam 6 while the tests — which built the class directly —
+# asserted greedy. A shared constant makes that particular mistake impossible.
+DEFAULT_BEAM_SIZE = 1
+DEFAULT_INTRA_THREADS = 1
+
 
 class TranslationError(RuntimeError):
     """Translation could not be performed. Never raised to mean "the output was poor"."""
@@ -125,7 +132,7 @@ class OpusMtTranslator:
         *,
         source_language: str,
         target_language: str,
-        beam_size: int = 1,
+        beam_size: int = DEFAULT_BEAM_SIZE,
     ) -> None:
         self._engine = engine
         self._source = source_tokeniser
@@ -187,13 +194,29 @@ def load(
     *,
     source_language: str,
     target_language: str,
-    beam_size: int = 6,
+    beam_size: int = DEFAULT_BEAM_SIZE,
+    intra_threads: int = DEFAULT_INTRA_THREADS,
 ) -> OpusMtTranslator:
     """Build a translator from a converted model directory and its sentencepiece models.
 
     `ctranslate2` and `sentencepiece` are imported here rather than at module scope so the
     domain, the tests and a machine with no model can import this module freely — the same
     lazy-import shape `ModelStore._download` uses.
+
+    **`intra_threads=1` is deliberate and measured.** CTranslate2 defaults to using every
+    core for one translation, which is fine on an idle machine and catastrophic on a busy
+    one. 120 sentences, 4 cores, greedy decoding:
+
+    ```text
+                          idle              3 of 4 cores busy
+    all cores (default)   p50  176 ms       p50 2899 ms   p95 4464 ms
+    intra_threads=1       p50  193 ms       p50  421 ms   p95  636 ms
+    ```
+
+    About 10% slower when nothing else runs, **seven times faster when something does**, and
+    the difference between meeting this project's latency budget and missing it fourfold. A
+    live translator runs on a laptop while its user is doing other things, so the loaded
+    column decides the default. Still a parameter for a caller with cores to spare.
     """
     try:
         import ctranslate2
@@ -210,7 +233,13 @@ def load(
         if not required.is_file():
             raise TranslationError(f"missing sentencepiece model: {required}")
 
-    engine = ctranslate2.Translator(str(model_path), device="cpu", compute_type="int8")
+    engine = ctranslate2.Translator(
+        str(model_path),
+        device="cpu",
+        compute_type="int8",
+        # Bounded rather than left to take every core; see the docstring for the numbers.
+        intra_threads=intra_threads,
+    )
     return OpusMtTranslator(
         engine,
         sentencepiece.SentencePieceProcessor(str(spm_path / "source.spm")),

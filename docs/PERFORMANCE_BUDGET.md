@@ -578,6 +578,77 @@ and it has not been done.
 Every future measurement in this document states the load it was taken under. The absence
 of that field is what let the sixth measurement overclaim.
 
+## Ninth measurement — 2026-09-04, bounded threads, and a bug the measurement exposed
+
+The eighth measurement found the budget missed under load, established that the whole gap
+was translation, and named CTranslate2's unset thread settings as the obvious untested
+lever. Tested now, under load created deliberately rather than hoped for.
+
+### The sweep
+
+120 sentences, 4 cores, greedy decoding. The loaded rows have three of four cores
+deliberately occupied, so the condition is stated and reproducible — which is precisely
+what the sixth measurement could not say about itself.
+
+| | idle p50 | idle p95 | **loaded p50** | **loaded p95** |
+| --- | --- | --- | --- | --- |
+| all cores (the default) | 176 ms | 283 ms | **2899 ms** | **4464 ms** |
+| `intra_threads=1` | 193 ms | 300 ms | **421 ms** | **636 ms** |
+| `intra_threads=2` | 144 ms | 233 ms | 1120 ms | 2718 ms |
+| `intra_threads=4` | 234 ms | 349 ms | 2952 ms | 4734 ms |
+
+**The default is 6.9x slower under load than a single thread.** Letting one translation
+grab every core is fine on an idle machine and catastrophic on a busy one: the work gets
+descheduled and synchronisation overhead dominates.
+
+`intra_threads=1` is the only setting that **meets the budget in both conditions** —
+p50 193/421 ms against a 700 ms target, p95 300/636 ms against 1500 ms. It costs about 10%
+when nothing else is running. `intra_threads=2` is the fastest idle and misses p50 under
+load by 60%, which makes it the wrong default for a translator that runs while its user is
+doing other things.
+
+**Adopted: `intra_threads=1`.**
+
+### The bug this exposed
+
+Setting the parameter meant reading `load()`, which is how this came to light:
+
+```text
+OpusMtTranslator.__init__   beam_size = 1     # changed by the sixth measurement
+load()                      beam_size = 6     # never changed, and passed explicitly
+CLI                         load_translator(...)  # no beam_size argument
+```
+
+**Every translation the application performed used beam 6.** The greedy decoding adopted by
+the sixth measurement never reached the product. The test asserting greedy passed because it
+constructed `OpusMtTranslator` directly — it tested the unit and not the path anyone uses,
+which is the same shape as the uppercase seam in ADR 0009: two correct pieces and a wrong
+join.
+
+Both defaults now come from one constant, and a test compares the two signatures so a future
+divergence fails rather than ships.
+
+### What that costs the earlier numbers
+
+| Measurement | What it actually ran | Still true? |
+| --- | --- | --- |
+| Sixth — quality comparison, beam 6 vs 1 | Explicit `beam_size`, both arms | **Yes.** Passed the value directly, so the comparison was real |
+| Sixth — end-to-end "budget met", p50 420 ms | Explicit `beam_size=1` | **Yes**, as a beam-1 measurement of an idle machine |
+| Eighth — both pairs under load | `load_translator()` with no argument, so **beam 6** | The numbers are right; the label was wrong |
+
+So the eighth measurement's p50 1050 ms was beam 6 under load, not greedy under load. It
+correctly described what the application did — it just did not describe what this document
+claimed the application did. The defect was in the code and the claim, not in the
+measurement.
+
+### Not re-run
+
+End-to-end endpoint-to-caption has **not** been re-measured with both fixes in place. The
+translation stage is the whole gap by the eighth measurement's own diagnosis, and the stage
+now measures 421 ms p50 under load against a 700 ms target — but that is an inference, and
+this document has been wrong before by treating one as a result. The end-to-end figure
+stands unmeasured until it is measured.
+
 ## Status
 
 **PROVISIONAL**, and the budget is **missed under realistic load**.

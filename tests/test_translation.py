@@ -160,6 +160,40 @@ def test_decoding_is_greedy_by_default() -> None:
     assert engine.calls[0][1]["beam_size"] == 1
 
 
+def test_the_loader_and_the_constructor_agree_on_every_default() -> None:
+    """The regression this exists for.
+
+    `OpusMtTranslator.__init__` defaulted to greedy while `load()` defaulted to beam 6 and
+    passed it explicitly, so every translation the application performed used beam 6 while
+    this file — building the class directly — asserted greedy. The unit test passed and the
+    product did the other thing for two merges.
+
+    Comparing the signatures catches that whatever the values are.
+    """
+    import inspect
+
+    from on_the_fly.infrastructure.translation import opus_mt
+
+    constructor = inspect.signature(opus_mt.OpusMtTranslator.__init__).parameters
+    loader = inspect.signature(opus_mt.load).parameters
+
+    shared = set(constructor) & set(loader) - {"self"}
+    assert "beam_size" in shared, "the loader must expose the decoding setting"
+    for name in shared:
+        assert constructor[name].default == loader[name].default, (
+            f"{name} defaults differ: constructor={constructor[name].default}, "
+            f"load()={loader[name].default}. A caller using load() would silently get "
+            f"different behaviour from one building the class directly."
+        )
+
+
+def test_thread_use_is_bounded_by_default() -> None:
+    """Measured: unbounded threads are 6.9x slower under load and miss the budget."""
+    from on_the_fly.infrastructure.translation import opus_mt
+
+    assert opus_mt.DEFAULT_INTRA_THREADS == 1
+
+
 def test_the_publishers_beam_size_is_still_reachable() -> None:
     """The trade stays available to a caller who wants the publisher's setting back."""
     engine = FakeEngine()
