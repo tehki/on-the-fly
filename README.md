@@ -37,10 +37,11 @@ well enough to tell when it goes wrong. It comes back when a model does.
 > DC-offset garbage, and raw `sounddevice` produces the same, so that is the hardware
 > rather than the adapter. Recognition from a live microphone remains untested.
 >
-> One real limitation surfaced: the adapter asks for 16 kHz and does not resample. Both
-> named hardware devices refused that rate outright; only the resampling system default
-> accepted it. On hardware that does not natively offer 16 kHz, capture will fail with a
-> clear error rather than silently degrade — but it will fail.
+> The 16 kHz limitation is **fixed** ([ADR 0013](docs/adr/0013-capture-rate-negotiation.md)):
+> the adapter now negotiates a rate the device accepts and resamples to 16 kHz, verified
+> capturing from hardware that previously refused outright. One separate problem remains and
+> is not ours — one of three input devices aborts the process during blocking reads, which
+> reproduces with raw `sounddevice` and no project code involved.
 
 ## What it is meant to be
 

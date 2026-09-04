@@ -17,6 +17,13 @@ reads from it, and the indicator light on the user's machine is the visible part
 input and says so. That is lost audio — a dropped word — and it is surfaced as a counter
 rather than swallowed. If the number climbs, the pipeline is too slow, and that is
 information the performance budget needs.
+
+**The capture rate is negotiated, not demanded.** The pipeline works at 16 kHz and real
+hardware mostly does not offer it — measured, both analog inputs on the reference machine
+refuse it while offering 44.1 and 48 kHz. So the adapter asks for 16 kHz, and if the device
+says no, opens at a rate it accepts and resamples on the way out (ADR 0013). Above here
+nothing changes: the domain still receives 16 kHz frames of a fixed size and never learns
+the device disagreed.
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ from on_the_fly.infrastructure.audio.backend import (
     InputStream,
     SoundDeviceBackend,
 )
+from on_the_fly.infrastructure.audio.resampling import CANDIDATE_RATES, Resampler
 
 DEFAULT_FRAME_MS = 20
 
@@ -58,6 +66,8 @@ class MicrophoneSource:
         self._stream: InputStream | None = None
         self._closed = False
         self._overflow_count = 0
+        self._resampler: Resampler | None = None
+        self._capture_rate_hz: int | None = None
         self._frames_yielded = 0
 
     # -- description -------------------------------------------------------------------
@@ -83,13 +93,28 @@ class MicrophoneSource:
     def is_open(self) -> bool:
         return self._stream is not None and not self._closed
 
+    @property
+    def capture_rate_hz(self) -> int | None:
+        """The rate the device was actually opened at, once capture has started.
+
+        `OPERATIONAL_METADATA`: a number, safe to log, unlike the device name (ADR 0003).
+        Equal to the pipeline's rate when no resampling was needed.
+        """
+        return self._capture_rate_hz
+
+    @property
+    def is_resampling(self) -> bool:
+        """True when the device refused the pipeline's rate and audio is being converted."""
+        return self._resampler is not None
+
     def __repr__(self) -> str:
         # No device name: a device name can identify a person (ADR 0003), and a repr ends
         # up in tracebacks and bug reports.
         return (
             f"MicrophoneSource(backend={self._backend.name!r}, "
             f"rate={self._format.sample_rate_hz}, frame_ms={self._frame_ms}, "
-            f"open={self.is_open}, overflows={self._overflow_count})"
+            f"capture_rate={self._capture_rate_hz}, open={self.is_open}, "
+            f"overflows={self._overflow_count})"
         )
 
     # -- capture -----------------------------------------------------------------------
@@ -108,19 +133,14 @@ class MicrophoneSource:
             raise AudioDeviceError("this microphone source is already capturing")
 
         samples_per_frame = self._frame_bytes // self._format.sample_width_bytes
-        stream = self._backend.open_input_stream(
-            sample_rate_hz=self._format.sample_rate_hz,
-            channels=self._format.channels,
-            blocksize=samples_per_frame,
-            device=self._device,
-        )
+        stream, samples_per_read = self._open_negotiated(samples_per_frame)
         self._stream = stream
 
         try:
             stream.start()
             while not self._closed:
                 try:
-                    data, overflowed = stream.read(samples_per_frame)
+                    data, overflowed = stream.read(samples_per_read)
                 except AudioDeviceError:
                     if self._closed:
                         # `close()` was called from another thread while a read was in
@@ -136,16 +156,84 @@ class MicrophoneSource:
                     # A backend that returns nothing has stopped producing; treat it as
                     # end of stream rather than spinning on an empty read.
                     break
-                self._frames_yielded += 1
-                yield data
+                if self._resampler is None:
+                    self._frames_yielded += 1
+                    yield data
+                    continue
+                # Resampling does not preserve block size, so a read may complete zero,
+                # one or several frames. Yielding whatever completed keeps the frame size
+                # the domain sees fixed (ADR 0013).
+                for frame in self._resampler.push(data):
+                    self._frames_yielded += 1
+                    yield frame
         finally:
             # Runs on normal end, on error, and when the caller stops consuming. The
             # microphone is not left open in any of those cases.
             self.close()
 
+    def _open_negotiated(self, samples_per_frame: int) -> tuple[InputStream, int]:
+        """Open the device at a rate it accepts, resampling if that is not ours.
+
+        Returns the stream and how many samples to read per call — one frame at the
+        pipeline's rate when the device agreed, a proportionally larger block when it did
+        not.
+
+        **Rates are probed, not attempted.** Opening a stream and retrying after failure
+        corrupts the heap in PortAudio's ALSA backend: four failed opens in one process
+        produced `malloc(): mismatching next->prev_size` and a core dump. So the candidates
+        are checked with a probe that does not open anything, and exactly one open is
+        performed (ADR 0013).
+        """
+        wanted = self._format.sample_rate_hz
+        candidates: list[int] = [wanted]
+        native = self._backend.default_sample_rate(self._device)
+        if native is not None and native != wanted:
+            candidates.append(native)
+        candidates.extend(rate for rate in CANDIDATE_RATES if rate not in candidates)
+
+        chosen: int | None = None
+        for rate in candidates:
+            if self._backend.supports_rate(
+                rate, channels=self._format.channels, device=self._device
+            ):
+                chosen = rate
+                break
+
+        if chosen is None:
+            # Nothing probed as supported. Try the requested rate anyway rather than
+            # refusing on a probe alone: a backend whose probe is unreliable should still
+            # get one honest attempt, and one failed open is safe.
+            chosen = wanted
+
+        samples_per_read = max(1, round(samples_per_frame * chosen / wanted))
+        try:
+            stream = self._backend.open_input_stream(
+                sample_rate_hz=chosen,
+                channels=self._format.channels,
+                blocksize=samples_per_read,
+                device=self._device,
+            )
+        except AudioDeviceError as exc:
+            raise AudioDeviceError(
+                f"could not open the device at {chosen}Hz. The pipeline needs {wanted}Hz "
+                f"and can resample from {', '.join(str(r) for r in candidates[1:])} if the "
+                f"device offers one of them. Underlying error: {exc}"
+            ) from exc
+
+        self._capture_rate_hz = chosen
+        if chosen != wanted:
+            self._resampler = Resampler(
+                source_rate_hz=chosen, target_rate_hz=wanted, frame_bytes=self._frame_bytes
+            )
+        return stream, samples_per_read
+
     def close(self) -> None:
         """Release the device. Safe to call more than once, and from anywhere."""
         self._closed = True
+        if self._resampler is not None:
+            # Drops any partial frame rather than padding it. Inventing silence to
+            # complete a frame would hand the recogniser audio nobody spoke.
+            self._resampler.reset()
         stream = self._stream
         self._stream = None
         if stream is not None:

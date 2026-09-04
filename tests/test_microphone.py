@@ -81,14 +81,38 @@ class FakeStream:
 class FakeBackend:
     """Records how it was opened, so the adapter's negotiation can be asserted."""
 
-    def __init__(self, stream: FakeStream | None = None, *, fail_to_open: bool = False) -> None:
+    def __init__(
+        self,
+        stream: FakeStream | None = None,
+        *,
+        fail_to_open: bool = False,
+        supported_rates: set[int] | None = None,
+        native_rate: int | None = None,
+    ) -> None:
         self.stream = stream if stream is not None else FakeStream([])
         self.fail_to_open = fail_to_open
+        # None means "accepts whatever it is asked for", which is what a fake did before
+        # rate negotiation existed and keeps every older test meaningful.
+        self.supported_rates = supported_rates
+        self.native_rate = native_rate
         self.open_calls: list[dict[str, object]] = []
+        self.refused_rates: list[int] = []
+        self.probed_rates: list[int] = []
 
     @property
     def name(self) -> str:
         return "fake"
+
+    def default_sample_rate(self, device: int | str | None = None) -> int | None:
+        return self.native_rate
+
+    def supports_rate(
+        self, sample_rate_hz: int, *, channels: int, device: int | str | None = None
+    ) -> bool:
+        self.probed_rates.append(sample_rate_hz)
+        if self.supported_rates is None:
+            return True
+        return sample_rate_hz in self.supported_rates
 
     def open_input_stream(
         self,
@@ -108,6 +132,11 @@ class FakeBackend:
         )
         if self.fail_to_open:
             raise AudioDeviceError("no such device")
+        if self.supported_rates is not None and sample_rate_hz not in self.supported_rates:
+            self.refused_rates.append(sample_rate_hz)
+            raise AudioDeviceError(
+                f"could not open an input stream at {sample_rate_hz}Hz: Error opening Raw"
+            )
         return self.stream
 
 
@@ -339,3 +368,91 @@ def test_real_backend_can_enumerate_input_devices() -> None:
 
     assert isinstance(names, tuple)
     assert all(isinstance(name, str) for name in names)
+
+
+# ======================================================================================
+# Capture rate negotiation (ADR 0013)
+#
+# Measured on real hardware: both analog inputs refuse 16 kHz and offer 44.1/48 kHz. The
+# adapter therefore asks rather than demands. What the domain sees must not change.
+# ======================================================================================
+
+
+def test_a_device_offering_the_wanted_rate_is_not_resampled() -> None:
+    """The common case must stay byte-for-byte what it was."""
+    backend = FakeBackend(FakeStream([b"\x01\x02" * 320]), supported_rates={16000})
+    source = MicrophoneSource(backend=backend, frame_ms=20)
+
+    frames = list(source.frames())
+
+    assert source.capture_rate_hz == 16000
+    assert source.is_resampling is False
+    assert frames == [b"\x01\x02" * 320]
+
+
+def test_a_device_refusing_the_wanted_rate_is_opened_at_its_native_rate() -> None:
+    """Measured behaviour of the reference machine's built-in input: 48 kHz only."""
+    backend = FakeBackend(FakeStream([bytes(2 * 960)]), supported_rates={48000}, native_rate=48000)
+    source = MicrophoneSource(backend=backend, frame_ms=20)
+
+    list(source.frames())
+
+    assert backend.probed_rates[0] == 16000, "the wanted rate is asked for first"
+    assert source.capture_rate_hz == 48000
+    assert source.is_resampling is True
+
+
+def test_the_native_rate_is_tried_before_the_candidate_list() -> None:
+    """A device that can give us what it prefers should not be asked to try 48 kHz first."""
+    backend = FakeBackend(FakeStream([bytes(2 * 882)]), supported_rates={44100}, native_rate=44100)
+    source = MicrophoneSource(backend=backend, frame_ms=20)
+
+    list(source.frames())
+
+    # Probed in order, opened exactly once: repeated failed opens crash PortAudio.
+    assert backend.probed_rates[:2] == [16000, 44100]
+    assert [call["sample_rate_hz"] for call in backend.open_calls] == [44100]
+
+
+def test_the_read_block_covers_the_same_duration_at_the_negotiated_rate() -> None:
+    """20 ms is 320 samples at 16 kHz and 960 at 48 kHz. The cadence must not change."""
+    backend = FakeBackend(FakeStream([bytes(2 * 960)]), supported_rates={48000}, native_rate=48000)
+    source = MicrophoneSource(backend=backend, frame_ms=20)
+
+    list(source.frames())
+
+    assert backend.open_calls[-1]["blocksize"] == 960
+
+
+def test_a_device_supporting_nothing_still_gets_exactly_one_open_attempt() -> None:
+    """Probing may be unreliable, so one honest attempt is made. Only one: retrying a
+    failed open is what corrupts PortAudio's heap (ADR 0013)."""
+    backend = FakeBackend(supported_rates=set(), native_rate=None)
+    source = MicrophoneSource(backend=backend)
+
+    with pytest.raises(AudioDeviceError, match="could not open the device at 16000Hz"):
+        list(source.frames())
+
+    assert len(backend.open_calls) == 1, "a failed open must never be retried"
+    assert len(backend.probed_rates) > 1, "the fallback list is probed, not opened"
+
+
+def test_the_underlying_reason_survives_negotiation() -> None:
+    """A missing device is not a rate problem, and must not be reported as one."""
+    backend = FakeBackend(fail_to_open=True)
+    source = MicrophoneSource(backend=backend)
+
+    with pytest.raises(AudioDeviceError, match="no such device"):
+        list(source.frames())
+
+
+def test_the_negotiated_rate_is_reported_without_a_device_name() -> None:
+    """A rate is OPERATIONAL_METADATA. A device name identifies a person (ADR 0003)."""
+    backend = FakeBackend(FakeStream([bytes(2 * 960)]), supported_rates={48000}, native_rate=48000)
+    source = MicrophoneSource(backend=backend)
+
+    list(source.frames())
+    rendered = repr(source)
+
+    assert "capture_rate=48000" in rendered
+    assert "fake" in rendered

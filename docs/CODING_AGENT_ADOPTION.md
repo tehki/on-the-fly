@@ -149,9 +149,16 @@ Stated plainly, because the failure mode of governance work is believing it is f
   clipped samples with a −15838 DC offset, and raw `sounddevice` produced the same, so it
   is the hardware and not the adapter. Recognition from a live microphone remains untested.
 
-- **The adapter requests 16 kHz and does not resample.** Both named hardware devices
-  refused that rate; only the resampling system default accepted it. This is a real
-  limitation on real hardware, and it fails loudly rather than silently.
+- **Capture rate is now negotiated (ADR 0013).** The adapter asks for 16 kHz, and when the
+  device refuses — both analog inputs here do — opens at a rate it accepts and resamples.
+  Verified capturing 50 frames from hardware that previously failed outright.
+
+- **One input device aborts the process during blocking reads.** `malloc(): unsorted double
+  linked list corrupted`, reproducible with raw `sounddevice` and no project code involved,
+  while `sounddevice.rec()` on the same device works. It is not this project's defect and it
+  cannot be caught — a `SIGABRT` takes the application down. Capturing in a subprocess or
+  moving to the callback API would address it; both are design decisions and neither is
+  done.
 - **No translation.** `Translator` is still a port with no implementation. Speech
   recognition now exists (ADR 0005) with weights pinned by digest and verified on load.
 - **Recognition misses the performance budget by several times over** and the pipeline runs
