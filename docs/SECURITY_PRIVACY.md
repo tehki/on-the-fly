@@ -29,10 +29,13 @@ the code is the exact failure Article 2 and handbook 52 exist to prevent.
   exist are in-memory and metadata-shaped; nothing is written anywhere for 30 days.
 - **Nothing is encrypted.** Constitution Article 16 is a floor this project has not yet
   had to stand on, not a description of it.
-- **The microphone adapter has never captured real audio.** It is tested against a fake
-  backend, and CI installs PortAudio so the real `sounddevice` backend is exercised for
-  import, device enumeration and error mapping — but no frame has ever arrived from
-  physical hardware.
+- **The microphone adapter has captured real audio, but not *usable* audio.** It has now
+  been run against a real device: frames arrive, the device is released on every exit path,
+  and real driver failures map to typed errors. The test machine's input was saturated and
+  DC-offset — raw `sounddevice` behaved identically, so that is the hardware — which means
+  recognition from a live microphone is still unverified. The privacy-relevant behaviour
+  *was* verified: nothing is opened at construction, the device is released on exit, and
+  the `repr` carries no device name.
 
 When any of that changes, this section changes with it.
 
