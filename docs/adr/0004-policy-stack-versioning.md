@@ -37,7 +37,7 @@ Project derivatives carry an explicit revision suffix:
 ```
 
 `<upstream-version>` names the upstream document this is derived from; `<n>` is this
-project's revision against that base. So `CODING_AGENT_POLICY_v1.2-otf1.yaml` is the first
+project's revision against that base. So `CODING_AGENT_POLICY_v1.3-otf1.yaml` is the first
 on-the-fly revision of upstream policy 1.2.
 
 Each derivative also records the derivation in its own content — the policy carries a

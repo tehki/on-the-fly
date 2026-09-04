@@ -18,9 +18,9 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.2-otf1.yaml"
-CONSTITUTION_FILE = REPO_ROOT / "CODING_AGENT_CONSTITUTION_v1.2-otf1.md"
-HANDBOOK_FILE = REPO_ROOT / "CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.5-otf1.md"
+POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.3-otf1.yaml"
+CONSTITUTION_FILE = REPO_ROOT / "CODING_AGENT_CONSTITUTION_v1.3-otf1.md"
+HANDBOOK_FILE = REPO_ROOT / "CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.6-otf1.md"
 
 # Article 6: transient project content defaults to a maximum 10-second post-use window.
 MAX_EPHEMERAL_POST_USE_SECONDS = 10
@@ -309,6 +309,107 @@ def check_development_velocity(policy: dict[str, Any], errors: list[str]) -> Non
         )
 
 
+def check_authorization_boundaries(policy: dict[str, Any], errors: list[str]) -> None:
+    """Constitution Article 15, as extended by upstream 1.3.
+
+    Three new floors arrive together, and all three are ways of *not* asking again — which
+    is exactly why they need enforcing rather than declaring. Reusing an authorization,
+    inferring one authority from another, and rolling back without a second approval are
+    each safe only while their stated preconditions hold.
+    """
+    velocity = policy.get("development_velocity", {})
+
+    reuse = velocity.get("authorization_reuse", {})
+    if reuse.get("allowed") is True:
+        # Reuse is permitted only while the inputs that justified the original approval are
+        # unchanged. Article 15 names them; a shorter list would widen the reuse silently.
+        # Article 15 names these in prose; the policy names them as keys. The key spelling
+        # is authoritative here — an earlier version of this check transcribed the prose
+        # and reported a violation that did not exist.
+        required_unchanged = {
+            "project",
+            "target_or_resource",
+            "exact_head_or_version_when_specified",
+            "scope",
+            "risk_class",
+            "capability_class",
+            "side_effect_class",
+            "rollback_or_recovery_assumptions",
+            "expiry_or_exception_state",
+        }
+        declared = set(reuse.get("requires_unchanged") or [])
+        missing = required_unchanged - declared
+        if missing:
+            errors.append(
+                "development_velocity.authorization_reuse.requires_unchanged is missing: "
+                + ", ".join(sorted(missing))
+                + " (Article 15: reuse holds only while these are unchanged)"
+            )
+        if reuse.get("new_authorization_required_on_material_change") is not True:
+            errors.append(
+                "development_velocity.authorization_reuse."
+                "new_authorization_required_on_material_change must be true; a material "
+                "change to the authorized inputs ends the reuse (Article 15)"
+            )
+        reverify = "privileged_or_destructive_exact_target_reverification_still_required"
+        if reuse.get(reverify) is not True:
+            errors.append(
+                "development_velocity.authorization_reuse."
+                "privileged_or_destructive_exact_target_reverification_still_required must "
+                "be true; reused authorization never replaces re-resolving a destructive "
+                "target immediately before execution (Article 10)"
+            )
+
+    boundaries = velocity.get("delivery_boundaries", {})
+    for key, why in (
+        (
+            "merge_and_runtime_activation_separate_by_default",
+            "merging a change is not authorization to run it",
+        ),
+        (
+            "merge_authorization_does_not_imply_runtime_activation",
+            "one authority must not be inferred from another",
+        ),
+        (
+            "deployment_requires_separately_authorized_boundary_unless_explicitly_combined",
+            "deployment is its own boundary",
+        ),
+    ):
+        if boundaries.get(key) is not True:
+            errors.append(
+                f"development_velocity.delivery_boundaries.{key} must be true; {why} (Article 15)"
+            )
+
+    rollback = velocity.get("preauthorized_rollback", {})
+    unattended = "may_execute_without_second_approval_when_exact_condition_was_authorized"
+    if rollback.get(unattended) is True:
+        # A rollback that may run unattended is a mutation that may run unattended. The
+        # conditions that make that safe are not optional.
+        for key, why in (
+            (
+                "must_stay_within_exact_target_and_method",
+                "an unattended rollback may not widen its own scope",
+            ),
+            ("verify_restored_state", "an unverified rollback is an unverified mutation"),
+            ("report_trigger_and_result", "a silent rollback is an unreported change"),
+            (
+                "do_not_retry_failed_mutation_indefinitely",
+                "unbounded retry is how a failed mutation becomes a loop",
+            ),
+        ):
+            if rollback.get(key) is not True:
+                errors.append(
+                    f"development_velocity.preauthorized_rollback.{key} must be true when "
+                    f"preauthorized rollback is enabled; {why} (Article 15)"
+                )
+
+    if not velocity.get("stop_conditions"):
+        errors.append(
+            "development_velocity.stop_conditions must list when an agent stops rather "
+            "than continues under a reused authorization (Article 15)"
+        )
+
+
 def check_ci_acceleration(policy: dict[str, Any], errors: list[str]) -> None:
     """A faster lane may not be a weaker gate.
 
@@ -410,6 +511,7 @@ def main() -> int:
     check_exceptions_and_invariants(policy, errors)
     check_cryptography(policy, errors)
     check_development_velocity(policy, errors)
+    check_authorization_boundaries(policy, errors)
     check_ci_acceleration(policy, errors)
     check_security_controls(policy, errors)
 

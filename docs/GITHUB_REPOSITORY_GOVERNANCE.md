@@ -1,6 +1,6 @@
 # GitHub repository governance
 
-`REPOSITORY_GOVERNANCE_v1.1-otf1.yaml` describes the controls this repository requires.
+`REPOSITORY_GOVERNANCE_v1.2-otf1.yaml` describes the controls this repository requires.
 This document describes the controls GitHub is actually enforcing, how to apply them, and
 how to verify them.
 

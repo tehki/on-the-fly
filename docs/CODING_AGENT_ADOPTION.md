@@ -1,15 +1,16 @@
 # Coding agent policy stack — adoption record
 
-First adopted 2026-09-01. Upstream v1.5 stack adopted 2026-09-02.
+First adopted 2026-09-01. Upstream v1.5 stack adopted 2026-09-02. Upstream v1.6 stack
+adopted 2026-09-04.
 
 ## The stack
 
 | Layer | Document | This project | Upstream base |
 | --- | --- | --- | --- |
-| 2 | `CODING_AGENT_CONSTITUTION_v1.2-otf1.md` | 1.2-otf1 | 1.2 |
-| 3 | `CODING_AGENT_POLICY_v1.2-otf1.yaml` | 1.2-otf1 | 1.2 |
-| 4 | `REPOSITORY_GOVERNANCE_v1.1-otf1.yaml` | 1.1-otf1 | 1.1 |
-| 5 | `CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.5-otf1.md` | 1.5-otf1 | 1.5 |
+| 2 | `CODING_AGENT_CONSTITUTION_v1.3-otf1.md` | 1.3-otf1 | 1.3 |
+| 3 | `CODING_AGENT_POLICY_v1.3-otf1.yaml` | 1.3-otf1 | 1.3 |
+| 4 | `REPOSITORY_GOVERNANCE_v1.2-otf1.yaml` | 1.2-otf1 | 1.2 |
+| 5 | `CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.6-otf1.md` | 1.6-otf1 | 1.6 |
 
 Layer 1 is applicable law and contractual obligation. Layer 6 is project convention. A
 lower layer may be stricter; it may never silently weaken a higher one.
@@ -34,6 +35,63 @@ Upstream added two Articles and a set of CI concepts. What changed here:
 The FAST lane is deliberately **not** implemented. A change-aware lane may omit work only
 against a versioned, tested impact map; no such map exists, the suite runs in seconds, so
 there is nothing to gain and a real control to lose.
+
+## The v1.6 adoption (2026-09-04)
+
+Upstream released Constitution 1.3, policy 1.3, governance 1.2 and handbook 1.6 under the
+heading *faster safe delivery, bounded authorization reuse, and explicit activation
+boundaries*. The handbook was rewritten rather than extended — 57 sections against the
+previous 65, a new `0M. FAST EXECUTION KERNEL`, and separate merge and runtime-activation
+protocols.
+
+### What Article 15 gained, and why it needed enforcing
+
+Three new paragraphs, and all three are ways of **not asking for approval again**. That is
+what makes them worth having and what makes them dangerous unenforced.
+
+| Addition | What it permits | What holds it in place |
+| --- | --- | --- |
+| Bounded authorization reuse | One approval covers a whole work unit | Only while project, target, exact head, scope, risk, capability class, side-effect class, rollback assumptions and exception state are unchanged |
+| Separate delivery boundaries | — | Merge, runtime activation and deployment are distinct authorities; one may not be inferred from another |
+| Pre-authorized rollback | A rollback may run without a second approval | Only within the original target and method, verified afterwards, reported, and not retried indefinitely |
+
+`scripts/validate_coding_agent_policy.py` gained `check_authorization_boundaries` to enforce
+all three, with thirteen tests that remove one precondition at a time and assert the
+validator objects. Without that, the policy would have declared three new licences to skip
+approval and nothing would have checked their conditions — the exact failure this document
+was written about in the first place.
+
+**Article 10 is not waived by Article 15.** A reused authorization is not a re-read: a
+privileged or destructive target still requires immediate re-verification before execution,
+and the validator now enforces that specifically.
+
+### What a straight copy would have broken
+
+Upstream's documents are written for `ai-automation-department`, and adopting them unchanged
+would have done real damage rather than merely looking untidy:
+
+| Upstream value | Effect if taken | Resolution |
+| --- | --- | --- |
+| `required_approvals: 1` and `require_code_owner_review: true` | **Every merge becomes impossible.** GitHub does not let a pull request author approve their own, and this repository has one maintainer | Kept at 0 under `EXC-2026-09-01-001`, which exists for exactly this and is still in force |
+| `governance.name: ai-automation-department-repository-governance` | The manifest stops describing this repository — the same defect corrected in 1.1-otf1 | Renamed back |
+| Constitution Article 11 naming `ai-automation-department` | The branch-protection mandate stops applying here — **the same regression corrected in 1.2-otf1**, returned | Rebound to the active manifest, for the second time |
+| `current_connector_can_write_branch_rules: false` | Un-verifies a fact this project checked and observed | Kept true, with its 2026-09-01 evidence |
+| Retention `runtime_profiles` without audio classes | **Deletes the classification the retention module implements** — captured frames, transcripts, translations, synthesised speech, caption scrollback | All six restored and merged into upstream's list |
+| `security_sensitive_paths` listing upstream's files | CODEOWNERS would guard files that do not exist and leave this project's unguarded | This repository's 25 paths kept, four filenames retargeted |
+| CI lane `implemented` flags absent | The honest record that FAST and RELEASE do not exist here disappears | Kept |
+
+The recurring one is worth naming: **Article 11 has now regressed upstream twice**, and both
+times the fix was the same. ADR 0004 exists because of the first occurrence.
+
+### What was checked and found correct
+
+An early version of the new validator reported that upstream's policy was missing three
+inputs from `authorization_reuse.requires_unchanged`. It was not. The Constitution names
+them in prose (*risk*, *rollback assumptions*, *exception/expiry state*) and the policy names
+them as keys (`risk_class`, `rollback_or_recovery_assumptions`, `expiry_or_exception_state`).
+The check had transcribed the prose. Corrected in the checker, not in the policy — recorded
+because "upstream is weaker than its own Constitution" is a serious claim and it was wrong.
+
 
 ## What was inherited and what was wrong with it
 

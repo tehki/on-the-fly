@@ -259,3 +259,144 @@ def test_codeowners_parser_ignores_comments_and_blank_lines() -> None:
         "# a comment\n\n/docs/ @tehki\n/scripts/thing.py @tehki  # trailing comment\n@nopath\n"
     )
     assert parsed == ["/docs/", "/scripts/thing.py"]
+
+
+# ---------------------------------------------------------------------------------------
+# Article 15 authorization boundaries, added upstream in Constitution 1.3.
+#
+# All three controls are ways of not asking for approval again, so each one is only safe
+# while its stated preconditions hold. These tests remove a precondition at a time and
+# assert the validator objects — a gate that cannot fail is not a gate.
+# ---------------------------------------------------------------------------------------
+
+
+def valid_authorization_boundaries() -> dict[str, Any]:
+    return {
+        "development_velocity": {
+            "authorization_reuse": {
+                "allowed": True,
+                "requires_unchanged": [
+                    "project",
+                    "target_or_resource",
+                    "exact_head_or_version_when_specified",
+                    "scope",
+                    "risk_class",
+                    "capability_class",
+                    "side_effect_class",
+                    "rollback_or_recovery_assumptions",
+                    "expiry_or_exception_state",
+                ],
+                "new_authorization_required_on_material_change": True,
+                "privileged_or_destructive_exact_target_reverification_still_required": True,
+            },
+            "delivery_boundaries": {
+                "merge_and_runtime_activation_separate_by_default": True,
+                "merge_authorization_does_not_imply_runtime_activation": True,
+                "deployment_requires_separately_authorized_boundary_unless_explicitly_combined": (
+                    True
+                ),
+            },
+            "preauthorized_rollback": {
+                "may_execute_without_second_approval_when_exact_condition_was_authorized": True,
+                "must_stay_within_exact_target_and_method": True,
+                "verify_restored_state": True,
+                "report_trigger_and_result": True,
+                "do_not_retry_failed_mutation_indefinitely": True,
+            },
+            "stop_conditions": ["authorized_exact_head_or_target_changed"],
+        }
+    }
+
+
+def test_authorization_boundary_baseline_is_accepted() -> None:
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(valid_authorization_boundaries(), errors)
+    assert errors == []
+
+
+def test_narrowing_what_authorization_reuse_requires_is_rejected() -> None:
+    """Dropping an input from the list widens reuse without saying so."""
+    policy = valid_authorization_boundaries()
+    reuse = policy["development_velocity"]["authorization_reuse"]
+    reuse["requires_unchanged"] = [
+        item for item in reuse["requires_unchanged"] if item != "risk_class"
+    ]
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(policy, errors)
+    assert any("risk_class" in error for error in errors)
+
+
+def test_reuse_surviving_a_material_change_is_rejected() -> None:
+    policy = valid_authorization_boundaries()
+    policy["development_velocity"]["authorization_reuse"][
+        "new_authorization_required_on_material_change"
+    ] = False
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(policy, errors)
+    assert any("material_change" in error for error in errors)
+
+
+def test_reused_authorization_skipping_destructive_reverification_is_rejected() -> None:
+    """Article 10 is not waived by Article 15. A reused approval is still not a re-read."""
+    policy = valid_authorization_boundaries()
+    policy["development_velocity"]["authorization_reuse"][
+        "privileged_or_destructive_exact_target_reverification_still_required"
+    ] = False
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(policy, errors)
+    assert any("reverification" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "merge_and_runtime_activation_separate_by_default",
+        "merge_authorization_does_not_imply_runtime_activation",
+        "deployment_requires_separately_authorized_boundary_unless_explicitly_combined",
+    ],
+)
+def test_collapsing_a_delivery_boundary_is_rejected(field: str) -> None:
+    """Merging a change is not permission to run it, and neither is permission to ship it."""
+    policy = valid_authorization_boundaries()
+    policy["development_velocity"]["delivery_boundaries"][field] = False
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(policy, errors)
+    assert any(field in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "must_stay_within_exact_target_and_method",
+        "verify_restored_state",
+        "report_trigger_and_result",
+        "do_not_retry_failed_mutation_indefinitely",
+    ],
+)
+def test_unattended_rollback_without_its_guards_is_rejected(field: str) -> None:
+    """A rollback that may run without approval is a mutation that may run without approval."""
+    policy = valid_authorization_boundaries()
+    policy["development_velocity"]["preauthorized_rollback"][field] = False
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(policy, errors)
+    assert any(field in error for error in errors)
+
+
+def test_rollback_guards_are_not_required_when_rollback_is_not_preauthorized() -> None:
+    """The guards exist because the rollback is unattended. No unattended rollback, no guards."""
+    policy = valid_authorization_boundaries()
+    rollback = policy["development_velocity"]["preauthorized_rollback"]
+    unattended = "may_execute_without_second_approval_when_exact_condition_was_authorized"
+    rollback[unattended] = False
+    rollback["verify_restored_state"] = False
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(policy, errors)
+    assert errors == []
+
+
+def test_omitting_stop_conditions_is_rejected() -> None:
+    policy = valid_authorization_boundaries()
+    del policy["development_velocity"]["stop_conditions"]
+    errors: list[str] = []
+    policy_validator.check_authorization_boundaries(policy, errors)
+    assert any("stop_conditions" in error for error in errors)

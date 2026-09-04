@@ -2,19 +2,19 @@
 #
 # Ownership routing only. While the repository has a single maintainer, code-owner
 # review cannot block a merge (GitHub does not let a pull request author approve their
-# own pull request). See REPOSITORY_GOVERNANCE_v1.1-otf1.yaml -> approval_limitation and
+# own pull request). See REPOSITORY_GOVERNANCE_v1.2-otf1.yaml -> approval_limitation and
 # docs/EXCEPTIONS.md (EXC-2026-09-01-001).
 #
-# Keep this file in sync with security_sensitive_paths in REPOSITORY_GOVERNANCE_v1.1-otf1.yaml.
+# Keep this file in sync with security_sensitive_paths in REPOSITORY_GOVERNANCE_v1.2-otf1.yaml.
 # scripts/validate_repository_governance.py fails the build if they drift apart.
 
 * @tehki
 
 # Normative policy stack
-/CODING_AGENT_CONSTITUTION_v1.2-otf1.md                        @tehki
-/CODING_AGENT_POLICY_v1.2-otf1.yaml                            @tehki
-/CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.5-otf1.md @tehki
-/REPOSITORY_GOVERNANCE_v1.1-otf1.yaml                          @tehki
+/CODING_AGENT_CONSTITUTION_v1.3-otf1.md                        @tehki
+/CODING_AGENT_POLICY_v1.3-otf1.yaml                            @tehki
+/CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.6-otf1.md @tehki
+/REPOSITORY_GOVERNANCE_v1.2-otf1.yaml                          @tehki
 /Makefile                                                 @tehki
 
 # Repository governance and CI

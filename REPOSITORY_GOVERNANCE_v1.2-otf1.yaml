@@ -1,26 +1,17 @@
 governance:
   name: on-the-fly-repository-governance
-  version: "1.1-otf1"
-  revision: "2026-09-02"
-  supersedes: "REPOSITORY_GOVERNANCE_v1.1.yaml (this project's own v1.1, now renamed)"
-  derived_from_upstream: "1.1"
-  # Upstream's own manifest declares itself repository-specific and requires path and
-  # control review before it is copied to another repository. This file is that review,
-  # performed for on-the-fly.
+  version: 1.2-otf1
+  handbook_version: 1.6-otf1
+  constitution_version: 1.3-otf1
+  policy_version: 1.3-otf1
+  default_branch: main
   repository_specific_profile: true
   cross_repository_copy_requires_path_and_control_review: true
-  supersession_reason: >-
-    v1.0 was authored for the ai-automation-department project. It was re-scoped to
-    tehki/on-the-fly, its security-sensitive path list was corrected against files that
-    actually exist, and the unsupportable two-approval control was replaced with an
-    explicit documented limitation and compensating controls per Constitution Article 9.
-  handbook_version: "1.5-otf1"
-  constitution_version: "1.2-otf1"
-  policy_version: "1.2-otf1"
+  revision: '2026-09-04'
+  supersedes: REPOSITORY_GOVERNANCE_v1.1-otf1.yaml
+  derived_from_upstream: '1.2'
   repository: tehki/on-the-fly
   repository_visibility: public
-  default_branch: main
-
 main_branch:
   protection_required: true
   pull_request_required: true
@@ -28,40 +19,45 @@ main_branch:
   force_push_allowed: false
   branch_deletion_allowed: false
   required_approvals: 0
-  required_approvals_limitation: single_maintainer_population
-  enforce_for_administrators: true
   require_code_owner_review: false
-  require_code_owner_review_limitation: single_maintainer_population
   dismiss_stale_approvals: true
   require_conversation_resolution: true
   require_linear_history: true
   require_up_to_date_before_merge: true
   required_status_checks:
-    - quality
-
-# Human approval is not technically enforceable while the repository has one maintainer:
-# GitHub does not permit a pull request author to approve their own pull request, so a
-# non-zero approval requirement combined with enforce_for_administrators would block every
-# merge. Constitution Article 9 requires that this limitation and its compensating controls
-# be explicit rather than silently downgraded. See docs/EXCEPTIONS.md (EXC-2026-09-01-001).
-approval_limitation:
-  applies_to:
-    - required_approvals
-    - require_code_owner_review
-  reason: single maintainer with write access (tehki)
-  exception_record: EXC-2026-09-01-001
-  compensating_controls:
-    - pull_request_still_required_for_every_change
-    - required_quality_status_check_must_pass
-    - enforce_for_administrators_prevents_maintainer_bypass
-    - direct_push_and_force_push_disabled
-    - linear_history_and_conversation_resolution_required
-    - main_push_provenance_detection
-    - written_risk_and_retention_declaration_in_pull_request_template
-  removal_condition: >-
-    A second reviewer with write access is added; required_approvals is then raised to 1
-    (2 for CRITICAL) and require_code_owner_review is enabled.
-
+  - quality
+  required_approvals_limitation: single_maintainer_population
+  require_code_owner_review_limitation: single_maintainer_population
+security_sensitive_paths:
+  require_code_owner_review: true
+  enforcement_note: CODEOWNERS assigns ownership and requests review on these paths. Blocking code-owner
+    review is not active while approval_limitation applies; ownership routing is.
+  paths:
+  - /CODING_AGENT_CONSTITUTION_v1.3-otf1.md
+  - /CODING_AGENT_POLICY_v1.3-otf1.yaml
+  - /CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.6-otf1.md
+  - /REPOSITORY_GOVERNANCE_v1.2-otf1.yaml
+  - /Makefile
+  - /.github/workflows/
+  - /.github/CODEOWNERS
+  - /.github/pull_request_template.md
+  - /scripts/validate_coding_agent_policy.py
+  - /scripts/validate_repository_governance.py
+  - /scripts/verify_main_push_provenance.py
+  - /docs/SECURITY_PRIVACY.md
+  - /docs/RETENTION_POLICY.md
+  - /docs/GITHUB_REPOSITORY_GOVERNANCE.md
+  - /docs/EXCEPTIONS.md
+  - /docs/CODING_AGENT_ADOPTION.md
+  - /docs/adr/
+  - /src/on_the_fly/domain/retention/
+  - /src/on_the_fly/domain/audio/
+  - /src/on_the_fly/infrastructure/audio/
+  - /src/on_the_fly/app/
+  - /src/on_the_fly/infrastructure/asr/
+  - /src/on_the_fly/infrastructure/translation/
+  - /scripts/pin_model.py
+  - /requirements.txt
 development_flow:
   one_pull_request_per_commit_required: false
   coherent_work_unit_pull_requests_allowed: true
@@ -71,39 +67,14 @@ development_flow:
   separate_pull_request_required_for_independent_privileged_or_destructive_authorization_boundary: true
   cross_project_batching_default_allowed: false
   prefer_one_reviewable_milestone_slice_over_multiple_micro_prs: true
-
-security_sensitive_paths:
-  require_code_owner_review: true
-  enforcement_note: >-
-    CODEOWNERS assigns ownership and requests review on these paths. Blocking code-owner
-    review is not active while approval_limitation applies; ownership routing is.
-  paths:
-    - /CODING_AGENT_CONSTITUTION_v1.2-otf1.md
-    - /CODING_AGENT_POLICY_v1.2-otf1.yaml
-    - /CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.5-otf1.md
-    - /REPOSITORY_GOVERNANCE_v1.1-otf1.yaml
-    - /Makefile
-    - /.github/workflows/
-    - /.github/CODEOWNERS
-    - /.github/pull_request_template.md
-    - /scripts/validate_coding_agent_policy.py
-    - /scripts/validate_repository_governance.py
-    - /scripts/verify_main_push_provenance.py
-    - /docs/SECURITY_PRIVACY.md
-    - /docs/RETENTION_POLICY.md
-    - /docs/GITHUB_REPOSITORY_GOVERNANCE.md
-    - /docs/EXCEPTIONS.md
-    - /docs/CODING_AGENT_ADOPTION.md
-    - /docs/adr/
-    - /src/on_the_fly/domain/retention/
-    - /src/on_the_fly/domain/audio/
-    - /src/on_the_fly/infrastructure/audio/
-    - /src/on_the_fly/app/
-    - /src/on_the_fly/infrastructure/asr/
-    - /src/on_the_fly/infrastructure/translation/
-    - /scripts/pin_model.py
-    - /requirements.txt
-
+  bounded_authorization_reuse_allowed: true
+  merge_and_runtime_activation_separate_by_default: true
+  preauthorized_rollback_allowed_when_exact_condition_and_method_are_authorized: true
+  evidence_reuse_allowed_when_validity_inputs_are_unchanged: true
+  batch_independent_read_only_and_validation_work_preferred: true
+  delta_first_validation_preferred: true
+  full_validation_once_on_final_review_head_preferred: true
+  continue_independent_safe_work_while_ci_runs: true
 risk_review:
   LOW:
     pull_request_required: true
@@ -124,16 +95,14 @@ risk_review:
   CRITICAL:
     pull_request_required: true
     minimum_approvals: 0
-    minimum_approvals_when_supported: 2
     explicit_owner_review: true
     independent_human_review_when_supported: true
-    independent_review_currently_supported: false
     required_status_checks: true
     target_reverification: true
     rollback_or_recovery_plan: true
-    dry_run_or_reversible_alternative_review: true
     post_action_verification: true
-
+    minimum_approvals_when_supported: 2
+    independent_review_currently_supported: false
 emergency_changes:
   allowed: true
   require_explicit_exception: true
@@ -144,7 +113,6 @@ emergency_changes:
   require_compensating_controls: true
   require_post_change_review: true
   prohibit_silent_direct_push_exception: true
-
 ci:
   workflow: .github/workflows/ci.yml
   validation_lanes:
@@ -153,10 +121,9 @@ ci:
       change_aware_selection_allowed: true
       unknown_relevance_falls_back_to_full: true
       implemented: false
-      not_implemented_reason: >-
-        A FAST lane may omit work only against a versioned, tested impact map. No such map
-        exists yet, and the suite runs in seconds, so there is nothing to gain and a real
-        control to lose. FULL runs on every push until that changes.
+      not_implemented_reason: A FAST lane may omit work only against a versioned, tested impact map. No
+        such map exists yet, and the suite runs in seconds, so there is nothing to gain and a real control
+        to lose. FULL runs on every push until that changes.
     FULL:
       required_on_final_ready_for_review_head: true
       required_for_security_sensitive_paths: true
@@ -170,7 +137,6 @@ ci:
       required_for_release_candidate_or_deployment_boundary: true
       implemented: false
       not_implemented_reason: no release or distribution boundary exists yet
-
   acceleration:
     cancel_superseded_non_deployment_runs: true
     rerun_failed_jobs_only_preferred: true
@@ -180,23 +146,20 @@ ci:
     same_source_validation_reuse_allowed: true
     same_source_validation_reuse_requires_input_and_artifact_integrity_binding: true
     full_gate_semantics_must_not_be_reduced: true
-
   merge_queue:
     preferred_when_supported_and_verified: true
     full_gate_required_on_merge_group: true
     post_merge_full_duplicate_may_be_replaced_by_provenance_plus_smoke_only_if_merged_tree_equals_validated_merge_group_tree: true
     implemented: false
-    not_implemented_reason: >-
-      A merge queue needs more than one concurrent contributor to be worth its complexity.
+    not_implemented_reason: A merge queue needs more than one concurrent contributor to be worth its complexity.
       Revisit when a second maintainer joins, alongside EXC-2026-09-01-001.
-
   required_job: quality
   required_local_targets:
-    - policy
-    - governance
-    - lint
-    - typecheck
-    - test
+  - policy
+  - governance
+  - lint
+  - typecheck
+  - test
   policy_validator: scripts/validate_coding_agent_policy.py
   governance_validator: scripts/validate_repository_governance.py
   main_push_provenance_detection_required: true
@@ -204,27 +167,23 @@ ci:
   main_push_provenance_require_github_signed_merge: true
   main_push_provenance_require_previous_main_parent: true
   main_push_provenance_reject_forced_push: true
-
 external_control_plane:
   provider: github
   branch_protection_or_ruleset_required: true
   repository_admin_configuration_required: true
   current_connector_can_write_branch_rules: true
-  connector_capability_verified_at: "2026-09-01"
-  connector_capability_evidence: >-
-    gh CLI authenticated as tehki with 'repo' scope; repos/tehki/on-the-fly reports
-    viewerPermission ADMIN. Technical capability is not standing authorization; writing
-    branch rules requires an explicit scoped ADMIN capability grant per Constitution
-    Article 3.
   verification_required_after_admin_configuration: true
   compensating_main_push_detection_required_while_unprotected: true
   documentation: docs/GITHUB_REPOSITORY_GOVERNANCE.md
-
+  connector_capability_verified_at: '2026-09-01'
+  connector_capability_evidence: gh CLI authenticated as tehki with 'repo' scope; repos/tehki/on-the-fly
+    reports viewerPermission ADMIN. Technical capability is not standing authorization; writing branch
+    rules requires an explicit scoped ADMIN capability grant per Constitution Article 3.
 truthfulness:
   never_claim_remote_branch_protection_without_verification: true
   local_ci_manifest_does_not_equal_remote_enforcement: true
   last_verified_remote_state:
-    verified_at: "2026-09-01"
+    verified_at: '2026-09-01'
     branch_protection_present: true
     branch_protection_mechanism: repository_ruleset
     ruleset_id: 22044161
@@ -233,20 +192,45 @@ truthfulness:
     bypass_actors_count: 0
     current_user_can_bypass: never
     rules_present:
-      - deletion
-      - non_fast_forward
-      - required_linear_history
-      - pull_request
-      - required_status_checks
+    - deletion
+    - non_fast_forward
+    - required_linear_history
+    - pull_request
+    - required_status_checks
     required_status_checks_verified:
-      - quality
+    - quality
     strict_required_status_checks_policy: true
     workflows_present: true
     vulnerability_alerts_enabled: true
-    verification_method: >-
-      Read back independently from GET /repos/tehki/on-the-fly/rulesets/22044161 after
-      creation, rather than trusting the response to the write. Additionally confirmed
-      by observing the ruleset reject a direct push to main.
-    note: >-
-      Evidence of a point in time, not a standing claim. Re-verify after any
-      administrative configuration change before describing main as protected.
+    verification_method: Read back independently from GET /repos/tehki/on-the-fly/rulesets/22044161 after
+      creation, rather than trusting the response to the write. Additionally confirmed by observing the
+      ruleset reject a direct push to main.
+    note: Evidence of a point in time, not a standing claim. Re-verify after any administrative configuration
+      change before describing main as protected.
+authorization_boundaries:
+  merge_authorization_implies_runtime_activation: false
+  runtime_activation_authorization_implies_deployment: false
+  authorization_reuse_requires_unchanged_scope_target_risk_capability_side_effect_and_rollback: true
+  exact_head_change_invalidates_exact_head_authorization: true
+  privileged_or_destructive_target_reverification_required_immediately_before_execution: true
+rollback:
+  preauthorized_rollback_may_execute_without_second_approval: true
+  exact_target_and_method_required: true
+  post_rollback_verification_required: true
+  silent_infinite_retry_prohibited: true
+approval_limitation:
+  applies_to:
+  - required_approvals
+  - require_code_owner_review
+  reason: single maintainer with write access (tehki)
+  exception_record: EXC-2026-09-01-001
+  compensating_controls:
+  - pull_request_still_required_for_every_change
+  - required_quality_status_check_must_pass
+  - enforce_for_administrators_prevents_maintainer_bypass
+  - direct_push_and_force_push_disabled
+  - linear_history_and_conversation_resolution_required
+  - main_push_provenance_detection
+  - written_risk_and_retention_declaration_in_pull_request_template
+  removal_condition: A second reviewer with write access is added; required_approvals is then raised to
+    1 (2 for CRITICAL) and require_code_owner_review is enabled.

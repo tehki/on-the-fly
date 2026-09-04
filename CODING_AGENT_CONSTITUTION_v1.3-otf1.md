@@ -1,9 +1,9 @@
 # Coding Agent Constitution
 
-**Version:** 1.2-otf1 (derived from upstream 1.2)  
-**Revision:** 2026-09-02 - Article 11 rebound to the active governance manifest instead of a hard-coded project name  
+**Version:** 1.3-otf1 (derived from upstream 1.3)  
+**Revision:** 2026-09-04 - upstream 1.3 adopted; Article 11 rebound to the active governance manifest instead of a hard-coded project name, for the second time  
 **Status:** Normative  
-**Supersedes:** the `v1.1-otf` lineage. Upstream base: `CODING_AGENT_CONSTITUTION_v1.2.md`  
+**Supersedes:** the `v1.2-otf1` lineage. Upstream base: `CODING_AGENT_CONSTITUTION_v1.3.md`  
 **Applies to:** Coding agents, automation agents, project tools, supporting services, and repository governance governed by the Coding Agent Development Principles.
 
 This Constitution contains non-negotiable rules. The machine-readable policy and detailed handbook may make them stricter or explain them, but MUST NOT silently weaken them.
@@ -169,7 +169,7 @@ Force-push, production deletion, destructive schema migration, credential revoca
 
 The default branch MUST be protected by the repository provider's branch protection or ruleset control plane where the provider supports it.
 
-The governing repository and its required controls are named by the active Repository Governance manifest declared in the machine-readable Coding Agent Policy. For this project that manifest is `REPOSITORY_GOVERNANCE_v1.1-otf1.yaml`, and `main` MUST require pull requests and the required `quality` CI check, prohibit force pushes/deletion, require review, and require code-owner review for security/policy-sensitive paths as defined there.
+The governing repository and its required controls are named by the active Repository Governance manifest declared in the machine-readable Coding Agent Policy. For this project that manifest is `REPOSITORY_GOVERNANCE_v1.2-otf1.yaml`, and `main` MUST require pull requests and the required `quality` CI check, prohibit force pushes/deletion, require review, and require code-owner review for security/policy-sensitive paths as defined there.
 
 A CODEOWNERS file, PR template, CI workflow, or governance manifest is not equivalent to remote branch protection. The remote state MUST be independently configured and verified.
 
@@ -236,6 +236,12 @@ The effective risk of a batched change is the highest applicable risk of any inc
 CI MAY use conservative change-aware selection, deterministic sharding, trusted setup caching, same-source validation reuse, merge queues, and cancellation of superseded non-deployment runs when required controls preserve their semantics. Ambiguous relevance MUST fail safe to the fuller validation path.
 
 A successful validation result MAY be reused only when it is cryptographically or immutably bound to the same relevant source/tree identity, dependency/toolchain inputs, policy version, and generated artifact identity. A relevant source or policy change invalidates that evidence.
+
+A previously explicit authorization MAY be reused inside the same bounded work unit while project, exact target/head where specified, scope, risk, capability class, side-effect class, rollback assumptions, and exception/expiry state remain unchanged. A material change to those inputs requires renewed authorization. Privileged/destructive targets still require immediate re-verification before execution.
+
+Merge authorization, runtime activation authorization, and deployment authorization are separate authorities by default. One MUST NOT be inferred from another unless the authorization explicitly combines those boundaries.
+
+When an authorized mutation includes an exact rollback condition and method, that rollback MAY execute without a second approval when the stated condition becomes true, provided it stays within the original authorized target and is verified afterward.
 
 ---
 
