@@ -167,8 +167,12 @@ things, so the loaded figure is the honest one — and by it, the budget is miss
 Decoding is greedy rather than the publisher's beam 6. Measured on Helsinki-NLP's own test
 sets against their human references, that costs nothing detectable in either direction —
 chrF2 66.62 against 66.56 for `en→ru`, 73.17 against 72.73 for `ru→en` — and runs 2.3–2.4x
-faster. That comparison is within-run, so load affects both arms equally and the decision
-stands.
+faster.
+
+Translation is also bounded to one thread. CTranslate2 defaults to using every core, which
+measures **6.9x slower under load** — 2899 ms against 421 ms with three of four cores busy —
+because a single translation taking every core gets descheduled. One thread costs about 10%
+on an idle machine and is the only setting that meets the budget on a busy one.
 
 See [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 
