@@ -225,6 +225,12 @@ sentence. The shorter conversational turns measured during implementation take 4
 comfortably inside. So the honest summary is: typical turns are fine, long sentences are at
 the limit, and nothing here has been measured under CPU contention.
 
+> **Corrected 2026-09-04 by the fifth measurement below.** This paragraph is wrong. Over 65
+> utterances the p95 is **2820 ms**, past the 2500 ms hard limit, and this single sample sat
+> near the *mean* rather than near p95. The reasoning above treats one run as if it located
+> the tail; it did not, and no single run can. Left in place rather than edited away,
+> because the mistake is more instructive than a corrected number would be.
+
 **Why the real-time factor rose from 0.399x to 0.539x.** Translation is real work added to
 the same wall clock. It still keeps up, which is the property that matters, but the margin
 narrowed by a third and a second language pair running concurrently has never been tried.
@@ -257,6 +263,96 @@ Recorded here because it would otherwise look like a pure quality defect. It was
 defect too, and a budget that only tracked milliseconds would have caught it while a review
 that only read the Russian would also have caught it — but neither alone would have
 explained it.
+
+## Fifth measurement — 2026-09-04, a distribution instead of an anecdote
+
+The fourth measurement reported **1476 ms** endpoint-to-caption from a single utterance and
+called it "inside the p95 target, and only just". **That was wrong**, and this is what a
+real sample says.
+
+65 utterances of real recorded English (LibriSpeech dev-clean, 3–15 s as this document's
+workload specifies, 442 s of audio), `en→ru`, reference machine:
+
+| | Measured | Target | Hard limit | |
+| --- | --- | --- | --- | --- |
+| Endpoint → caption, **p50** | **1271 ms** | 700 ms | — | **missed, 1.8×** |
+| Endpoint → caption, **p95** | **2820 ms** | 1500 ms | 2500 ms | **missed, and past the hard limit** |
+| Endpoint → caption, **p99** | **3735 ms** | — | 4000 ms | inside |
+| Mean | 1517 ms | — | — | — |
+| Range | 463–3735 ms | — | — | — |
+| Recognition real-time factor | 0.41× p50, 0.51× max | under 1.0× | — | **comfortable** |
+
+**The single sample was near the mean and the mean is not the budget.** 1476 ms sat close
+to the 1517 ms mean while p95 is nearly twice that. This is precisely the failure handbook
+64N.1 describes — a single run is not evidence — and it was made in this document one
+section earlier. The correction is the point of recording it.
+
+**Recognition is not the problem.** It keeps pace at 0.41× and its worst case is 0.51×. The
+entire budget failure is the translation stage.
+
+### The translation stage on its own
+
+100 sentences, LibriSpeech's own reference transcripts (median 85 characters):
+
+| | p50 | p95 | p99 | max |
+| --- | --- | --- | --- | --- |
+| `en→ru` | 1413 ms | 3081 ms | 3902 ms | 3902 ms |
+| `ru→en` | 1098 ms | 3268 ms | 6196 ms | 6196 ms |
+
+The `ru→en` input is Russian produced by the `en→ru` model rather than natural Russian —
+in-distribution and clean, so those figures are a best case. No natural Russian corpus was
+available here.
+
+### The lever, measured, and why it is not pulled
+
+Beam size is the obvious control. 60 sentences, `en→ru`, same machine:
+
+| beam | p50 | p95 | p99 | outputs identical to beam 6 |
+| --- | --- | --- | --- | --- |
+| 6 (publisher default) | 1765 ms | 4145 ms | 5269 ms | 60/60 |
+| 4 | 1446 ms | 3842 ms | 3961 ms | 19/60 |
+| 2 | 1217 ms | 2700 ms | 3070 ms | 8/60 |
+| **1 (greedy)** | **677 ms** | **1530 ms** | 2167 ms | **0/60** |
+
+Greedy decoding puts p50 inside the 700 ms target and p95 within 30 ms of the 1500 ms one —
+a 2.6× improvement at the median. It is the whole budget gap, available today, by changing
+one integer.
+
+**It is not taken, and the reason is not caution.** Every one of the 60 outputs changes.
+Different is not worse, but this project cannot currently tell which it is: there is no
+Russian reference set to score against, and nobody here reads Russian well enough to judge.
+Shipping a 2.6× speed-up whose quality effect is unmeasured is the case handbook 64S names
+outright — "choosing faster but incorrect/non-equivalent code" — and it is the same failure
+that removed Tajik in ADR 0010, arriving this time as a performance decision rather than a
+language one.
+
+What would settle it: a Russian reference corpus and a chrF/BLEU comparison across beam
+sizes, or a Russian speaker willing to read 60 pairs. Either is small work. Neither has been
+done, so the default stays at the publisher's 6.
+
+### Variance, and what these numbers are not
+
+The beam-6 p50 reads 1765 ms in the sweep and 1413 ms in the 100-sentence run, on the same
+machine and model. That spread is contention, and it means these percentiles carry roughly
+±20% before anything else is considered. They are good enough to say the budget is missed —
+that conclusion survives the noise easily — and not good enough to certify a 10%
+improvement.
+
+Still absent from all of it:
+
+- **Read speech, not conversation.** LibriSpeech is audiobook narration: clean endpoints,
+  no disfluencies, no crosstalk. A real conversation is harder in every respect.
+- **Two language pairs, not three**, and one of those measured on machine-generated input.
+- **No microphone.** Every number in this document comes from a file.
+- **A quiet machine.** Nothing here was measured under controlled load.
+
+## Status
+
+**PROVISIONAL**, and now for a better reason than before. The stages exist and the path is
+measurable end to end; what is missing is a representative workload, not a pipeline. The
+budget is **missed at p50 and p95** and that is a defect under this document's own rules,
+not a target to be revised upward — the remedy is either the beam-size change above, backed
+by quality evidence, or a design change, recorded here explicitly.
 
 ## Owner and review
 
