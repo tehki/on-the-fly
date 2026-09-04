@@ -82,14 +82,15 @@ def build_worker() -> Any:
             from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS, resolve
             from on_the_fly.infrastructure.asr.sherpa_streaming import SherpaStreamingRecognizer
             from on_the_fly.infrastructure.audio import MicrophoneSource
-            from on_the_fly.infrastructure.translation import TranslationModelStore
-            from on_the_fly.infrastructure.translation import load as load_translator
-            from on_the_fly.infrastructure.translation import resolve as resolve_artifact
+            from on_the_fly.infrastructure.translation import open_translator, resolve_engine
 
             # Everything that can be refused is refused before the microphone is opened.
             pin = resolve(f"streaming-{self._source}")
-            artefact = (
-                resolve_artifact((self._source, self._target))
+            # The default engine, which is CTranslate2: the desktop has no reason to run
+            # the slower one, and the engine that exists for phones is chosen by the
+            # command line rather than by a picker nobody on a desktop needs (ADR 0018).
+            choice = (
+                resolve_engine((self._source, self._target))
                 if self._target != self._source
                 else None
             )
@@ -99,18 +100,10 @@ def build_worker() -> Any:
             recognizer = SherpaStreamingRecognizer(model_dir, layout=STREAMING_LAYOUTS[pin.name])
 
             translator = None
-            if artefact is not None:
+            if choice is not None:
                 self.started.emit("loading translation model")
-                converted, spm = TranslationModelStore(self._cache_dir, allow_download=True).ensure(
-                    artefact
-                )
-                translator = load_translator(
-                    converted,
-                    spm,
-                    source_language=artefact.source_language,
-                    target_language=artefact.target_language,
-                )
-                self.attribution.emit(artefact.attribution)
+                translator = open_translator(choice, self._cache_dir, allow_download=True)
+                self.attribution.emit(choice.attribution)
 
             source = MicrophoneSource()
             recognizer.validate_format(source.audio_format)

@@ -49,6 +49,17 @@ sherpa-onnx==1.13.7
 ctranslate2==4.8.2
 sentencepiece==0.2.2
 
+# onnxruntime  MIT  - the second inference engine, for translation on hardware CTranslate2
+#                     cannot reach. See ADR 0018. Promoted from transitive to declared for
+#                     the third time in this file and for the same reason: it arrives with
+#                     sherpa-onnx, which is another package's choice, and this project now
+#                     imports it directly. Adds no bytes. The reason it exists here at all
+#                     is that it is the only inference runtime in this stack with official
+#                     Android and iOS builds (ADR 0017), at the same 1.29.0 already
+#                     installed. Imported only in
+#                     src/on_the_fly/infrastructure/translation/, and lazily.
+onnxruntime==1.29.0
+
 # av  BSD-3-Clause  - resampling captured audio to the rate the models take. See ADR 0013.
 #                     Real capture hardware offers 44.1/48 kHz and refuses 16 kHz, so the
 #                     microphone adapter negotiates a rate and converts. Promoted from
