@@ -745,6 +745,84 @@ more per chunk than it saves.
 threads. They should improve, and that is an expectation rather than a result until someone
 runs it.
 
+## Twelfth measurement — 2026-09-04, the second engine
+
+ADR 0018 added a second implementation of the `Translator` port on ONNX Runtime, because
+CTranslate2 has no mobile build and this product has to run on a phone (ADR 0017). Two
+engines running the same model raise exactly the question this document exists to answer:
+what does the portable one cost?
+
+Both were loaded through the application's own factory — the path the CLI takes, greedy and
+single-threaded — and given the same 300 sentences from Helsinki-NLP's `en-ru` test set.
+
+### Quality: 0.29 chrF2 apart, and it is not quantisation
+
+| | chrF2 vs human references |
+| --- | --- |
+| CTranslate2, int8 (the default) | **66.62** |
+| ONNX Runtime, int8 | **66.33** |
+| ONNX Runtime, **fp32** | **66.34** |
+| Published score for this model | 66.9 |
+
+The CTranslate2 figure reproduces the sixth measurement's 66.62 **exactly**, on a rebuilt
+model directory a day later. That reproduction is what makes the rest of the table worth
+reading.
+
+**The full-precision graphs score 66.34 against the quantised 66.33** — no difference — for
+653 MB against 421 MB. So the 0.29 that separates the two engines is not the quantisation;
+it is the export, and it does not shrink by paying 232 MB more. Checking that cost one
+download and three minutes, and it replaced an assumption this document would otherwise have
+carried indefinitely.
+
+Agreement between the engines: **239 of 300 sentences identical (79.7%)**, chrF2 94.1
+between their outputs. The disagreements are of the kind quantisation produces — `чёрное`
+against `черное`, one gender ending, an equivalent alternative — rather than a different
+model.
+
+### Latency: the portable engine is 2.4–2.7x slower
+
+300 sentences per cell, one process, load created deliberately for the loaded columns. The
+"idle" columns are *no deliberate load*, with a 1-minute load average of 1.9–2.6 on this
+4-core machine — this is the same machine the eighth measurement caught running a local LLM
+server, and calling it idle without that qualifier is the error this document has recorded
+three times.
+
+| | CTranslate2 idle | ONNX idle | CTranslate2 loaded | **ONNX loaded** |
+| --- | --- | --- | --- | --- |
+| Translation stage p50 | 144 ms | 383 ms | 277 ms | **674 ms** |
+| p95 | 235 ms | 647 ms | 572 ms | **1259 ms** |
+| p99 | 418 ms | 1088 ms | 895 ms | **2377 ms** |
+| Model load | 0.99 s | **9.18 s** | — | — |
+
+**2.7x at p50 idle, 2.4x under load.** The ratio holds across conditions, which is the part
+worth trusting: both arms ran in one process minutes apart, so contention hits them equally.
+
+Two consequences follow, and neither is a reason to change the default:
+
+- **The stage alone nearly exhausts the end-to-end budget under load.** 674 ms p50 for
+  translation against a 700 ms endpoint-to-caption target leaves nothing for recognition, and
+  the tenth measurement puts the whole pipeline at 710 ms on CTranslate2 under the same load.
+  On this hardware, the ONNX engine would miss the budget under load.
+- **Model load is 9.18 s against a 3 s startup target** — worse than the 5.35 s recognition
+  load the fourth measurement recorded, and it varied from 5.6 s to 9.2 s across runs here.
+
+**CTranslate2 stays the default**, which is what ADR 0018 decided and what these numbers
+support. ONNX exists for the hardware where the choice is not between two engines but
+between one engine and none.
+
+### What this does not measure
+
+**None of it ran on a phone**, which is the entire reason the second engine exists. A phone
+is not a slower laptop: different cores, different memory bandwidth, different thermal
+behaviour, and — for ONNX Runtime specifically — different execution providers (NNAPI,
+Core ML) that are not in play here at all. These numbers say what the portable engine costs
+*on this desktop*, and that is the only claim they support.
+
+The disk cost is also real and unmeasured against any device constraint: **421 MB of ONNX
+graphs against 84 MB for the CTranslate2 conversion of the same model**, two thirds of it
+the decoder weights carried twice because the merged decoder graph is broken on its no-cache
+path (ADR 0018). On a phone that is a product decision, not a footnote.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.

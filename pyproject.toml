@@ -51,6 +51,14 @@ ignore_missing_imports = true
 module = ["faster_whisper", "huggingface_hub", "sherpa_onnx"]
 ignore_missing_imports = true
 
+# onnxruntime ships no py.typed marker. It is used only in
+# src/on_the_fly/infrastructure/translation/onnx_translator.py, behind the Translator port,
+# so the untyped surface is one file wide — the same containment the other overrides here
+# rely on rather than a blanket exemption.
+[[tool.mypy.overrides]]
+module = ["onnxruntime"]
+ignore_missing_imports = true
+
 # ctranslate2 ships no py.typed marker. It is used only in
 # src/on_the_fly/infrastructure/translation/, behind the Translator port and
 # TranslationModelStore, so the untyped surface is two files wide. sentencepiece needs no

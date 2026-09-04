@@ -79,6 +79,13 @@ different question: the recogniser ships Android artefacts, but CTranslate2 has 
 support, so mobile translation goes through ONNX Runtime — already a dependency here, with
 official Android and iOS builds — rather than a new library.
 
+**That second engine now exists** ([ADR 0018](docs/adr/0018-onnx-translation.md)):
+`--translation-engine onnx` runs the same model through ONNX Runtime, behind the same port,
+with nothing above `infrastructure/` aware of the difference. It is 2.4–2.7x slower on this
+desktop, so CTranslate2 stays the default — the portable engine is for hardware where the
+choice is not between two engines but between one and none. **Nothing has been run on a
+phone**; capture and the interface are still desktop-only.
+
 ## The window
 
 ```bash
@@ -112,7 +119,7 @@ without a GUI toolkit installed.
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 | `src/on_the_fly/infrastructure/audio/` | Microphone and WAV adapters — the only place PortAudio exists |
 | `src/on_the_fly/infrastructure/asr/` | Pinned models and the Whisper recogniser |
-| `src/on_the_fly/infrastructure/translation/` | Pinned translation artefacts and the CTranslate2 translator |
+| `src/on_the_fly/infrastructure/translation/` | Pinned translation artefacts and both translators, CTranslate2 and ONNX Runtime |
 | `src/on_the_fly/app/` | Composition root and command line |
 | `src/on_the_fly/ui/` | The desktop window — logic in `caption.py`, widgets in `window.py` |
 
@@ -225,6 +232,23 @@ The model is Helsinki-NLP's own OPUS-MT release, pinned by URL and SHA-256 and c
 locally; the conversion is a derived cache and is never what gets trusted. Its licence is
 CC-BY-4.0, which requires attribution, which is why the attribution line is printed rather
 than buried in a source file.
+
+**A second engine, for hardware CTranslate2 cannot reach** ([ADR 0018](docs/adr/0018-onnx-translation.md)):
+
+```bash
+python -m on_the_fly stream recording.wav --translate-to ru --translation-engine onnx
+```
+
+Same model, same port, ONNX Runtime instead — the runtime with official Android and iOS
+builds. Measured against the default on 300 sentences of the publisher's test set: **chrF2
+66.33 against 66.62**, with 239 of 300 outputs identical, and **2.4–2.7x slower**. That gap
+is the export rather than the quantisation — the full-precision graphs score the same 66.34
+for 232 MB more.
+
+Its artefact is a third-party conversion, since Helsinki-NLP publish Marian weights and not
+an ONNX export. ADR 0009's rule is *pin what the publisher published, never a conversion*,
+so the converter is admitted under Article 12 with its own review rather than the rule being
+quietly bent.
 
 For the batch engine, first fetch the pinned model (78 MB, once):
 

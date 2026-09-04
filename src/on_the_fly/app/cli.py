@@ -46,13 +46,14 @@ from on_the_fly.infrastructure.asr import (
 )
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
 from on_the_fly.infrastructure.translation import (
-    MarianArtifact,
+    DEFAULT_ENGINE,
     TranslationArtifactError,
+    TranslationChoice,
+    TranslationEngine,
     TranslationError,
-    TranslationModelStore,
+    open_translator,
 )
-from on_the_fly.infrastructure.translation import load as load_translator
-from on_the_fly.infrastructure.translation import resolve as resolve_artifact
+from on_the_fly.infrastructure.translation import resolve_engine as resolve_artifact
 
 # Models are DURABLE_PROJECT_ARTIFACT, not project content: intentionally persistent, and
 # carrying nothing anyone said. They live outside the repository so a checkout stays small.
@@ -129,6 +130,16 @@ def build_parser() -> argparse.ArgumentParser:
             "the pair is explicit; only pairs with a pinned model are accepted"
         ),
     )
+    transcribe.add_argument(
+        "--translation-engine",
+        type=TranslationEngine,
+        choices=list(TranslationEngine),
+        default=DEFAULT_ENGINE,
+        help=(
+            "which runtime executes the translation model (default: ctranslate2, which is "
+            "faster). 'onnx' is the engine that runs on mobile hardware (ADR 0018)"
+        ),
+    )
     transcribe.add_argument("--frame-ms", type=int, default=20)
     transcribe.add_argument("--hangover-ms", type=int, default=500)
     transcribe.add_argument("--json", action="store_true")
@@ -175,6 +186,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "translate finalised text into this language, e.g. ru. Only pairs with a "
             "pinned model are accepted. Partials are never translated (ADR 0009)"
+        ),
+    )
+    stream.add_argument(
+        "--translation-engine",
+        type=TranslationEngine,
+        choices=list(TranslationEngine),
+        default=DEFAULT_ENGINE,
+        help=(
+            "which runtime executes the translation model (default: ctranslate2, which is "
+            "faster). 'onnx' is the engine that runs on mobile hardware (ADR 0018)"
         ),
     )
     stream.add_argument("--frame-ms", type=int, default=20)
@@ -277,7 +298,7 @@ def run_transcribe(args: argparse.Namespace) -> int:
     """Segment, then transcribe each utterance with a verified local model."""
     # Resolved before any model is fetched, so an unsupported pair costs a message rather
     # than a download (handbook 14).
-    artefact = None
+    choice = None
     if args.translate_to is not None:
         if args.language is None:
             # Whisper will happily detect the language, but a translation model is
@@ -291,7 +312,7 @@ def run_transcribe(args: argparse.Namespace) -> int:
         target = resolve_language(args.translate_to)
         if target.code == source_language.code:
             raise ValueError(f"source and target are both {target.name}; nothing to translate.")
-        artefact = resolve_artifact((source_language.code, target.code))
+        choice = resolve_artifact((source_language.code, target.code), args.translation_engine)
 
     source = WavFileSource(args.path, frame_ms=args.frame_ms)
     config = SegmenterConfig(frame_ms=args.frame_ms, hangover_ms=args.hangover_ms)
@@ -309,8 +330,8 @@ def run_transcribe(args: argparse.Namespace) -> int:
     purge_failed = False
     try:
         translations = (
-            _translate_utterances(result, artefact, args.cache_dir, args.allow_download)
-            if artefact is not None
+            _translate_utterances(result, choice, args.cache_dir, args.allow_download)
+            if choice is not None
             else None
         )
         print(
@@ -334,7 +355,7 @@ def run_transcribe(args: argparse.Namespace) -> int:
 
 def _translate_utterances(
     result: PipelineResult,
-    artefact: MarianArtifact,
+    choice: TranslationChoice,
     cache_dir: Path,
     allow_download: bool,
 ) -> dict[int, str]:
@@ -353,17 +374,9 @@ def _translate_utterances(
     if store is None:  # pragma: no cover - run_capture(keep_store=True) always sets it
         return {}
 
-    converted, spm = TranslationModelStore(cache_dir, allow_download=allow_download).ensure(
-        artefact
-    )
-    translator = load_translator(
-        converted,
-        spm,
-        source_language=artefact.source_language,
-        target_language=artefact.target_language,
-    )
-    print(f"translation   {artefact.name} (local, verified, {artefact.licence})")
-    print(f"attribution   {artefact.attribution}")
+    translator = open_translator(choice, cache_dir, allow_download=allow_download)
+    print(f"translation   {choice.name} on {choice.engine} (local, verified, {choice.licence})")
+    print(f"attribution   {choice.attribution}")
 
     translations: dict[int, str] = {}
     for record in result.utterances:
@@ -376,8 +389,8 @@ def _translate_utterances(
         try:
             rendered = translator.translate(
                 text,
-                source_language=artefact.source_language,
-                target_language=artefact.target_language,
+                source_language=choice.source_language,
+                target_language=choice.target_language,
             )
         except TranslationError:
             continue
@@ -477,12 +490,12 @@ def run_stream(args: argparse.Namespace) -> int:
     # cannot serve should cost a message, not a 73 MB recogniser fetch first (handbook 14:
     # validate before you execute).
     target = None
-    artefact = None
+    choice = None
     if args.translate_to is not None:
         target = resolve_language(args.translate_to)
         if target.code == language.code:
             raise ValueError(f"source and target are both {target.name}; nothing to translate.")
-        artefact = resolve_artifact((language.code, target.code))
+        choice = resolve_artifact((language.code, target.code), args.translation_engine)
 
     source = WavFileSource(args.path, frame_ms=args.frame_ms)
     model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
@@ -508,18 +521,12 @@ def run_stream(args: argparse.Namespace) -> int:
     print(f"model load    {load_seconds:.2f}s")
 
     translator = None
-    if artefact is not None and target is not None:
-        translation_store = TranslationModelStore(
-            args.cache_dir, allow_download=args.allow_download
-        )
-        converted, spm = translation_store.ensure(artefact)
-        translator = load_translator(
-            converted, spm, source_language=language.code, target_language=target.code
-        )
-        print(f"translation   {artefact.name} (local, verified, {artefact.licence})")
+    if choice is not None and target is not None:
+        translator = open_translator(choice, args.cache_dir, allow_download=args.allow_download)
+        print(f"translation   {choice.name} on {choice.engine} (local, verified, {choice.licence})")
         # CC-BY-4.0 requires attribution reachable by a user. This line is where that
         # obligation is met for the command line; a graphical interface owes its own.
-        print(f"attribution   {artefact.attribution}")
+        print(f"attribution   {choice.attribution}")
 
     print()
 
