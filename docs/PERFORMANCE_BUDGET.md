@@ -422,6 +422,65 @@ the one this document asks for:
 A native Russian reader would still add what chrF cannot: whether those 78 differences read
 naturally. That is now a refinement rather than a blocker.
 
+## Seventh measurement — 2026-09-04, both directions
+
+Russian streams now (ADR 0012), so both pinned pairs can be measured, and one hole in the
+previous measurement needed closing.
+
+### The hole: a global default validated on half the product
+
+The sixth measurement changed the decoding default to greedy for **every** language pair,
+on evidence from `en→ru` only. `ru→en` was never checked. That is a global change justified
+by a local measurement, and it is exactly the shape of error this document keeps recording.
+
+Checked now, same method — 300 sentences from the publisher's own `ru→en` test set, chrF2
+against their human English references:
+
+| | chrF2 | Latency p50 |
+| --- | --- | --- |
+| beam 6 (publisher default) | 72.73 | 377 ms |
+| **beam 1 (greedy)** | **73.17** | **155 ms** |
+| Published score for this model | 73.6 | — |
+
+Validated the same way before being believed: our beam-6 output reproduces the publisher's
+own hypotheses at chrF2 **96.1**, and scores **72.73** against their references where they
+published **73.6**.
+
+**The decision holds, and holds slightly better in this direction** — greedy is 0.44 ahead,
+at 2.44x the speed, with 249 of 300 outputs identical. Both pairs are now covered by the
+evidence that justified the default.
+
+### Coverage against the reference workload
+
+| Requirement | en→ru | ru→en |
+| --- | --- | --- |
+| End-to-end distribution, real speech | **65 utterances** — p50 420 ms, p95 912 ms | **1 utterance** — 871 ms, 0.258x real time |
+| Translation stage distribution | 300 sentences — p50 153 ms, p95 346 ms | **300 sentences** — p50 155 ms, p95 275 ms |
+| Quality against human references | 66.62 chrF2 | 73.17 chrF2 |
+| Source text | real (LibriSpeech transcripts) | **real human Russian** (publisher test set) |
+
+The `ru→en` translation figures are a genuine improvement on the fifth measurement, which
+used Russian produced by the `en→ru` model and was therefore a best case. These are human
+Russian sentences.
+
+**`ru→en` end to end is one utterance and no percentile is claimed for it.** One sample is
+what the fourth measurement got wrong; the correction is not to repeat it in the other
+direction. A Russian speech corpus was not obtained — the model publisher ships a single
+sample, and the larger Russian sets are either behind acceptance terms or too large to be
+proportionate here.
+
+### What is still missing, and why
+
+- **Two language pairs, not three.** Adding a third means adopting a translation model,
+  checking its licence, and deciding which language the product serves next. That is a
+  product decision with a permanent consequence, not a measurement task, and doing it to
+  satisfy the shape of a benchmark would be the wrong reason. Recorded as a gap rather than
+  closed badly.
+- **Read speech, not conversation**, for the pair that has a distribution.
+- **No microphone.** The adapter has now been run against real hardware and works; the
+  hardware available produced saturated, DC-offset audio, so recognition from a live
+  microphone is still unverified. See `docs/CODING_AGENT_ADOPTION.md`.
+
 ## Status
 
 **PROVISIONAL**, and now for one reason only: the workload.
@@ -431,9 +490,10 @@ utterances of real recorded speech — p50 420 ms against 700 ms, p95 912 ms aga
 The defect the fifth measurement recorded is resolved, by measurement rather than by moving
 the target.
 
-What keeps the status PROVISIONAL is that the workload is read speech, one language pair, and
-a file rather than a microphone. Those are the remaining conditions, and none of them is a
-pipeline problem any more.
+What keeps the status PROVISIONAL is the workload: read speech, two language pairs rather
+than three, `ru→en` end-to-end resting on a single utterance, and a file rather than a
+microphone. None of them is a pipeline problem — the pipeline is measured and meets its
+targets. Two are corpus problems, one is a product decision, and one is hardware.
 
 ## Owner and review
 
