@@ -44,6 +44,7 @@ from on_the_fly.infrastructure.translation.engines import resolve as resolve_eng
 from on_the_fly.infrastructure.translation.onnx_artifacts import (
     KNOWN_ONNX_MODELS,
     ONNX_OPUS_MT_EN_RU,
+    ONNX_OPUS_MT_RU_EN,
     OnnxTranslationModel,
     resolve_onnx,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "KNOWN_ARTIFACTS",
     "KNOWN_ONNX_MODELS",
     "ONNX_OPUS_MT_EN_RU",
+    "ONNX_OPUS_MT_RU_EN",
     "OPUS_MT_EN_RU",
     "OPUS_MT_RU_EN",
     "ArtifactIntegrityError",

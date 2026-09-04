@@ -26,6 +26,15 @@ every later call consumes them.
 source sentence, so the with-past graph does not return them and this loop carries them
 unchanged. Recomputing them per token would be the obvious mistake and would roughly double
 the work.
+
+**The publisher's `bad_words_ids` are honoured, and they are not optional.** OPUS-MT uses
+one id for both padding and the decoder start token (62517), and `generation_config.json`
+forbids generating it. A loop that ignores that runs into it: measured on the publisher's
+own `ru-en` test set, one sentence in 300 produced `<pad>` repeated until the token budget
+ran out — 9.7 seconds of work for output that was pure padding — and others carried a stray
+`<pad>` mid-sentence. `transformers` applies this constraint as a matter of course, which is
+exactly the sort of thing that goes missing when a generation loop is written out by hand.
+It is applied here by masking those logits before the argmax.
 """
 
 from __future__ import annotations
@@ -43,7 +52,13 @@ from on_the_fly.infrastructure.translation.opus_mt import (
 
 # Long enough for any conversational turn, short enough that a degenerate model cannot spin.
 # A translation that has not ended after this many tokens is a failure, not a long sentence.
+# The publisher's own `max_length` is 512; this is tighter on purpose, because a live
+# translator caption that arrives four seconds late has already failed the user.
 MAX_NEW_TOKENS = 256
+
+# Set on masked logits. `-inf` would propagate through any later arithmetic on the array;
+# this is far below any real logit and stays finite.
+_SUPPRESSED_LOGIT = -1.0e30
 
 
 class OnnxTranslator:
@@ -67,6 +82,7 @@ class OnnxTranslator:
         target_language: str,
         decoder_start_token_id: int,
         eos_token_id: int,
+        suppressed_token_ids: tuple[int, ...] = (),
         max_new_tokens: int = MAX_NEW_TOKENS,
     ) -> None:
         self._encoder = encoder
@@ -81,6 +97,10 @@ class OnnxTranslator:
         self._target_language = target_language.lower()
         self._start = decoder_start_token_id
         self._eos = eos_token_id
+        # From the publisher's `bad_words_ids`. For OPUS-MT this is the pad token, which
+        # shares an id with the decoder start token — see the module docstring for what
+        # happens without it.
+        self._suppressed = suppressed_token_ids
         self._max_new_tokens = max_new_tokens
 
         self._past_inputs = [
@@ -152,7 +172,7 @@ class OnnxTranslator:
 
         tokens: list[int] = []
         for _ in range(self._max_new_tokens):
-            next_token = int(np.argmax(logits[0, -1]))
+            next_token = int(np.argmax(self._allowed(logits[0, -1])))
             if next_token == self._eos:
                 break
             tokens.append(next_token)
@@ -178,6 +198,20 @@ class OnnxTranslator:
                     cache[name] = step[produced]
 
         return str(self._target_pieces.decode([self._inverse.get(t, "") for t in tokens]))
+
+    def _allowed(self, row: Any) -> Any:
+        """The final position's logits with forbidden tokens masked out.
+
+        A copy, because the array belongs to the runtime's output and writing through it
+        would be a side effect on someone else's buffer.
+        """
+        if not self._suppressed:
+            return row
+        import numpy as np
+
+        masked = np.array(row, copy=True)
+        masked[list(self._suppressed)] = _SUPPRESSED_LOGIT
+        return masked
 
 
 def load(
@@ -219,6 +253,13 @@ def load(
         raise TranslationError(f"missing model config: {config_path}")
     config = json.loads(config_path.read_text(encoding="utf-8"))
 
+    generation_path = directory / "generation_config.json"
+    if not generation_path.is_file():
+        raise TranslationError(f"missing generation config: {generation_path}")
+    generation = json.loads(generation_path.read_text(encoding="utf-8"))
+
+    suppressed = _suppressed_tokens(generation)
+
     vocabulary_path = directory / "vocab.json"
     if not vocabulary_path.is_file():
         raise TranslationError(f"missing vocabulary: {vocabulary_path}")
@@ -235,4 +276,24 @@ def load(
         target_language=target_language,
         decoder_start_token_id=int(config["decoder_start_token_id"]),
         eos_token_id=int(config["eos_token_id"]),
+        suppressed_token_ids=suppressed,
     )
+
+
+def _suppressed_tokens(generation: dict[str, Any]) -> tuple[int, ...]:
+    """The single-token entries of the publisher's `bad_words_ids`.
+
+    Multi-token entries are refused rather than skipped. They forbid a *sequence*, which
+    this greedy loop has no machinery to enforce, and quietly ignoring a constraint the
+    publisher stated would be the same class of mistake as not reading it at all.
+    """
+    entries = generation.get("bad_words_ids") or []
+    tokens: list[int] = []
+    for entry in entries:
+        if not isinstance(entry, list) or len(entry) != 1:
+            raise TranslationError(
+                "this model forbids a multi-token sequence, which the greedy loop cannot "
+                f"enforce: {entry!r}"
+            )
+        tokens.append(int(entry[0]))
+    return tuple(tokens)

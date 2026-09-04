@@ -209,10 +209,85 @@ on both runs; real-time factor 0.393x against 0.442x, both keeping up.
   which is a necessary condition and not a sufficient one. Capture and the interface are
   still desktop-only (ADR 0017), so a phone build remains unbuilt work rather than a
   packaging exercise.
-- **`ru→en` on ONNX is unmeasured**, because it is unpinned.
+- ~~**`ru→en` on ONNX is unmeasured**, because it is unpinned.~~ **Closed 2026-09-04** — see
+  the amendment below. Both pinned pairs now run on both engines.
 - **The quality comparison is short single-reference sentences.** chrF cannot separate
   "different but equally correct" from "worse", and 61 sentences differ. The same caveat
   ADR 0009 records for beam size applies unchanged here.
+
+## Amendment, 2026-09-04 — the other direction, and the defect it exposed
+
+This ADR shipped with `en→ru` only, which the seventh measurement's own lesson says is half
+a product: *a decision validated on one direction is a decision validated on half the
+product*. `ru→en` is now pinned to `onnx-community/opus-mt-ru-en` @ `92ef0d55`, same
+publisher, same cc-by-4.0, same admission review.
+
+**Which Marian release that export descends from was checked rather than assumed.** The
+Hugging Face checkpoint it converts names `opus-2020-02-26.zip` as its original weights —
+the same release `artifacts.py` pins for CTranslate2, and the later of the two this pair
+publishes. Both engines therefore run the same model, which is the thing that would
+otherwise silently explain any difference between them.
+
+A free cross-check came with it: this export's `source.spm` digest equals the `en→ru`
+export's `target.spm`, and their `vocab.json` files are byte-identical. OPUS-MT trains a
+pair on one joint sentencepiece vocabulary, so that is what two directions of one model
+family should look like — and it is asserted by a test rather than noticed once.
+
+### The defect the second direction exposed
+
+Measuring `ru→en` turned up a bug in the loop this ADR describes. One sentence in 300 came
+back as `<pad>` repeated to the token budget — **9.7 seconds of work for output that was
+pure padding** — and others carried a stray `<pad>` mid-sentence.
+
+OPUS-MT uses **one id (62517) for both padding and the decoder start token**, and the
+publisher's `generation_config.json` says so:
+
+```json
+"bad_words_ids": [[62517]]
+```
+
+`transformers` applies that constraint as a matter of course. A generation loop written out
+by hand does not — which is the specific cost of the trade this ADR made to keep torch off a
+phone, and it is worth naming as such rather than filing as an ordinary bug. The loop now
+masks those logits before the argmax, `generation_config.json` is part of the pin (an
+unverified constraint is not a constraint), and a multi-token entry is **refused** rather
+than skipped, because this greedy loop cannot enforce a forbidden *sequence* and pretending
+otherwise would be the same mistake one level down.
+
+```text
+Сошлитесь на мою предыдущую статью.
+  before   <pad><pad><pad>... (256 tokens)          9726 ms
+  after    Please refer to my previous article.      288 ms
+```
+
+### Both pairs, after the fix
+
+300 sentences per direction, chrF2 against the publishers' human references:
+
+| | CTranslate2 | ONNX | gap |
+| --- | --- | --- | --- |
+| `en→ru` | **66.62** | 66.33 | 0.29 |
+| `ru→en` | **73.17** | 72.59 | 0.58 |
+
+Both CTranslate2 figures reproduce this repository's earlier measurements exactly — 66.62
+from the sixth, 73.17 from the seventh — which is what makes the ONNX column readable.
+
+The fix moved `ru→en` from 72.25 to **72.59** and lifted engine agreement from 253 to
+**255 of 300 identical** (chrF2 95.0 between them). It changed `en→ru` by nothing at all:
+that direction never hit the pad token in 300 sentences, so a measurement of it alone would
+have found none of this. **The bug was reachable from the beginning and only the second
+direction surfaced it**, which is the argument for covering both.
+
+### End to end, both directions
+
+```text
+ru→en, the Russian sample published with the pinned recogniser
+  ctranslate2   Rodon of the poppist counted every new creep and long ago determined
+  onnx          Rodon poppist counted every new piece of depth and long ago determined
+```
+
+Retention clean on both, 0.252x real time on ONNX. Recognition drops the proper noun in
+both cases; that is the recogniser, not the translator.
 
 ## Review trigger
 

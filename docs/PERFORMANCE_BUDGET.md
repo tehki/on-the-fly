@@ -823,6 +823,84 @@ graphs against 84 MB for the CTranslate2 conversion of the same model**, two thi
 the decoder weights carried twice because the merged decoder graph is broken on its no-cache
 path (ADR 0018). On a phone that is a product decision, not a footnote.
 
+## Thirteenth measurement — 2026-09-04, the other direction, and what it caught
+
+The twelfth measurement covered `en→ru` on the second engine and stopped there. The seventh
+measurement already recorded what that costs — *a global change justified by a local
+measurement* — so `ru→en` was pinned on ONNX and measured the same way. It found a defect
+that the first direction could not have found.
+
+### The defect
+
+One sentence in 300 came back as `<pad>` repeated until the token budget ran out: **9.7 s of
+work for output that was pure padding.** Others carried a stray `<pad>` mid-sentence.
+
+OPUS-MT uses one id (62517) for both padding and the decoder start token, and the
+publisher's `generation_config.json` forbids generating it (`bad_words_ids`). `transformers`
+applies that automatically; the hand-written loop that exists to keep torch off a phone
+(ADR 0018) did not. It does now, `generation_config.json` is part of the pin, and a
+multi-token constraint is refused rather than silently skipped.
+
+```text
+Сошлитесь на мою предыдущую статью.
+  before   <pad><pad><pad>... to the 256-token cap    9726 ms
+  after    Please refer to my previous article.        288 ms
+```
+
+**`en→ru` never hit it in 300 sentences.** Measuring one direction would have found nothing,
+and the quality figure that direction produced was correct both before and after the fix —
+66.33 either way. The bug was reachable from the first commit and only the second direction
+surfaced it.
+
+### Quality, both pairs, both engines
+
+| | CTranslate2 | ONNX | gap |
+| --- | --- | --- | --- |
+| `en→ru`, chrF2 vs human references | **66.62** | 66.33 | 0.29 |
+| `ru→en`, chrF2 vs human references | **73.17** | 72.59 | 0.58 |
+
+Both CTranslate2 figures reproduce this document's own earlier numbers exactly — 66.62 from
+the sixth measurement, 73.17 from the seventh — which is the only reason the ONNX column is
+worth reading. The fix moved `ru→en` from 72.25 to 72.59 and lifted engine agreement from
+253 to **255 of 300 identical**, chrF2 95.0 between the two engines' outputs.
+
+### Latency, and an honest note about its spread
+
+`ru→en`, 300 sentences, three of four cores deliberately busy for the loaded columns:
+
+| | CTranslate2 idle | ONNX idle | CT2 loaded | ONNX loaded |
+| --- | --- | --- | --- | --- |
+| p50 | 113 ms | 336 ms | 217 ms | **627 ms** |
+| p95 | 188 ms | 580 ms | 435 ms | **1122 ms** |
+| p99 | 336 ms | 970 ms | 798 ms | 2032 ms |
+| max | 1003 ms | **2627 ms** (was 10373 before the fix) | 1976 ms | 5548 ms |
+
+**CTranslate2 was faster in every arm measured, and the ratio is less stable than the
+twelfth measurement implied.** Across four runs today it ranged **1.6x to 3.0x**, and the
+variance sits in the CTranslate2 arm — its `en→ru` idle p50 came out at 144 ms in one run
+and 224 ms in another, while ONNX moved by 4%. Each arm runs first in its own process and
+picks up whatever the machine is doing at that moment.
+
+So the defensible statement is the direction and the rough size: **the portable engine costs
+roughly two to three times the latency**, and quoting a single decimal for that ratio would
+be claiming precision these conditions do not support. The conclusion that matters is
+unchanged and survives the spread easily — CTranslate2 stays the default; ONNX is for
+hardware where the alternative is nothing.
+
+### End to end, both directions on both engines
+
+`ru→en` on the Russian sample published with the pinned recogniser, through `stream`:
+
+```text
+ctranslate2   Rodon of the poppist counted every new creep and long ago determined
+onnx          Rodon poppist counted every new piece of depth and long ago determined
+```
+
+0.252x real time on ONNX, retention clean on both. Recognition drops the proper noun in
+both — that is the recogniser, not the translator.
+
+**Still nothing on a phone.** Every number in this section is a desktop number.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.

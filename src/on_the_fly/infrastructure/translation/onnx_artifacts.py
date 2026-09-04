@@ -63,7 +63,9 @@ from on_the_fly.infrastructure.translation.artifacts import TranslationArtifactE
 # to `infrastructure/` proper is the correct end state and is deliberately not bundled into
 # this change (ADR 0018, review trigger).
 
-# The three graphs plus the tokenisers and the config the decoding loop reads. Nothing else
+# The three graphs, the tokenisers, and both configs the decoding loop reads —
+# `generation_config.json` included, because it carries the `bad_words_ids` the loop is
+# required to honour and an unverified constraint is not a constraint. Nothing else
 # from the repository is fetched: the merged decoder is unused (see `onnx_translator`), and
 # the full-precision variants cost 232 MB more for a measured quality difference of 0.01
 # chrF2 — which is to say, none.
@@ -87,6 +89,30 @@ _EN_RU_FILES = {
     "target.spm": "745998e51ba5b058e38b7ac7765c25c43ed5c1c39cc92b27163b9b2e323c9d7c",
     "vocab.json": "5cf0d95d930d8d3e783c9e2f46a72f08b43a18060dab4ddefbcb66a733efedcb",
     "config.json": "8da686d7c49cc97f4c11ca17f1b07f9cc859b96e8aec880871d562ebbda458ed",
+    "generation_config.json": ("9996e913a167485b49c1afb315b5eda9270a9310c720699bf617757cc71c81a5"),
+}
+
+
+# The other direction. Two digests here are the same values that appear above with their
+# roles swapped — this export's `source.spm` is the other's `target.spm` — because OPUS-MT
+# trains the pair on one joint sentencepiece vocabulary. `vocab.json` is byte-identical in
+# both. That is a free cross-check that these two repositories are the same model family
+# rather than two unrelated exports that happen to share a naming convention.
+_RU_EN_FILES = {
+    "onnx/encoder_model_int8.onnx": (
+        "fdd4d1de9cb02feaae8bc892e0e21b1bfd1741fa43a2895d471ee5f53ae260c4"
+    ),
+    "onnx/decoder_model_int8.onnx": (
+        "29a0c34e0796d01eea5220ff8c4dbe1616f0cf7aa7dfc940de0ca82d3a93fcf3"
+    ),
+    "onnx/decoder_with_past_model_int8.onnx": (
+        "f39675dcf799f72aa6e8d86c933787d16c330c7bfcf8da05e132455abd53f279"
+    ),
+    "source.spm": "745998e51ba5b058e38b7ac7765c25c43ed5c1c39cc92b27163b9b2e323c9d7c",
+    "target.spm": "16bebef1389a0b8ab452772c4e35b9e605e5713f8ac7baa71ca701394eaa086d",
+    "vocab.json": "5cf0d95d930d8d3e783c9e2f46a72f08b43a18060dab4ddefbcb66a733efedcb",
+    "config.json": "bf674cad9714456e2ba2fa886c79dace4c884ba63ed5369f37866cff6164da23",
+    "generation_config.json": ("b9aa8ac0671a1beebe5bf218deec080a9d18b1a56a16268416d5b38e494ddc19"),
 }
 
 
@@ -136,8 +162,34 @@ ONNX_OPUS_MT_EN_RU = OnnxTranslationModel(
     ),
 )
 
+# Which Marian release this export descends from is checkable and was checked: the
+# Hugging Face checkpoint it was converted from names `opus-2020-02-26.zip` as its original
+# weights — **the same release `artifacts.py` pins for CTranslate2**, and the later of the
+# two this pair publishes. So both engines run the same model here rather than two vintages
+# of it, which is the thing that would otherwise silently explain any difference between
+# them.
+ONNX_OPUS_MT_RU_EN = OnnxTranslationModel(
+    name="onnx-opus-mt-ru-en",
+    pin=ModelPin(
+        name="onnx-opus-mt-ru-en",
+        repo_id="onnx-community/opus-mt-ru-en",
+        revision="92ef0d550ca96ebd9cd5d13aab6ad41854d99a3d",
+        licence="CC-BY-4.0",
+        digests=_RU_EN_FILES,
+    ),
+    source_language="ru",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "Russian-English translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. ONNX conversion by onnx-community. "
+        "https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+)
+
 KNOWN_ONNX_MODELS: dict[str, OnnxTranslationModel] = {
     ONNX_OPUS_MT_EN_RU.name: ONNX_OPUS_MT_EN_RU,
+    ONNX_OPUS_MT_RU_EN.name: ONNX_OPUS_MT_RU_EN,
 }
 
 
