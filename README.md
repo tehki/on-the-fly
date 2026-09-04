@@ -240,10 +240,24 @@ python -m on_the_fly stream recording.wav --translate-to ru --translation-engine
 ```
 
 Same model, same port, ONNX Runtime instead — the runtime with official Android and iOS
-builds. Measured against the default on 300 sentences of the publisher's test set: **chrF2
-66.33 against 66.62**, with 239 of 300 outputs identical, and **2.4–2.7x slower**. That gap
-is the export rather than the quantisation — the full-precision graphs score the same 66.34
-for 232 MB more.
+builds. **Both pinned pairs run on both engines.** Measured against the default on 300
+sentences of each publisher test set:
+
+| | CTranslate2 | ONNX |
+| --- | --- | --- |
+| `en→ru`, chrF2 vs human references | **66.62** | 66.33 |
+| `ru→en`, chrF2 vs human references | **73.17** | 72.59 |
+
+Roughly **two to three times slower** — the ratio ranged 1.6–3.0x across runs, and a single
+decimal would be claiming precision these conditions do not support. The quality gap is the
+export rather than the quantisation: the full-precision graphs score the same for 232 MB
+more.
+
+Measuring the second direction is what caught a defect in the first: OPUS-MT shares one id
+between padding and the decoder start token, and the publisher's `bad_words_ids` forbids
+generating it. One sentence in 300 emitted `<pad>` until the token budget ran out — 9.7 s of
+work for nothing. `en→ru` never hit it, which is the argument for covering both directions
+rather than sampling one.
 
 Its artefact is a third-party conversion, since Helsinki-NLP publish Marian weights and not
 an ONNX export. ADR 0009's rule is *pin what the publisher published, never a conversion*,
