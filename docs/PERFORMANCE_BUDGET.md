@@ -481,19 +481,118 @@ proportionate here.
   hardware available produced saturated, DC-offset audio, so recognition from a live
   microphone is still unverified. See `docs/CODING_AGENT_ADOPTION.md`.
 
+## Eighth measurement — 2026-09-04, both pairs, and a result that did not reproduce
+
+Both pinned pairs, 65 utterances each, same code path and the same endpoint-to-caption
+definition. Two things came out of it: the first real `ru→en` distribution, and the
+discovery that the sixth measurement's headline does not hold.
+
+### The corpora are no longer comparable, deliberately
+
+| | `en→ru` | `ru→en` |
+| --- | --- | --- |
+| Corpus | LibriSpeech dev-clean | SOVA RuDevices |
+| Kind of speech | audiobook narration, read | **crowdsourced device recordings, spontaneous** |
+| Difficulty | clean acoustics, tidy endpoints | disfluencies, real rooms, real microphones |
+
+The Russian side is *harder* input than the English side. The two columns below are not a
+league table and a difference between them says as much about the corpus as the pipeline.
+The `ru→en` figures are the first here measured on genuinely spontaneous speech, which is
+closer to what this document's reference workload asks for than the English side manages.
+
+### Both pairs, measured
+
+| | `en→ru` | `ru→en` | Target | Hard limit |
+| --- | --- | --- | --- | --- |
+| Endpoint → caption p50 | 1050 ms | 853 ms | 700 ms | — |
+| Endpoint → caption p95 | 2264 ms | 1675 ms | 1500 ms | 2500 ms |
+| Endpoint → caption p99 | 4775 ms | 2847 ms | — | 4000 ms |
+| Mean | 1246 ms | 961 ms | — | — |
+| Recognition real-time factor | 0.33x | **0.098x** | under 1.0x | — |
+
+Recognition keeps up comfortably in both directions; the Russian model is three times
+faster than the English one relative to its audio. **Both pairs miss p50 and p95**, and
+`en→ru` exceeds the 4000 ms p99 limit at 4775 ms.
+
+### The sixth measurement does not reproduce
+
+This is the part worth reading. The sixth measurement reported `en→ru` at **p50 420 ms,
+p95 912 ms** and concluded that every target was met. Re-run today on the same corpus, the
+same 65 utterances, the same beam setting and the same code:
+
+```text
+                    sixth measurement    today       today, isolated
+p50                        420 ms       1050 ms          1074 ms
+p95                        912 ms       2264 ms          2390 ms
+recognition RTF p50        0.333        0.332            0.334
+```
+
+**2.5x slower, and it reproduces.** Two independent runs today agree with each other and
+disagree with the earlier one.
+
+The diagnosis is in the third row. **Recognition is unchanged** — 0.332 against 0.333, the
+same to three decimal places. Only translation moved. So this is not the machine being
+uniformly slower: it is CTranslate2 contending for cores in a way that ONNX Runtime, capped
+at two threads, does not. The machine today carries a load average of ~3 on 4 cores; the
+sixth measurement had it quiet.
+
+### What that costs the sixth measurement's conclusion
+
+The claim was: *"Every target in this document is now met on this workload... The margin is
+far larger than the ±20% variance these measurements carry, so the conclusion survives the
+noise comfortably."*
+
+The margin was not larger than the variance. **The variance was 2.5x, not ±20%**, and the
+±20% figure was itself an estimate made from two runs that happened to be taken under
+similar conditions. The conclusion did not survive.
+
+What survives is narrower and still useful: **greedy decoding is 2.3-2.4x faster than beam 6
+under any load measured**, and that comparison was always within-run, so contention affects
+both arms equally. The decoding decision stands. The budget verdict does not.
+
+### The finding underneath
+
+An idle-machine measurement of a live translator is measuring a condition the product will
+rarely be in. This runs on someone's laptop while they are in a call, with a browser open,
+possibly with other models loaded — the machine that produced today's numbers was itself
+running a local LLM server. **That is the realistic condition, and under it the budget is
+missed.**
+
+So the honest statement is conditional, and the condition has to travel with the number:
+
+```text
+idle machine        p50  420 ms   p95   912 ms   budget met
+~3/4 cores loaded   p50 1050 ms   p95  2264 ms   budget missed
+```
+
+Neither number is wrong. Quoting only the first one would be.
+
+### What this changes
+
+Nothing in the code. The budget is recorded as **missed under load**, which under this
+document's own rules is a defect rather than a target to revise. Concurrency limits for the
+translator — CTranslate2 exposes `inter_threads` and `intra_threads`, both currently
+unset — are the obvious next lever, and are unmeasured. That is a measurement, not a guess,
+and it has not been done.
+
+Every future measurement in this document states the load it was taken under. The absence
+of that field is what let the sixth measurement overclaim.
+
 ## Status
 
-**PROVISIONAL**, and now for one reason only: the workload.
+**PROVISIONAL**, and the budget is **missed under realistic load**.
 
-The stages exist, the path is measurable end to end, and **every target is met** on 65
-utterances of real recorded speech — p50 420 ms against 700 ms, p95 912 ms against 1500 ms.
-The defect the fifth measurement recorded is resolved, by measurement rather than by moving
-the target.
+The stages exist and the path is measurable end to end in both directions. Every target is
+met on an idle machine (p50 420 ms) and missed on a machine carrying ordinary work
+(p50 1050 ms) — and the second is the condition a live translator actually runs in. The
+sixth measurement recorded the first of those as the result; the eighth records both, and
+the load each was taken under.
 
-What keeps the status PROVISIONAL is the workload: read speech, two language pairs rather
-than three, `ru→en` end-to-end resting on a single utterance, and a file rather than a
-microphone. None of them is a pipeline problem — the pipeline is measured and meets its
-targets. Two are corpus problems, one is a product decision, and one is hardware.
+What keeps the status PROVISIONAL: two language pairs rather than three, read speech on the
+English side, no microphone, and no controlled load environment. `ru→en` now has a real
+distribution on spontaneous speech, which closes the gap the seventh measurement recorded.
+One remaining gap is a product decision, one is hardware, and one — a quiet machine — is
+what the eighth measurement shows matters most.
 
 ## Owner and review
 

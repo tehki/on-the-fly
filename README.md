@@ -151,14 +151,25 @@ attribution   English-Russian translation by OPUS-MT (Helsinki-NLP), model opus-
 translation   1 of 1 final(s), median 1476ms, max 1476ms
 ```
 
-**It meets its latency budget on the workload it has been measured against.** Over 65
-utterances of real recorded speech, endpoint to caption is p50 420 ms and p95 912 ms,
-against targets of 700 ms and 1500 ms. Decoding is greedy rather than the publisher's beam
-6: measured on Helsinki-NLP's own test set against their human references, that costs
-nothing detectable — chrF2 66.62 against 66.56 — and runs 2.3x faster.
+**It meets its latency budget on an idle machine and misses it on a busy one**, and the
+second is the condition that matters. Over 65 utterances per direction:
 
-That workload is read speech from a file, one language pair, no microphone, so the budget
-stays marked PROVISIONAL. See [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
+| | idle machine | ~3/4 cores loaded | target |
+| --- | --- | --- | --- |
+| Endpoint → caption p50 | 420 ms | **1050 ms** | 700 ms |
+| Endpoint → caption p95 | 912 ms | **2264 ms** | 1500 ms |
+
+Recognition is unaffected either way (0.33x real time, and 0.098x for Russian); translation
+is the whole difference. A live translator runs on a laptop while its user is doing other
+things, so the loaded figure is the honest one — and by it, the budget is missed.
+
+Decoding is greedy rather than the publisher's beam 6. Measured on Helsinki-NLP's own test
+sets against their human references, that costs nothing detectable in either direction —
+chrF2 66.62 against 66.56 for `en→ru`, 73.17 against 72.73 for `ru→en` — and runs 2.3–2.4x
+faster. That comparison is within-run, so load affects both arms equally and the decision
+stands.
+
+See [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 
 The other direction streams too ([ADR 0012](docs/adr/0012-russian-streams-after-all.md)):
 
