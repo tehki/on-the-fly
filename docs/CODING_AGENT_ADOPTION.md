@@ -153,12 +153,12 @@ Stated plainly, because the failure mode of governance work is believing it is f
   device refuses — both analog inputs here do — opens at a rate it accepts and resamples.
   Verified capturing 50 frames from hardware that previously failed outright.
 
-- **One input device aborts the process during blocking reads.** `malloc(): unsorted double
-  linked list corrupted`, reproducible with raw `sounddevice` and no project code involved,
-  while `sounddevice.rec()` on the same device works. It is not this project's defect and it
-  cannot be caught — a `SIGABRT` takes the application down. Capturing in a subprocess or
-  moving to the callback API would address it; both are design decisions and neither is
-  done.
+- **The blocking-read crash is fixed (ADR 0015).** One input device aborted the process
+  with `malloc(): unsorted double linked list corrupted` — a `SIGABRT` no `except` can
+  catch. Capture now goes through PortAudio's callback API, which was the difference between
+  `sounddevice.rec()` working and blocking reads crashing. All three input devices on the
+  reference machine now capture cleanly. The underlying defect in the library's blocking
+  path is routed around rather than repaired.
 - **No translation.** `Translator` is still a port with no implementation. Speech
   recognition now exists (ADR 0005) with weights pinned by digest and verified on load.
 - **Recognition misses the performance budget by several times over** and the pipeline runs
