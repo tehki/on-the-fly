@@ -649,15 +649,78 @@ now measures 421 ms p50 under load against a 700 ms target — but that is an in
 this document has been wrong before by treating one as a result. The end-to-end figure
 stands unmeasured until it is measured.
 
+## Tenth measurement — 2026-09-04, end to end with both fixes
+
+The ninth measurement deliberately refused to claim the budget was met: it had the
+translation stage at 421 ms under load and the eighth measurement's diagnosis that the stage
+was the whole gap, but that was an inference. Measured now, through `load()` with no
+arguments — the shipped defaults, greedy and single-threaded, on the path the application
+actually takes.
+
+65 utterances of real recorded speech per condition, load created deliberately:
+
+| | idle | **loaded (3 of 4 cores busy)** | Target | Hard limit |
+| --- | --- | --- | --- | --- |
+| Endpoint → caption p50 | **332 ms** | **710 ms** | 700 ms | — |
+| Endpoint → caption p95 | **736 ms** | **1662 ms** | 1500 ms | 2500 ms |
+| Endpoint → caption p99 | 944 ms | 2219 ms | — | 4000 ms |
+| Recognition real-time factor | 0.308x | **0.848x** | under 1.0x | — |
+
+**Idle: every target met, comfortably** — p50 332 ms against 700, p95 736 ms against 1500.
+
+**Loaded: p50 710 ms against a 700 ms target.** Ten milliseconds over, which is 1.4% and well
+inside the variance these measurements carry; the honest description is *at the line*, not
+met and not missed. p95 1662 ms misses the 1500 ms target by 11% while staying inside the
+2500 ms hard limit. p99 is comfortably inside its limit.
+
+### Against the eighth measurement
+
+Same corpus, same method, same 65 utterances; beam 6 and unbounded threads then, greedy and
+one thread now:
+
+| | eighth (beam 6, all cores) | **tenth (greedy, 1 thread)** | |
+| --- | --- | --- | --- |
+| p50 | 1050 ms | **710 ms** | 1.5x |
+| p95 | 2264 ms | **1662 ms** | 1.4x |
+| p99 | 4775 ms | **2219 ms** | **2.2x**, and back inside the hard limit |
+
+The p99 improvement matters most: 4775 ms was over the 4000 ms limit, which is the threshold
+this document calls a dropped turn. It no longer is.
+
+### An assumption that did not survive
+
+The eighth measurement recorded recognition as *unaffected* by load — 0.41x against 0.33x —
+and concluded the entire gap was translation. Under the load generated here, recognition runs
+at **0.848x against 0.308x, a factor of 2.75.**
+
+Both are true measurements of different loads. The eighth measured whatever the machine
+happened to be doing; this one pins three of four cores. **"Recognition is unaffected by
+load" was a statement about one particular load**, and it was generalised further than the
+evidence reached — the same error this document has now recorded three times, in three
+different forms.
+
+Recognition still keeps up at 0.848x, but the margin is thin. A busier machine, or one with
+fewer cores, would push it past 1.0x and the pipeline would fall behind the speaker.
+
+### Why the end-to-end figure is above the stage figure
+
+The ninth measurement had the translation stage at 421 ms p50 under load; this measures
+710 ms end to end under the same load. The difference is **sentence length**, not an error in
+either: the stage sweep used OPUS test sentences with a median of 85 characters, while
+LibriSpeech utterances of 3–15 seconds are considerably longer, and translation cost scales
+with tokens.
+
+Which is the reason the ninth measurement declined to infer this number from that one.
+
 ## Status
 
-**PROVISIONAL**, and the budget is **missed under realistic load**.
+**PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
 
-The stages exist and the path is measurable end to end in both directions. Every target is
-met on an idle machine (p50 420 ms) and missed on a machine carrying ordinary work
-(p50 1050 ms) — and the second is the condition a live translator actually runs in. The
-sixth measurement recorded the first of those as the result; the eighth records both, and
-the load each was taken under.
+The stages exist and the path is measurable end to end in both directions. With greedy
+decoding and bounded threads actually shipping, the tenth measurement puts p50 at 332 ms
+idle and 710 ms with three of four cores busy, against a 700 ms target — met comfortably in
+the first condition and within 1.4% in the second. p99 is back inside its hard limit, which
+it was not before.
 
 What keeps the status PROVISIONAL: two language pairs rather than three, read speech on the
 English side, no microphone, and no controlled load environment. `ru→en` now has a real
