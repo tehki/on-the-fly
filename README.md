@@ -69,8 +69,15 @@ and history are deliberate exceptions with owners and expiry dates, not defaults
 **Phase 1 — desktop.** Windows, macOS, Linux. Python, on-device pipeline, PySide6
 interface. Proves the pipeline and the retention module against real audio.
 
-**Phase 2 — mobile.** iOS and Android, inference moved native. A port of the edges, not a
-rewrite of the core. See [ADR 0002](docs/adr/0002-desktop-first-delivery.md).
+**Phase 2 — mobile.** iOS and Android. A port of the edges, not a rewrite of the core
+([ADR 0002](docs/adr/0002-desktop-first-delivery.md)).
+
+[ADR 0017](docs/adr/0017-any-hardware.md) surveys what that actually costs. Every dependency
+has ARM builds, so **ARM Linux and Apple Silicon should work today** — untested, because no
+ARM hardware was available, and a wheel existing is not the same as it running. Phones are a
+different question: the recogniser ships Android artefacts, but CTranslate2 has no mobile
+support, so mobile translation goes through ONNX Runtime — already a dependency here, with
+official Android and iOS builds — rather than a new library.
 
 ## The window
 
