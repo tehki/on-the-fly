@@ -346,13 +346,94 @@ Still absent from all of it:
 - **No microphone.** Every number in this document comes from a file.
 - **A quiet machine.** Nothing here was measured under controlled load.
 
+## Sixth measurement — 2026-09-04, greedy decoding. The budget is met.
+
+The fifth measurement found the budget missed at p50 and p95, identified beam size as the
+lever, and declined to pull it because the quality cost was unmeasured. The quality cost has
+now been measured, and it is not there.
+
+### The quality question, answered
+
+Helsinki-NLP ship a test set for this model **with human reference translations** and the
+score they achieved on it. That makes the question answerable without a Russian speaker —
+and it had been available all along, which is the uncomfortable part: the fifth measurement
+declared the evidence unavailable without checking.
+
+300 sentences from `opus-2020-02-11.test.txt`, scored with chrF2 against the human
+references:
+
+| | chrF2 | Latency p50 |
+| --- | --- | --- |
+| beam 6 (publisher default) | 66.56 | 353 ms |
+| **beam 1 (greedy)** | **66.62** | **153 ms** |
+| Published score for this model | 66.9 | — |
+
+**No quality cost the measurement can detect**, and 2.3x the speed. Greedy is fractionally
+ahead, which is noise in both directions rather than an improvement.
+
+The comparison is only worth anything because both halves were validated before the question
+was asked:
+
+- our beam-6 output reproduces the publisher's own hypotheses at **chrF2 95.3**, so the local
+  setup matches theirs;
+- our beam-6 output scores **66.56** against their references where they published **66.9**,
+  so the metric implementation is sound.
+
+An earlier attempt at this misidentified which line of the test file was the human reference
+and produced a headline of "94.7 versus 89.4" — a number that looked like a strong result
+and was actually measuring both decodings against the publisher's own output. The
+reproduction check caught it. A validation step that cannot fail is decoration; this one
+failed usefully.
+
+### The result end to end
+
+Same 65 utterances, same corpus, same method as the fifth measurement — only the beam size
+changed:
+
+| | beam 6 | **beam 1** | Target | Hard limit | |
+| --- | --- | --- | --- | --- | --- |
+| Endpoint → caption, p50 | 1271 ms | **420 ms** | 700 ms | — | **met** |
+| Endpoint → caption, p95 | 2820 ms | **912 ms** | 1500 ms | 2500 ms | **met** |
+| Endpoint → caption, p99 | 3735 ms | **1146 ms** | — | 4000 ms | **met** |
+| Mean | 1517 ms | 497 ms | — | — | |
+| Max | 3735 ms | 1146 ms | — | — | |
+| Recognition real-time factor | 0.41x | 0.33x | under 1.0x | — | met |
+
+**Every target in this document is now met on this workload.** 3.0x at p50, 3.1x at p95.
+That margin is far larger than the ±20% variance these measurements carry, so the conclusion
+survives the noise comfortably — which is the only reason it is stated as a conclusion.
+
+### What this does not mean
+
+The budget being met is a statement about **this workload**, and the workload is still not
+the one this document asks for:
+
+- **Read speech, not conversation.** LibriSpeech is audiobook narration. Real conversation
+  has disfluencies, crosstalk and unclear endpoints, all of which make recognition harder and
+  its output messier — and the translator is downstream of that output.
+- **One language pair.** The reference workload asks for three.
+- **No microphone.** Every number here comes from a file.
+- **Short sentences in the quality set.** Tatoeba sentences are brief and single-reference.
+  chrF cannot distinguish "different but equally correct" from "worse", and the two decodings
+  differ on 78 of 300 sentences — largely word order and the grammatical gender English
+  leaves ambiguous, where both readings are defensible. Long or syntactically complex input
+  is unmeasured, and beam search exists precisely for the harder cases.
+
+A native Russian reader would still add what chrF cannot: whether those 78 differences read
+naturally. That is now a refinement rather than a blocker.
+
 ## Status
 
-**PROVISIONAL**, and now for a better reason than before. The stages exist and the path is
-measurable end to end; what is missing is a representative workload, not a pipeline. The
-budget is **missed at p50 and p95** and that is a defect under this document's own rules,
-not a target to be revised upward — the remedy is either the beam-size change above, backed
-by quality evidence, or a design change, recorded here explicitly.
+**PROVISIONAL**, and now for one reason only: the workload.
+
+The stages exist, the path is measurable end to end, and **every target is met** on 65
+utterances of real recorded speech — p50 420 ms against 700 ms, p95 912 ms against 1500 ms.
+The defect the fifth measurement recorded is resolved, by measurement rather than by moving
+the target.
+
+What keeps the status PROVISIONAL is that the workload is read speech, one language pair, and
+a file rather than a microphone. Those are the remaining conditions, and none of them is a
+pipeline problem any more.
 
 ## Owner and review
 

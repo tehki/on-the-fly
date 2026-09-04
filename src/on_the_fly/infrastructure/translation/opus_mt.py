@@ -27,6 +27,27 @@ ordinary-cased reference text exactly on every sentence tried.
 **Nothing is cached.** A translation cache would retain project content past its window,
 which `docs/RETENTION_POLICY.md` does not permit and handbook 64F.2 forbids outright. The
 same sentence spoken twice is translated twice; that is the intended cost.
+
+**Decoding is greedy, against the publisher's default of beam 6.** Measured on
+Helsinki-NLP's own test set for this model, 300 sentences, scored with chrF2 against their
+human reference translations:
+
+```text
+                            chrF2      latency p50
+beam 6 (publisher default)  66.56          353 ms
+beam 1 (greedy)             66.62          153 ms
+```
+
+No quality cost that this measurement can detect, and 2.3x the speed. The comparison is
+trustworthy because both halves were validated first: our beam-6 output reproduces the
+publisher's own hypotheses at chrF2 95.3, and scores 66.56 against their references where
+they published 66.9 — so the metric and the setup are both sound before the question is
+asked.
+
+What it does **not** establish: the test set is short Tatoeba sentences, single-reference.
+chrF cannot tell "different but equally correct" from "worse", and the two decodings differ
+on 78 of 300 sentences — mostly word order and the gender English leaves ambiguous, where
+both readings are defensible. Longer or more complex input is unmeasured.
 """
 
 from __future__ import annotations
@@ -104,15 +125,16 @@ class OpusMtTranslator:
         *,
         source_language: str,
         target_language: str,
-        beam_size: int = 6,
+        beam_size: int = 1,
     ) -> None:
         self._engine = engine
         self._source = source_tokeniser
         self._target = target_decoder
         self._source_language = source_language.lower()
         self._target_language = target_language.lower()
-        # 6 is the publisher's own `decoder.yml` setting, not a guess. Lowering it is a
-        # latency/quality trade that belongs in a measurement, not in a default.
+        # 1 (greedy), against the publisher's own default of 6. That was a latency/quality
+        # trade, so it was measured rather than assumed — see the module docstring. It is
+        # still a parameter: a caller who wants the publisher's setting can pass 6.
         self._beam_size = beam_size
 
     @property
