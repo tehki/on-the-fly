@@ -169,7 +169,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     stream.add_argument("--frame-ms", type=int, default=20)
-    stream.add_argument("--threads", type=int, default=2)
+    stream.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help=(
+            "recogniser threads (default: 1). More is slower, not faster: measured 0.315x "
+            "real time at 1 thread against 0.470x at 2 and 1.181x at 4 on four cores, with "
+            "identical transcripts (ADR 0014)"
+        ),
+    )
     return parser
 
 

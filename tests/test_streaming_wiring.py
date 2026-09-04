@@ -290,3 +290,14 @@ def test_an_unknown_language_is_refused(tmp_path: Path, capsys: pytest.CaptureFi
 
     assert exit_code == 1
     assert "unsupported language" in capsys.readouterr().err
+
+
+def test_the_recogniser_defaults_to_one_thread() -> None:
+    """ADR 0014. More threads measured strictly slower at every core count, and four fell
+    behind real time even with four cores — with byte-identical transcripts, so there is no
+    quality trade to weigh against it."""
+    from on_the_fly.app.cli import build_parser
+
+    args = build_parser().parse_args(["stream", "x.wav"])
+
+    assert args.threads == 1

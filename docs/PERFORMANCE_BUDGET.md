@@ -712,6 +712,39 @@ with tokens.
 
 Which is the reason the ninth measurement declined to infer this number from that one.
 
+## Eleventh measurement — 2026-09-04, how much hardware keeping up needs
+
+The tenth measurement flagged recognition at 0.848x under load as the thinnest margin in the
+pipeline: past 1.0x the recogniser falls behind the speaker, and then nothing downstream
+matters. That figure came from one machine at one core count, using the command line's
+default of **two** recogniser threads.
+
+`taskset` to constrain cores, `num_threads` varied, 23 s of real speech, three passes:
+
+| `num_threads` | 1 core | 2 cores | 4 cores |
+| --- | --- | --- | --- |
+| **1** | **0.307** | **0.337** | **0.315** |
+| 2 (was the default) | 0.779 | 0.740 | 0.470 |
+| 4 | 1.604 ✗ | 1.378 ✗ | 1.181 ✗ |
+
+**One thread is fastest at every core count**, and four threads fall behind real time at all
+of them — including with four cores, the configuration that should suit them best.
+Transcripts are byte-identical across all three, so this is speed at no quality cost.
+
+**The worry was the wrong variable.** The tenth measurement asked whether a weaker machine
+would push recognition past real time and treated core count as the risk. It was the thread
+count: at one thread, recognition keeps up on a *single* core at 0.307x, with more headroom
+than the four-core machine had at its old default.
+
+Adopted in [ADR 0014](adr/0014-single-threaded-inference.md), which makes both models in the
+pipeline single-threaded — the same conclusion the ninth measurement reached for translation,
+for the same reason. Streaming work arrives in 20 ms chunks, and coordinating threads costs
+more per chunk than it saves.
+
+**Not re-measured:** the tenth measurement's end-to-end figures were taken at two recogniser
+threads. They should improve, and that is an expectation rather than a result until someone
+runs it.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
