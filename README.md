@@ -151,12 +151,14 @@ attribution   English-Russian translation by OPUS-MT (Helsinki-NLP), model opus-
 translation   1 of 1 final(s), median 1476ms, max 1476ms
 ```
 
-**It does not currently meet its latency budget.** Over 65 real utterances, endpoint to
-caption is p50 1271 ms and p95 2820 ms, against targets of 700 ms and 1500 ms and a hard
-limit of 2500 ms. Recognition keeps up comfortably; translation is the whole gap. Greedy
-decoding would close it — measured at p50 677 ms — but changes every output, and this
-project has no way to check whether that is worse. See
-[docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
+**It meets its latency budget on the workload it has been measured against.** Over 65
+utterances of real recorded speech, endpoint to caption is p50 420 ms and p95 912 ms,
+against targets of 700 ms and 1500 ms. Decoding is greedy rather than the publisher's beam
+6: measured on Helsinki-NLP's own test set against their human references, that costs
+nothing detectable — chrF2 66.62 against 66.56 — and runs 2.3x faster.
+
+That workload is read speech from a file, one language pair, no microphone, so the budget
+stays marked PROVISIONAL. See [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 
 For the other direction, Russian speech into English text — batch, several seconds behind,
 because Russian cannot stream:

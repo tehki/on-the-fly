@@ -149,11 +149,22 @@ def test_the_engine_receives_recased_text() -> None:
     assert batch == [["Good", "morning"]]
 
 
-def test_the_publishers_beam_size_is_used_by_default() -> None:
-    """6 comes from the artefact's own decoder.yml, not from taste."""
+def test_decoding_is_greedy_by_default() -> None:
+    """Beam 1, not the publisher's 6. Measured, not assumed: on their own test set and
+    human references, chrF2 was 66.62 greedy against 66.56 at beam 6, at 2.3x the speed.
+    A default that costs nothing measurable and buys the latency budget."""
     engine = FakeEngine()
 
     build(engine).translate("hello", source_language="en", target_language="ru")
+
+    assert engine.calls[0][1]["beam_size"] == 1
+
+
+def test_the_publishers_beam_size_is_still_reachable() -> None:
+    """The trade stays available to a caller who wants the publisher's setting back."""
+    engine = FakeEngine()
+
+    build(engine, beam_size=6).translate("hello", source_language="en", target_language="ru")
 
     assert engine.calls[0][1]["beam_size"] == 6
 
