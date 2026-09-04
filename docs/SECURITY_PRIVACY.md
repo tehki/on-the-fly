@@ -1,7 +1,7 @@
 # Security and privacy
 
-The governing rules are in `CODING_AGENT_CONSTITUTION_v1.2-otf1.md` and
-`CODING_AGENT_POLICY_v1.2-otf1.yaml`. This document says what they mean for a live translator
+The governing rules are in `CODING_AGENT_CONSTITUTION_v1.3-otf1.md` and
+`CODING_AGENT_POLICY_v1.3-otf1.yaml`. This document says what they mean for a live translator
 specifically, and what is and is not built yet.
 
 ## Current status

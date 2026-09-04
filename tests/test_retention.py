@@ -1,6 +1,6 @@
 """Tests for runtime retention enforcement.
 
-`CODING_AGENT_POLICY_v1.2-otf1.yaml` lists the tests this module is required to have, under
+`CODING_AGENT_POLICY_v1.3-otf1.yaml` lists the tests this module is required to have, under
 `retention.required_tests`. Rather than trusting that list to be honoured by hand, one
 test in this file reads it and asserts a matching test function exists for every entry —
 so adding a requirement to the policy fails the build until it is actually tested.
@@ -37,7 +37,7 @@ from on_the_fly.domain.retention import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.2-otf1.yaml"
+POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.3-otf1.yaml"
 
 SENSITIVE_TEXT = "the patient's diagnosis was confirmed on Tuesday"
 
@@ -432,7 +432,7 @@ def load_policy() -> dict[str, Any]:
 def test_every_policy_required_test_exists_here() -> None:
     """The policy's required_tests list is enforced, not merely aspirational.
 
-    Adding a requirement to CODING_AGENT_POLICY_v1.2-otf1.yaml fails the build until a test
+    Adding a requirement to CODING_AGENT_POLICY_v1.3-otf1.yaml fails the build until a test
     with the matching name exists. Without this, the list is a promise nothing keeps.
     """
     required = load_policy()["retention"]["required_tests"]

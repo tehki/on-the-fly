@@ -1,24 +1,22 @@
 policy:
   name: coding-agent-policy
-  version: "1.2-otf1"
-  handbook_version: "1.5-otf1"
-  constitution_version: "1.2-otf1"
-  repository_governance_version: "1.1-otf1"
-  derived_from_upstream:
-    policy: "1.2"
-    constitution: "1.2"
-    handbook: "1.5"
-    repository_governance: "1.1"
-  revision: "2026-09-02"
+  version: 1.3-otf1
+  handbook_version: 1.6-otf1
+  constitution_version: 1.3-otf1
+  repository_governance_version: 1.2-otf1
   default_mode: deny_by_default
-
+  derived_from_upstream:
+    policy: '1.3'
+    constitution: '1.3'
+    handbook: '1.6'
+    repository_governance: '1.2'
+  revision: '2026-09-04'
 precedence:
-  - safety_security_privacy_legal
-  - correctness_data_integrity
-  - reliability_recoverability
-  - maintainability_testability
-  - performance_convenience
-
+- safety_security_privacy_legal
+- correctness_data_integrity
+- reliability_recoverability
+- maintainability_testability
+- performance_convenience
 retention:
   default_post_use_seconds: 10
   operational_metadata_default_days: 30
@@ -71,11 +69,11 @@ retention:
     memory_retrieval_metadata:
       class: OPERATIONAL_METADATA
       default_days: 30
-      mode_default: off
+      mode_default: false
     inference_routing_metadata:
       class: OPERATIONAL_METADATA
       default_days: 30
-      mode_default: off
+      mode_default: false
     captured_audio_frames:
       class: EPHEMERAL
       post_use_seconds: 10
@@ -103,58 +101,57 @@ retention:
       default_days: 30
       raw_content_prohibited: true
   transient_scope:
-    - captured_audio_frames
-    - speech_recognition_transcripts
-    - translation_outputs
-    - synthesized_speech_audio
-    - uploaded_files
-    - attachments
-    - temporary_files
-    - local_working_copies
-    - message_bodies
-    - prompts
-    - responses
-    - tool_payloads
-    - tool_results
-    - application_logs_with_project_content
-    - debug_logs_with_project_content
-    - traces_with_project_content
-    - caches_with_project_content
-    - extracted_text
-    - temporary_database_rows_with_project_content
-    - queue_payloads_with_project_content
-    - intermediary_artifacts
-    - diagnostic_captures_with_project_content
+  - captured_audio_frames
+  - speech_recognition_transcripts
+  - translation_outputs
+  - synthesized_speech_audio
+  - uploaded_files
+  - attachments
+  - temporary_files
+  - local_working_copies
+  - message_bodies
+  - prompts
+  - responses
+  - tool_payloads
+  - tool_results
+  - application_logs_with_project_content
+  - debug_logs_with_project_content
+  - traces_with_project_content
+  - caches_with_project_content
+  - extracted_text
+  - temporary_database_rows_with_project_content
+  - queue_payloads_with_project_content
+  - intermediary_artifacts
+  - diagnostic_captures_with_project_content
   deletion_locations:
-    - primary_storage
-    - process_memory
-    - replicas
-    - caches
-    - indexes
-    - queues
-    - temporary_directories
-    - local_workspaces
-    - generated_exports
-    - observability_storage_with_project_content
+  - primary_storage
+  - process_memory
+  - replicas
+  - caches
+  - indexes
+  - queues
+  - temporary_directories
+  - local_workspaces
+  - generated_exports
+  - observability_storage_with_project_content
   longer_retention_requires:
-    - explicit_retention_value_or_class
-    - documented_purpose
-    - owner
-    - minimum_necessary_duration
-    - access_controls
-    - legal_privacy_contract_check
+  - explicit_retention_value_or_class
+  - documented_purpose
+  - owner
+  - minimum_necessary_duration
+  - access_controls
+  - legal_privacy_contract_check
   required_tests:
-    - default_10_second_expiry
-    - automatic_expiry_without_followup_read
-    - post_use_refresh
-    - no_premature_deletion_during_active_use
-    - explicit_longer_retention_override
-    - invalid_retention_configuration
-    - cleanup_after_restart
-    - deletion_failure_behavior
-    - sensitive_content_redaction
-    - project_or_tenant_isolation
-
+  - default_10_second_expiry
+  - automatic_expiry_without_followup_read
+  - post_use_refresh
+  - no_premature_deletion_during_active_use
+  - explicit_longer_retention_override
+  - invalid_retention_configuration
+  - cleanup_after_restart
+  - deletion_failure_behavior
+  - sensitive_content_redaction
+  - project_or_tenant_isolation
 capabilities:
   default_grants: []
   available:
@@ -177,38 +174,36 @@ capabilities:
     ADMIN:
       description: Perform privileged administrative operations.
   rules:
-    - grant_only_what_task_requires
-    - separate_read_write_execute_network_install_deploy_delete_secret_admin
-    - revoke_or_end_scoped_grants_when_task_ends
-    - never_infer_admin_from_repository_write_access
-
+  - grant_only_what_task_requires
+  - separate_read_write_execute_network_install_deploy_delete_secret_admin
+  - revoke_or_end_scoped_grants_when_task_ends
+  - never_infer_admin_from_repository_write_access
 risk:
   levels:
     LOW:
       requires:
-        - authorized_project_scope
+      - authorized_project_scope
     MODERATE:
       requires:
-        - impact_review
-        - tests
-        - security_retention_check
+      - impact_review
+      - tests
+      - security_retention_check
     HIGH:
       requires:
-        - explicit_authorization
-        - immediate_target_verification
-        - blast_radius_assessment
-        - rollback_or_recovery_plan
-        - relevant_security_tests
+      - explicit_authorization
+      - immediate_target_verification
+      - blast_radius_assessment
+      - rollback_or_recovery_plan
+      - relevant_security_tests
     CRITICAL:
       requires:
-        - explicit_authorization
-        - immediate_target_verification
-        - blast_radius_assessment
-        - rollback_or_recovery_plan
-        - dry_run_or_reversible_alternative_review
-        - independent_human_review_when_supported
-        - explicit_post_action_verification
-
+      - explicit_authorization
+      - immediate_target_verification
+      - blast_radius_assessment
+      - rollback_or_recovery_plan
+      - dry_run_or_reversible_alternative_review
+      - independent_human_review_when_supported
+      - explicit_post_action_verification
 destructive_actions:
   require_exact_target: true
   require_immediate_reverification: true
@@ -218,93 +213,139 @@ destructive_actions:
   prefer_reversible_alternative: true
   require_recovery_plan_when_possible: true
   prohibit_scope_broader_than_needed: true
-
 project_isolation:
   cross_project_access_default: false
   isolated_assets:
-    - files
-    - credentials
-    - messages
-    - logs
-    - caches
-    - memories
-    - indexes
-    - tool_state
-    - derived_context
+  - files
+  - credentials
+  - messages
+  - logs
+  - caches
+  - memories
+  - indexes
+  - tool_state
+  - derived_context
   cross_project_flow_requires:
-    - explicit_authorization
-    - source_project
-    - destination_project
-    - purpose
-    - minimum_data
-    - retention_policy
-    - access_controls
-    - auditability
+  - explicit_authorization
+  - source_project
+  - destination_project
+  - purpose
+  - minimum_data
+  - retention_policy
+  - access_controls
+  - auditability
   stricter_policy_wins: true
-
-
 development_velocity:
   one_pull_request_per_commit_required: false
   coherent_work_unit_pull_requests_allowed: true
   batch_conditions:
-    - single_project_boundary
-    - single_delivery_objective_or_tightly_coupled_objectives
-    - compatible_authorization_boundary
-    - compatible_rollback_or_recovery_semantics
-    - review_surface_remains_understandable
+  - single_project_boundary
+  - single_delivery_objective_or_tightly_coupled_objectives
+  - compatible_authorization_boundary
+  - compatible_rollback_or_recovery_semantics
+  - review_surface_remains_understandable
   separate_review_boundary_required_for:
-    - unrelated_objectives
-    - unauthorized_cross_project_changes
-    - independent_destructive_or_privileged_authorization_boundaries
-    - incompatible_confidentiality_or_retention_boundaries
+  - unrelated_objectives
+  - unauthorized_cross_project_changes
+  - independent_destructive_or_privileged_authorization_boundaries
+  - incompatible_confidentiality_or_retention_boundaries
   mixed_risk_batch_uses_highest_risk: true
   micro_pr_bloat_should_be_avoided: true
   draft_pr_may_accumulate_reviewable_commits_before_full_gate: true
   full_validation_required_before_ready_merge_state: true
-
+  execution_kernel:
+    establish_work_unit_contract_once: true
+    reuse_verified_facts_until_invalidation: true
+    read_minimum_authoritative_surface: true
+    batch_independent_read_only_work: true
+    plan_once_then_execute_within_authorized_scope: true
+    delta_first_validation: true
+    full_validation_once_on_final_candidate_where_required: true
+    continue_independent_safe_work_while_ci_runs: true
+    concise_status_protocol: true
+  authorization_reuse:
+    allowed: true
+    requires_unchanged:
+    - project
+    - target_or_resource
+    - exact_head_or_version_when_specified
+    - scope
+    - risk_class
+    - capability_class
+    - side_effect_class
+    - rollback_or_recovery_assumptions
+    - expiry_or_exception_state
+    repeat_approval_not_required_for:
+    - safe_read_only_verification
+    - deterministic_test_rerun
+    - conversation_continuation
+    - non_mutating_diagnostic_step
+    new_authorization_required_on_material_change: true
+    privileged_or_destructive_exact_target_reverification_still_required: true
+  delivery_boundaries:
+    merge_and_runtime_activation_separate_by_default: true
+    merge_authorization_does_not_imply_runtime_activation: true
+    runtime_activation_authorization_does_not_imply_different_head_or_release: true
+    deployment_requires_separately_authorized_boundary_unless_explicitly_combined: true
+  stop_conditions:
+  - authorized_exact_head_or_target_changed
+  - security_invariant_cannot_be_demonstrated
+  - required_gate_failed_materially
+  - risk_higher_than_authorized
+  - project_boundary_ambiguous
+  - secret_exposure_suspected
+  - rollback_or_recovery_assumption_invalid
+  - destructive_target_cannot_be_reverified
+  - required_provider_control_absent_without_exception
+  - runtime_health_materially_degraded
+  - thermal_or_resource_safety_gate_exceeded
+  preauthorized_rollback:
+    may_execute_without_second_approval_when_exact_condition_was_authorized: true
+    must_stay_within_exact_target_and_method: true
+    verify_restored_state: true
+    report_trigger_and_result: true
+    do_not_retry_failed_mutation_indefinitely: true
 ci_acceleration:
   objective: reduce_feedback_latency_and_duplicate_work_without_reducing_required_gate_semantics
   validation_lanes:
     FAST:
       intended_for:
-        - intermediate_feature_branch_pushes
-        - low_or_moderate_risk_changes_with_proven_impact_map
+      - intermediate_feature_branch_pushes
+      - low_or_moderate_risk_changes_with_proven_impact_map
       may_use:
-        - impacted_unit_tests
-        - deterministic_static_checks
-        - incremental_typecheck_or_build
-        - trusted_dependency_or_build_cache
+      - impacted_unit_tests
+      - deterministic_static_checks
+      - incremental_typecheck_or_build
+      - trusted_dependency_or_build_cache
       required_global_controls:
-        - policy_validation
-        - governance_validation
-        - secret_scanning_when_configured_as_global_gate
+      - policy_validation
+      - governance_validation
+      - secret_scanning_when_configured_as_global_gate
       unknown_relevance_falls_back_to_full: true
     FULL:
       required_for:
-        - final_ready_for_review_head
-        - security_sensitive_paths
-        - dependency_or_lockfile_changes
-        - ci_or_governance_changes
-        - high_or_critical_risk
-        - unknown_or_ambiguous_impact
+      - final_ready_for_review_head
+      - security_sensitive_paths
+      - dependency_or_lockfile_changes
+      - ci_or_governance_changes
+      - high_or_critical_risk
+      - unknown_or_ambiguous_impact
       semantics: all_applicable_required_quality_security_integration_and_governance_gates
     RELEASE:
       required_for:
-        - release_candidate
-        - deployment_or_distribution_boundary
+      - release_candidate
+      - deployment_or_distribution_boundary
       includes:
-        - full_validation
-        - packaging_or_distribution_checks_when_applicable
-        - release_provenance_and_signature_verification
-        - bounded_acceptance_or_smoke_tests
-
+      - full_validation
+      - packaging_or_distribution_checks_when_applicable
+      - release_provenance_and_signature_verification
+      - bounded_acceptance_or_smoke_tests
   change_aware_selection:
     allowed: true
     conservative_default: full
     mapping_must_be_versioned_and_tested: true
     security_sensitive_path_bypass_prohibited: true
     omitted_gate_must_be_provably_irrelevant: true
-
   validation_reuse:
     same_source_or_tree_only: true
     same_dependency_lock_and_toolchain_identity_required: true
@@ -312,85 +353,90 @@ ci_acceleration:
     artifact_digest_binding_required_when_artifacts_are_reused: true
     source_or_relevant_policy_change_invalidates_result: true
     cache_miss_remains_supported: true
-
   retries:
     rerun_failed_jobs_only_preferred: true
     no_source_change_required_for_transient_retry: true
     repeated_same_failure_requires_root_cause_investigation: true
     retry_count_bounded: true
-
   merge_queue:
     preferred_when_provider_supports_and_state_is_verified: true
     merge_group_must_run_full_required_gate: true
-    post_merge_full_duplicate_may_be_replaced_by_provenance_plus_smoke_only_when_merged_tree_matches_fully_validated_merge_group: true
-
+    ? post_merge_full_duplicate_may_be_replaced_by_provenance_plus_smoke_only_when_merged_tree_matches_fully_validated_merge_group
+    : true
   superseded_runs:
     cancel_non_deployment_runs: true
-
+  evidence_ledger:
+    reuse_until_invalidation: true
+    invalidation_inputs:
+    - source_or_tree_change
+    - target_or_environment_change
+    - dependency_lock_change
+    - toolchain_change
+    - policy_or_governance_change
+    - credential_or_session_identity_change
+    - relevant_runtime_restart
+    - time_sensitive_remote_state
+    - authorization_scope_change
 provenance:
   required_for_imported_or_generated_artifacts: true
   fields:
-    - source_or_origin
-    - creation_or_import_time
-    - producing_tool_or_process
-    - transformation_summary
-    - data_classification
-    - retention_class
-    - integrity_reference_when_available
+  - source_or_origin
+  - creation_or_import_time
+  - producing_tool_or_process
+  - transformation_summary
+  - data_classification
+  - retention_class
+  - integrity_reference_when_available
   must_not_store_unnecessary_sensitive_content: true
-
 exceptions:
   allowed: true
   must_be_explicit: true
   must_expire: true
   required_fields:
-    - owner
-    - reason
-    - scope
-    - risk
-    - approved_by
-    - compensating_controls
-    - issued_at
-    - expires_at
-    - removal_condition
+  - owner
+  - reason
+  - scope
+  - risk
+  - approved_by
+  - compensating_controls
+  - issued_at
+  - expires_at
+  - removal_condition
   prohibit_silent_extension: true
   prohibit_forgotten_temporary_exception: true
-
 security_invariants:
-  - unauthorized_input_cannot_trigger_protected_side_effect
-  - secrets_never_enter_source_logs_messages_telemetry_or_diagnostics
-  - transient_project_data_cannot_outlive_deadline_without_explicit_exception_or_hold
-  - untrusted_input_cannot_directly_become_executable_code_query_shell_path_template_or_network_target
-  - tls_and_certificate_verification_not_disabled_for_convenience
-  - privileged_or_destructive_target_reverified_immediately_before_execution
-  - security_failure_does_not_silently_fail_open
-  - dependency_trust_is_not_implicit
-  - green_tests_do_not_override_known_material_security_defect
-  - no_unverified_claims_of_security_deletion_encryption_isolation_or_authorization
-  - content_bearing_logs_do_not_use_operational_metadata_retention
-  - repository_policy_files_do_not_substitute_for_remote_branch_enforcement
-  - telegram_bot_api_never_claimed_end_to_end_encrypted
-  - messaging_security_claim_matches_verified_transport_mode
-  - reproducible_build_claim_requires_independent_matching_build
-
+- unauthorized_input_cannot_trigger_protected_side_effect
+- secrets_never_enter_source_logs_messages_telemetry_or_diagnostics
+- transient_project_data_cannot_outlive_deadline_without_explicit_exception_or_hold
+- untrusted_input_cannot_directly_become_executable_code_query_shell_path_template_or_network_target
+- tls_and_certificate_verification_not_disabled_for_convenience
+- privileged_or_destructive_target_reverified_immediately_before_execution
+- security_failure_does_not_silently_fail_open
+- dependency_trust_is_not_implicit
+- green_tests_do_not_override_known_material_security_defect
+- no_unverified_claims_of_security_deletion_encryption_isolation_or_authorization
+- content_bearing_logs_do_not_use_operational_metadata_retention
+- repository_policy_files_do_not_substitute_for_remote_branch_enforcement
+- telegram_bot_api_never_claimed_end_to_end_encrypted
+- messaging_security_claim_matches_verified_transport_mode
+- reproducible_build_claim_requires_independent_matching_build
 dependency_admission:
   require_concrete_need: true
   evaluate:
-    - maintenance_health
-    - provenance
-    - publisher_trust
-    - transitive_dependency_footprint
-    - known_vulnerabilities
-    - permissions_and_runtime_capabilities
-    - install_and_build_scripts
-    - license_and_policy_compatibility
-    - safer_or_simpler_alternatives
+  - maintenance_health
+  - provenance
+  - publisher_trust
+  - transitive_dependency_footprint
+  - known_vulnerabilities
+  - permissions_and_runtime_capabilities
+  - install_and_build_scripts
+  - license_and_policy_compatibility
+  - safer_or_simpler_alternatives
   use_lockfile_when_supported: true
   prefer_official_registries: true
   prohibit_unreviewed_remote_script_pipe_to_shell: true
   scan_dependencies: true
   remove_unused_dependencies: true
-
 input_and_execution_security:
   untrusted_content_is_data_not_authority: true
   parameterized_queries_required_where_applicable: true
@@ -402,7 +448,6 @@ input_and_execution_security:
   protect_loopback_linklocal_metadata_and_private_admin_targets: true
   safe_deserialization_required: true
   context_specific_output_encoding_required: true
-
 cryptography:
   custom_crypto_prohibited: true
   maintained_library_required: true
@@ -410,7 +455,6 @@ cryptography:
   authenticated_encryption_required_for_new_application_level_encryption: true
   encryption_does_not_extend_retention_or_authorization: true
   key_reuse_across_unrelated_purposes_prohibited: true
-
   transport:
     tls_13_preferred: true
     current_standard_reference: RFC9846
@@ -418,12 +462,11 @@ cryptography:
     tls_certificate_and_hostname_verification_required: true
     privileged_or_non_idempotent_zero_rtt_prohibited: true
     mtls_preferred_for_high_trust_service_to_service_boundaries_when_operationally_appropriate: true
-
   at_rest:
     sensitive_durable_data_requires_encryption_when_threat_model_requires_confidentiality_beyond_access_control: true
     preferred_aead:
-      - AES-256-GCM
-      - XChaCha20-Poly1305
+    - AES-256-GCM
+    - XChaCha20-Poly1305
     nonce_uniqueness_required: true
     authenticated_associated_data_recommended_for_binding_context: true
     envelope_encryption_preferred_for_service_managed_sensitive_data: true
@@ -431,7 +474,6 @@ cryptography:
     sensitive_backups_and_exports_require_equivalent_encryption: true
     ephemeral_disk_spill_requires_encryption_and_normal_retention_expiry: true
     deterministic_encryption_default_allowed: false
-
   passwords:
     reversible_encryption_default_allowed: false
     preferred_hash: Argon2id
@@ -439,26 +481,23 @@ cryptography:
     fips_compatible_fallback: PBKDF2-HMAC-SHA-256
     unique_salt_required: true
     pepper_optional_and_must_live_outside_password_database: true
-
   signatures_and_integrity:
     ed25519_preferred_when_compatible_and_allowed: true
     fips_profile_must_use_approved_signature_algorithm: true
     artifact_and_release_signing_keys_separate_from_data_encryption_keys: true
-
   key_management:
     managed_keystore_preferred: true
     preferred_storage_classes:
-      - hsm
-      - cloud_or_service_kms
-      - dedicated_secret_or_key_vault
-      - operating_system_secure_store
+    - hsm
+    - cloud_or_service_kms
+    - dedicated_secret_or_key_vault
+    - operating_system_secure_store
     plaintext_private_keys_in_source_config_logs_ci_artifacts_or_diagnostics_prohibited: true
     key_and_ciphertext_separation_required: true
     key_identifier_and_version_metadata_required: true
     rotation_and_revocation_supported_where_applicable: true
     compromise_recovery_procedure_required_for_production_keys: true
     least_privilege_key_usage_required: true
-
 messaging_transport_security:
   security_property_must_match_verified_transport: true
   telegram_bot_api_is_secret_chat_e2ee: false
@@ -476,19 +515,17 @@ messaging_transport_security:
   build_provenance_required: true
   reproducible_claim_requires_independent_matching_build: true
   provenance_records_source_dependencies_toolchain_and_artifact_hashes: true
-
 security_testing:
   negative_tests_required_for_security_sensitive_changes: true
   regression_tests_required_for_reproducible_security_defects: true
   recommended_gates:
-    - static_security_analysis
-    - secret_scanning
-    - dependency_vulnerability_scanning
-    - configuration_or_infrastructure_scanning
-    - fuzz_or_property_tests_for_parsers_and_validators
+  - static_security_analysis
+  - secret_scanning
+  - dependency_vulnerability_scanning
+  - configuration_or_infrastructure_scanning
+  - fuzz_or_property_tests_for_parsers_and_validators
   suppressions_require_reason: true
   suppressions_must_be_narrow: true
-
 observability:
   do_not_log_secrets: true
   do_not_log_project_content: true
@@ -497,15 +534,14 @@ observability:
   content_bearing_logs_retention_class: EPHEMERAL
   metadata_only_logs_retention_class: OPERATIONAL_METADATA
   recommended_fields:
-    - timestamp
-    - operation
-    - correlation_id
-    - actor_pseudonymous_identifier
-    - outcome
-    - security_decision
-    - retention_class
-    - deletion_or_expiry_result
-
+  - timestamp
+  - operation
+  - correlation_id
+  - actor_pseudonymous_identifier
+  - outcome
+  - security_decision
+  - retention_class
+  - deletion_or_expiry_result
 optimization:
   evidence_required_for_material_claims: true
   representative_baseline_required: true
@@ -528,9 +564,8 @@ optimization:
   duplicate_ci_work_should_be_measured_and_removed: true
   pr_cycle_count_and_time_to_green_should_be_measured: true
   same_sha_or_tree_validation_reuse_preferred_when_integrity_bound: true
-
 repository_governance:
-  manifest: REPOSITORY_GOVERNANCE_v1.1-otf1.yaml
+  manifest: REPOSITORY_GOVERNANCE_v1.2-otf1.yaml
   default_branch: main
   remote_branch_protection_required: true
   pull_request_required: true
@@ -540,12 +575,11 @@ repository_governance:
   required_status_check: quality
   code_owner_review_for_sensitive_paths: true
   remote_state_must_be_verified_before_claiming_enforcement: true
+  current_connector_can_write_branch_rules: true
   approval_enforcement_limited_by_reviewer_population: true
   approval_limitation_exception_record: EXC-2026-09-01-001
-  current_connector_can_write_branch_rules: true
-  current_connector_capability_verified_at: "2026-09-01"
   connector_admin_capability_requires_explicit_grant: true
-
+  current_connector_capability_verified_at: '2026-09-01'
 constitution_enforcement:
   lower_layers_may_be_stricter: true
   lower_layers_must_not_weaken_higher_layers: true
