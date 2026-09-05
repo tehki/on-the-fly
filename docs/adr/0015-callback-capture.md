@@ -94,6 +94,14 @@ and unnecessary while this one works.
 The audio on the reference machine is still saturated and DC-offset, so **recognition from a
 live microphone remains unverified**. This ADR is about not crashing, not about hearing.
 
+> **Followed up 2026-09-05 in [ADR 0019](0019-input-levels.md).** The saturation has a cause:
+> the system mixer's capture gain is pinned at +30 dB, which drives the room's noise floor
+> into the rails — 51% of samples at full scale, against 0.0% for recorded speech. It is not
+> the device selection (checked) and not this adapter. The application now measures the input
+> and tells the user what to change instead of transcribing the noise into confident nonsense.
+> Live recognition is still unverified, because that needs a mixer change on someone's
+> machine rather than a code change.
+
 ## Review trigger
 
 If any device aborts the process again, or before phase 2 — mobile audio stacks are not

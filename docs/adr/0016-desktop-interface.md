@@ -105,7 +105,9 @@ which is what a phone's cores want.
 ## What has not been done
 
 - **The window has never captured live speech**, because the reference machine's microphone
-  produces saturated audio (ADR 0015). It has been rendered and driven through every state
+  produces saturated audio (ADR 0015; diagnosed in ADR 0019 as capture gain pinned at
+  +30 dB, and now reported to the user rather than transcribed). It has been rendered and
+  driven through every state
   with synthetic ones. The worker's pipeline path is the same one the command line uses and
   is covered by that path's tests, but *the two together* are unverified.
 - No device picker. The default input device is used, and choosing between devices is a real

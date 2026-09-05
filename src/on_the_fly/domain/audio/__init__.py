@@ -45,6 +45,17 @@ from on_the_fly.domain.audio.formats import (
     SUPPORTED_SAMPLE_WIDTH_BYTES,
     AudioFormat,
 )
+from on_the_fly.domain.audio.levels import (
+    CLIPPING_FRACTION,
+    DEFAULT_WINDOW_FRAMES,
+    QUIET_RMS,
+    SILENT_PEAK,
+    InputQuality,
+    LevelMonitor,
+    LevelReading,
+    LevelWatchingSource,
+    frame_levels,
+)
 from on_the_fly.domain.audio.ports import (
     AudioSource,
     SpeechRecognizer,
@@ -82,6 +93,7 @@ from on_the_fly.domain.audio.vad import (
 
 __all__ = [
     "ABSOLUTE_MAX_UTTERANCE_MS",
+    "CLIPPING_FRACTION",
     "DEFAULT_ABSOLUTE_SILENCE_RMS",
     "DEFAULT_ADAPTATION_RATE",
     "DEFAULT_HANGOVER_MS",
@@ -89,7 +101,10 @@ __all__ = [
     "DEFAULT_MIN_UTTERANCE_MS",
     "DEFAULT_PRE_ROLL_MS",
     "DEFAULT_SPEECH_FACTOR",
+    "DEFAULT_WINDOW_FRAMES",
+    "QUIET_RMS",
     "RECOMMENDED_SAMPLE_RATE_HZ",
+    "SILENT_PEAK",
     "SUPPORTED_SAMPLE_WIDTH_BYTES",
     "AudioFormat",
     "AudioSource",
@@ -99,6 +114,10 @@ __all__ = [
     "CaptureStats",
     "EndReason",
     "EnergyVoiceActivityDetector",
+    "InputQuality",
+    "LevelMonitor",
+    "LevelReading",
+    "LevelWatchingSource",
     "SegmenterConfig",
     "SpeechRecognizer",
     "StreamingRecognizer",
@@ -107,5 +126,6 @@ __all__ = [
     "Utterance",
     "UtteranceSegmenter",
     "VoiceActivityDetector",
+    "frame_levels",
     "frame_rms",
 ]

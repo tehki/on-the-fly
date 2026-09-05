@@ -51,6 +51,7 @@ def build_worker() -> Any:
         translated = QtCore.Signal(str)
         attribution = QtCore.Signal(str)
         overflowed = QtCore.Signal(int)
+        input_quality = QtCore.Signal(str)
         failed = QtCore.Signal(str)
         finished = QtCore.Signal()
 
@@ -78,6 +79,7 @@ def build_worker() -> Any:
 
         def _run(self) -> None:
             from on_the_fly.app.pipeline import StreamingRun, translate_finals
+            from on_the_fly.domain.audio.levels import InputQuality, LevelWatchingSource
             from on_the_fly.infrastructure.asr import ModelStore
             from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS, resolve
             from on_the_fly.infrastructure.asr.sherpa_streaming import SherpaStreamingRecognizer
@@ -105,14 +107,28 @@ def build_worker() -> Any:
                 translator = open_translator(choice, self._cache_dir, allow_download=True)
                 self.attribution.emit(choice.attribution)
 
+            # Wrapped, so the frames the pipeline reads are the frames that get measured.
+            # A microphone with its gain pinned produces fluent nonsense rather than
+            # silence, and nothing downstream can tell (ADR 0019).
             source = MicrophoneSource()
+            watched = LevelWatchingSource(source)
             recognizer.validate_format(source.audio_format)
             recognizer.warm_up()
             self.started.emit(
                 f"listening at {source.capture_rate_hz or source.audio_format.sample_rate_hz} Hz"
             )
 
-            run = StreamingRun(source, recognizer)
+            run = StreamingRun(watched, recognizer)
+            reported = InputQuality.OK
+
+            def report_levels() -> None:
+                """Emit only on change: a signal per frame would be a repaint per frame."""
+                nonlocal reported
+                current = watched.level.quality
+                if current is not reported:
+                    reported = current
+                    self.input_quality.emit(current.value)
+
             events = run.events()
             stream = (
                 translate_finals(
@@ -131,6 +147,7 @@ def build_worker() -> Any:
                     if self._stop:
                         break
                     (self.final if event.is_final else self.partial).emit(event.text)
+                    report_levels()
                     if source.overflow_count:
                         self.overflowed.emit(source.overflow_count)
             else:
@@ -143,10 +160,11 @@ def build_worker() -> Any:
                             self.translated.emit(item.translation)
                     else:
                         self.partial.emit(item.event.text)
+                    report_levels()
                     if source.overflow_count:
                         self.overflowed.emit(source.overflow_count)
 
-            source.close()
+            watched.close()
 
     return PipelineWorker
 
@@ -213,6 +231,12 @@ def run(argv: Sequence[str] | None = None) -> int:
             model.note_overflow(count)
             render()
 
+        def on_input_quality(value: str) -> None:
+            from on_the_fly.domain.audio.levels import InputQuality
+
+            model.note_input_quality(InputQuality(value))
+            render()
+
         def on_failed(reason: str) -> None:
             model.failed(reason)
             render()
@@ -223,6 +247,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         worker.translated.connect(on_translated)
         worker.attribution.connect(on_attribution)
         worker.overflowed.connect(on_overflow)
+        worker.input_quality.connect(on_input_quality)
         worker.failed.connect(on_failed)
 
         def cleanup() -> None:

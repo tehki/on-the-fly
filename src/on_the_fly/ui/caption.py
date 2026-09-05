@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import Enum
 
+from on_the_fly.domain.audio.levels import InputQuality
+
 
 class Status(Enum):
     """What the application is doing, in the user's terms rather than the pipeline's."""
@@ -65,6 +67,10 @@ class ViewState:
     detail: str = ""
     attribution: str = ""
     overflow_count: int = 0
+    # Whether the audio arriving is usable. Clipped input produces confident nonsense
+    # rather than nothing, so it is the one pipeline problem a user cannot see for
+    # themselves (ADR 0019).
+    input_quality: InputQuality = InputQuality.OK
 
     @property
     def can_start(self) -> bool:
@@ -116,7 +122,13 @@ class CaptionModel:
         scrollback with one entry.
         """
         self._state = replace(
-            self._state, status=Status.IDLE, detail="", caption=Caption(), overflow_count=0
+            self._state,
+            status=Status.IDLE,
+            detail="",
+            caption=Caption(),
+            overflow_count=0,
+            # A verdict about a device that is no longer open describes nothing.
+            input_quality=InputQuality.OK,
         )
         return self._state
 
@@ -156,6 +168,15 @@ class CaptionModel:
         return self._state
 
     # -- reporting ---------------------------------------------------------------------
+
+    def note_input_quality(self, quality: InputQuality) -> ViewState:
+        """Record what the microphone is delivering.
+
+        Not a caption change: the verdict outlives any one utterance and belongs beside the
+        controls, not in the text someone is reading.
+        """
+        self._state = replace(self._state, input_quality=quality)
+        return self._state
 
     def note_overflow(self, count: int) -> ViewState:
         """Lost audio is a dropped word. The user is told, not protected from it."""

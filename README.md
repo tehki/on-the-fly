@@ -96,6 +96,14 @@ python -m on_the_fly gui
 A dark caption window: what is being said in white, the translation under it in green,
 partials dimmed so "this may still change" is visible without a word for it.
 
+**It tells you when your microphone is unusable**
+([ADR 0019](docs/adr/0019-input-levels.md)). Clipped audio does not produce silence or an
+error — it produces fluent words nobody said, in a language you probably cannot check. The
+reference machine measures **51% of samples at full scale** against 0.0% for recorded
+speech, because its capture gain is pinned at +30 dB in the system mixer. So the window says
+*the microphone is too loud and the audio is distorting — turn its input gain down*, and
+`stream` prints the same for a recording. The readings are four numbers and no audio.
+
 **There is no scrollback, on purpose** ([ADR 0016](docs/adr/0016-desktop-interface.md)). The
 window shows one utterance; the next one replaces it. `docs/RETENTION_POLICY.md` puts it in
 a line — *live translation is fine, scrollback is not* — and a history pane would quietly
