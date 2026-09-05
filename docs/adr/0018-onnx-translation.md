@@ -54,6 +54,11 @@ reader:
   `use_cache_branch` switch. Its no-cache path fails on a zero-length encoder cache — a
   `Reshape` error on `encoder_attn` with dimension zero. The separate `decoder_model` and
   `decoder_with_past_model` pair has no such ambiguity.
+  > **Corrected 2026-09-05.** This is wrong. The no-cache path works. The `Reshape` error
+  > comes from the *cached* branch returning placeholder `present.*.encoder.*` outputs of
+  > shape `(0, 8, 1, 64)`, which a loop that copies them back then feeds in one step later.
+  > The merged graph runs all 300 test sentences once it is left alone — and is twice as
+  > slow, which is the actual reason it is not used. See the second amendment below.
 - **The encoder cache is computed once and carried unchanged.** Cross-attention keys and
   values depend only on the source sentence, so the with-past graph does not return them.
   A loop that expects them back either crashes or silently re-attends to nothing, and
@@ -196,9 +201,9 @@ on both runs; real-time factor 0.393x against 0.442x, both keeping up.
   another package's choice.
 - **421 MB of ONNX graphs against 84 MB for the CTranslate2 model**, two thirds of it the
   decoder weights carried twice — once in `decoder_model`, once in `decoder_with_past_model`.
-  The merged graph exists precisely to avoid that duplication and is the one that does not
-  work. On a phone this is a product decision rather than a footnote, and it is recorded here
-  as a known cost of the two-graph route rather than discovered later.
+  The merged graph would save 183 MB of that, **works**, and costs twice the latency; the
+  duplication is bought deliberately rather than forced. On a phone this is a product
+  decision rather than a footnote.
 - **A second artefact to maintain.** `en→ru` only. `ru→en` has no ONNX pin, so asking for it
   on this engine is refused rather than served from a repository nobody reviewed.
 
@@ -288,6 +293,53 @@ ru→en, the Russian sample published with the pinned recogniser
 
 Retention clean on both, 0.252x real time on ONNX. Recognition drops the proper noun in
 both cases; that is the recogniser, not the translator.
+
+## Second amendment, 2026-09-05 — the merged decoder is not broken, it is slow
+
+The first version of this ADR said the merged decoder "fails on a zero-length encoder
+cache". **That was wrong**, and it was wrong in the way this repository keeps catching: a
+single failure, diagnosed once, generalised into a property of the artefact. The claim went
+into an ADR, a module docstring, a source comment and the README before anyone checked it.
+
+The merged graph decodes all 300 test sentences. What actually happens is one step further
+on: **on the cached branch it returns placeholder `present.*.encoder.*` outputs of shape
+`(0, 8, 1, 64)`.** A loop that copies every `present.*` back into its cache — the obvious
+thing to write — feeds that placeholder in on the next step, and *that* raises the `Reshape`
+error on `encoder_attn`. The traceback points at the encoder cache, so the first reading was
+"the no-cache path cannot handle an empty encoder cache". The real rule is the one the
+two-graph implementation already follows for its own reasons: **the encoder half of the
+cache is written once and never overwritten.**
+
+### What it costs, now that it runs
+
+300 sentences, `en→ru`, greedy, single-threaded, one process:
+
+| | two graphs (shipped) | merged |
+| --- | --- | --- |
+| Decoder graphs on disk | 370 MB | **187 MB** |
+| Total artefact | 421 MB | **238 MB** |
+| chrF2 vs human references | **66.33** | 65.82 |
+| p50 | **323 ms** | 633 ms |
+| p95 | **540 ms** | 1102 ms |
+| Identical output | — | 263 of 300 |
+
+**Twice the latency to save 183 MB, and 0.51 chrF2 worse.** The quality difference is real
+but small and comes from the merged export being quantised as its own graph — same weights,
+different rounding — which also explains the 37 sentences that differ.
+
+**Not adopted.** Latency is this engine's binding constraint: it is already two to three
+times CTranslate2, and the twelfth measurement showed the stage alone consuming the
+endpoint-to-caption budget under load. Doubling it to halve a download is the wrong side of
+that trade while the target is still a desktop.
+
+**Worth revisiting on a phone**, where 421 MB is a different kind of problem than it is on a
+laptop, and where the execution provider is not the one measured here. Recorded with the
+numbers so that revisit starts from evidence rather than from this paragraph.
+
+The mechanism behind the 2x was not established — the merged graph binds
+`encoder_hidden_states` on every step and evaluates an `If` node the split pair does not
+have, and either could dominate. What is established is the cost as the interface presents
+it, which is what the decision needed.
 
 ## Review trigger
 

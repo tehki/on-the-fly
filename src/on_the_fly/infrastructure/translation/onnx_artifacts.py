@@ -72,9 +72,10 @@ from on_the_fly.infrastructure.translation.artifacts import TranslationArtifactE
 #
 # 421 MB, against 84 MB for the CTranslate2 conversion of the same model. Two thirds of that
 # is the decoder weights, carried once in `decoder_model` and again in
-# `decoder_with_past_model`. The merged graph exists to avoid exactly that and is broken on
-# its no-cache path (ADR 0018), so the duplication is a cost this project pays knowingly and
-# a real one on a phone.
+# `decoder_with_past_model`. The merged graph would save 183 MB of it and **works** — it is
+# twice as slow and 0.51 chrF2 worse, measured, so the duplication is bought deliberately
+# rather than forced (ADR 0018). On a phone that trade is worth revisiting; latency is what
+# decides it, and latency is already this engine's binding constraint.
 _EN_RU_FILES = {
     "onnx/encoder_model_int8.onnx": (
         "b8b4f72528c0da92e579af8a739f97fa2f792d73527ba2fee786fa7286c4055b"
