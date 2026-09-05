@@ -16,16 +16,24 @@ Roughly sixty lines against several hundred megabytes is a good trade, and the l
 simple because the decoding strategy is greedy — measured as costing nothing against beam
 search (ADR 0014).
 
-**Two decoder graphs, not the merged one.** The export ships a merged decoder with a
-`use_cache_branch` switch; its no-cache path fails on a zero-length encoder cache
-(`Reshape` on `encoder_attn`, dimension zero). The separate `decoder_model` and
-`decoder_with_past_model` pair has no such ambiguity: the first call produces the caches,
-every later call consumes them.
+**Two decoder graphs, not the merged one — a choice, not a workaround.** The export also
+ships a merged decoder with a `use_cache_branch` switch, which would replace both of these
+files and save 183 MB. Measured on 300 sentences, it is **twice as slow** (p50 633 ms
+against 323 ms) and scores 0.51 chrF2 lower, because its int8 quantisation differs. Latency
+is already this engine's binding constraint, so the duplication is bought deliberately
+(ADR 0018).
+
+The merged graph has one trap worth recording, because it cost a day and produced a wrong
+claim in the first version of ADR 0018: on the **cached** branch it returns placeholder
+`present.*.encoder.*` outputs of shape `(0, 8, 1, 64)`. Copying those back into the cache is
+what fails, one step later, as a `Reshape` error on `encoder_attn` — which looks exactly
+like the no-cache path being broken and is not.
 
 **The encoder cache is computed once.** Cross-attention keys and values depend only on the
 source sentence, so the with-past graph does not return them and this loop carries them
 unchanged. Recomputing them per token would be the obvious mistake and would roughly double
-the work.
+the work; overwriting them from whatever the graph happens to return is the subtler one, and
+is what breaks the merged decoder above.
 
 **The publisher's `bad_words_ids` are honoured, and they are not optional.** OPUS-MT uses
 one id for both padding and the decoder start token (62517), and `generation_config.json`
@@ -106,6 +114,17 @@ class OnnxTranslator:
         self._past_inputs = [
             i.name for i in decoder_with_past.get_inputs() if i.name.startswith("past_key_values")
         ]
+        # Split by half at construction, so the write-once rule for the encoder half is a
+        # property of this object rather than an accident of which outputs a graph happens
+        # to declare. A name matching neither convention is refused rather than guessed at:
+        # carrying the wrong half of a cache produces fluent, wrong translations.
+        self._decoder_past = [name for name in self._past_inputs if ".decoder." in name]
+        self._encoder_past = [name for name in self._past_inputs if ".encoder." in name]
+        unrecognised = set(self._past_inputs) - set(self._decoder_past) - set(self._encoder_past)
+        if unrecognised:
+            raise TranslationError(
+                f"cache inputs name neither half of the attention cache: {sorted(unrecognised)}"
+            )
         self._first_outputs = [o.name for o in decoder.get_outputs()]
         self._step_outputs = [o.name for o in decoder_with_past.get_outputs()]
 
@@ -192,7 +211,10 @@ class OnnxTranslator:
                 )
             )
             logits = step["logits"]
-            for name in self._past_inputs:
+            # Decoder half only. The encoder half was computed once above and is carried
+            # unchanged; the merged decoder returns `(0, 8, 1, 64)` placeholders for it, and
+            # copying those back is what fails one step later (ADR 0018).
+            for name in self._decoder_past:
                 produced = "present" + name[len("past_key_values") :]
                 if produced in step:
                     cache[name] = step[produced]

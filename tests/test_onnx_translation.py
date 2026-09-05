@@ -172,13 +172,15 @@ def build(
     source: FakePieces | None = None,
     target: FakePieces | None = None,
     encoder: FakeEncoder | None = None,
+    with_past: FakeDecoderWithPast | None = None,
     runner_up: int | None = None,
     suppressed: tuple[int, ...] = (),
     max_new_tokens: int = 256,
 ) -> tuple[OnnxTranslator, FakeEncoder, FakeDecoder, FakeDecoderWithPast]:
     encoder = encoder if encoder is not None else FakeEncoder()
     decoder = FakeDecoder(first_token, runner_up)
-    with_past = FakeDecoderWithPast(then if then is not None else [11, EOS], runner_up)
+    if with_past is None:
+        with_past = FakeDecoderWithPast(then if then is not None else [11, EOS], runner_up)
     translator = OnnxTranslator(
         encoder,
         decoder,
@@ -248,6 +250,42 @@ def test_the_encoder_cache_is_carried_unchanged() -> None:
             if ".encoder." in name:
                 assert call[name].shape == (1, 8, 1, 64)
                 assert float(call[name].flat[0]) == 7.0, "the encoder half was recomputed"
+
+
+def test_a_placeholder_encoder_cache_is_ignored_rather_than_carried() -> None:
+    """The merged decoder returns `(0, 8, 1, 64)` placeholders for the encoder half.
+
+    Copying whatever `present.*` a graph returns is the obvious thing to write, and it is
+    what makes that graph fail one step later with a Reshape error on `encoder_attn` —
+    misdiagnosed once as the graph being broken (ADR 0018, second amendment). This asserts
+    the rule that prevents it: the encoder half is written once and never overwritten.
+    """
+
+    class PlaceholderEncoderCache(FakeDecoderWithPast):
+        def get_outputs(self) -> list[FakeNode]:
+            return [FakeNode("logits")] + [
+                FakeNode("present" + name[len("past_key_values") :]) for name in _past_names()
+            ]
+
+        def run(self, _outputs: Any, feed: dict[str, Any]) -> list[Any]:
+            produced = super().run(_outputs, feed)
+            degenerate = np.zeros((0, 8, 1, 64), dtype=np.float32)
+            step = len(self.calls)
+            return [produced[0]] + [
+                _cache_block(1.0, step + 1) if ".decoder." in name else degenerate
+                for name in _past_names()
+            ]
+
+    graph = PlaceholderEncoderCache([11, 12, EOS])
+    translator, _, _, _ = build(first_token=10, with_past=graph)
+
+    translator.translate("good morning", source_language="en", target_language="ru")
+
+    assert graph.calls, "the with-past graph was never reached"
+    for call in graph.calls:
+        for name in _past_names():
+            if ".encoder." in name:
+                assert call[name].shape == (1, 8, 1, 64), "a placeholder reached the cache"
 
 
 def test_the_decoder_cache_grows_with_each_step() -> None:
@@ -471,6 +509,21 @@ def test_the_two_exports_share_one_sentencepiece_pair() -> None:
     assert forward["source.spm"] == backward["target.spm"]
     assert forward["target.spm"] == backward["source.spm"]
     assert forward["vocab.json"] == backward["vocab.json"]
+
+
+def test_a_cache_input_naming_neither_half_is_refused() -> None:
+    """Guessing which half an unrecognised cache entry belongs to would be fluent and wrong."""
+
+    class OddNames(FakeDecoderWithPast):
+        def get_inputs(self) -> list[FakeNode]:
+            return [
+                FakeNode("encoder_attention_mask"),
+                FakeNode("input_ids"),
+                FakeNode("past_key_values.0.self.key"),
+            ]
+
+    with pytest.raises(TranslationError):
+        build(with_past=OddNames([EOS]))
 
 
 def test_a_pair_with_no_onnx_export_is_refused() -> None:

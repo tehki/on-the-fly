@@ -901,6 +901,58 @@ both — that is the recogniser, not the translator.
 
 **Still nothing on a phone.** Every number in this section is a desktop number.
 
+## Fourteenth measurement — 2026-09-05, the merged decoder, and a claim that was wrong
+
+ADR 0018 recorded that the export's merged decoder "fails on a zero-length encoder cache",
+and used that to justify shipping two decoder graphs at a cost of **183 MB of duplicated
+weights**. The claim went into an ADR, a module docstring, a source comment and the README
+on the strength of one failure diagnosed once.
+
+**It was wrong.** The merged graph decodes all 300 test sentences.
+
+### What actually happens
+
+On its **cached** branch the merged decoder returns placeholder `present.*.encoder.*`
+outputs of shape `(0, 8, 1, 64)`. A loop that copies every `present.*` back into its cache —
+the obvious thing to write — feeds that placeholder in one step later, and *that* raises the
+`Reshape` error on `encoder_attn`. The traceback names the encoder cache, which is why the
+first reading was "the no-cache path cannot handle an empty encoder cache".
+
+The rule that avoids it is the one the shipped loop already followed for its own reasons:
+the encoder half of the cache is written once and never overwritten. It followed it by
+accident — the split with-past graph simply does not declare those outputs — so the rule is
+now structural: the two halves are separated at construction, only the decoder half is
+updated, and a cache input naming neither half is refused rather than guessed at.
+
+### What the merged graph costs, now that it runs
+
+300 sentences, `en→ru`, greedy, single-threaded, one process:
+
+| | two graphs (shipped) | merged |
+| --- | --- | --- |
+| Decoder graphs on disk | 370 MB | **187 MB** |
+| Total artefact | 421 MB | **238 MB** |
+| chrF2 vs human references | **66.33** | 65.82 |
+| p50 | **323 ms** | 633 ms |
+| p95 | **540 ms** | 1102 ms |
+| Identical output | — | 263 of 300 |
+
+**Twice the latency to save 183 MB, and 0.51 chrF2 worse.** The quality difference comes
+from the merged export being quantised as its own graph — same weights, different rounding —
+which also explains the 37 sentences that differ.
+
+**Not adopted.** Latency is this engine's binding constraint: it is already two to three
+times CTranslate2, and the twelfth measurement showed the ONNX stage alone consuming the
+endpoint-to-caption budget under load. Doubling it to halve a download is the wrong side of
+that trade while the target is a desktop. On a phone the trade is different, and it is
+recorded with numbers so that revisit starts from evidence.
+
+**The mechanism behind the 2x was not established.** The merged graph binds
+`encoder_hidden_states` on every step and evaluates an `If` node the split pair does not
+have; either could dominate. What is established is the cost as the interface presents it,
+which is what the decision needed — and saying which of those two facts is which is the
+whole point of this section.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
