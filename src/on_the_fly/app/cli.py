@@ -18,9 +18,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from on_the_fly.app.pipeline import (
     PipelineResult,
@@ -29,7 +31,12 @@ from on_the_fly.app.pipeline import (
     run_capture,
     translate_finals,
 )
-from on_the_fly.domain.audio import InputQuality, LevelWatchingSource, SegmenterConfig
+from on_the_fly.domain.audio import (
+    InputQuality,
+    LevelWatchingSource,
+    SegmenterConfig,
+    SettlingSource,
+)
 from on_the_fly.domain.languages import RecognitionTier
 from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure.asr import (
@@ -44,6 +51,8 @@ from on_the_fly.infrastructure.asr import (
     StreamingRecognitionError,
     resolve,
 )
+from on_the_fly.infrastructure.audio.backend import AudioDeviceError
+from on_the_fly.infrastructure.audio.microphone import MicrophoneSource
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
 from on_the_fly.infrastructure.translation import (
     DEFAULT_ENGINE,
@@ -170,6 +179,73 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="hide partial results and show only finalised text",
     )
+    listen = subcommands.add_parser(
+        "listen",
+        help="stream from a microphone, showing text as it is spoken",
+        description=(
+            "The same streaming pipeline as 'stream', reading a microphone instead of a "
+            "file. Runs until Ctrl-C, or until --seconds have passed. Only languages with "
+            "a pinned streaming model can be used."
+        ),
+    )
+    listen.add_argument(
+        "--language",
+        default="en",
+        help="language to recognise (default: en). Only streaming-tier languages are accepted",
+    )
+    listen.add_argument(
+        "--translate-to",
+        default=None,
+        metavar="LANG",
+        help=(
+            "translate finalised text into this language, e.g. ru. Only pairs with a "
+            "pinned model are accepted. Partials are never translated (ADR 0009)"
+        ),
+    )
+    listen.add_argument(
+        "--translation-engine",
+        type=TranslationEngine,
+        choices=list(TranslationEngine),
+        default=DEFAULT_ENGINE,
+        help=(
+            "which runtime executes the translation model (default: ctranslate2, which is "
+            "faster). 'onnx' is the engine that runs on mobile hardware (ADR 0018)"
+        ),
+    )
+    listen.add_argument(
+        "--device",
+        default=None,
+        help=(
+            "input device, by index or name substring (default: the system default). "
+            "Indices come from your platform's audio settings"
+        ),
+    )
+    listen.add_argument(
+        "--seconds",
+        type=float,
+        default=None,
+        metavar="N",
+        help="stop after N seconds of capture (default: run until Ctrl-C)",
+    )
+    listen.add_argument("--cache-dir", type=Path, default=DEFAULT_MODEL_CACHE)
+    listen.add_argument(
+        "--allow-download",
+        action="store_true",
+        help="permit fetching the model if it is not already present (off by default)",
+    )
+    listen.add_argument(
+        "--finals-only",
+        action="store_true",
+        help="hide partial results and show only finalised text",
+    )
+    listen.add_argument("--frame-ms", type=int, default=20)
+    listen.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help="recogniser threads (default: 1). More is slower, not faster (ADR 0014)",
+    )
+
     subcommands.add_parser(
         "gui",
         help="open the desktop window",
@@ -466,8 +542,13 @@ def format_transcript(
     return LINE_BREAK.join(header + body + footer)
 
 
-def run_stream(args: argparse.Namespace) -> int:
-    """Stream a file through the streaming recogniser, printing text as it appears."""
+def resolve_streaming(args: argparse.Namespace) -> tuple[Any, Any, Any, TranslationChoice | None]:
+    """`(language, pin, target, translation choice)` for a streaming command.
+
+    Everything that can be refused is resolved here, before a device is opened or a model
+    is fetched. Asking for a pair this project cannot serve should cost a message, not a
+    73 MB recogniser download first (handbook 14: validate before you execute).
+    """
     language = resolve_language(args.language)
     if language.tier is not RecognitionTier.STREAMING:
         # Refused rather than silently downgraded. A user who asked to stream and got
@@ -486,9 +567,6 @@ def run_stream(args: argparse.Namespace) -> int:
             "Pin one with scripts/pin_model.py after checking its licence."
         ) from None
 
-    # Resolved before anything is downloaded or loaded. Asking for a pair this project
-    # cannot serve should cost a message, not a 73 MB recogniser fetch first (handbook 14:
-    # validate before you execute).
     target = None
     choice = None
     if args.translate_to is not None:
@@ -496,6 +574,12 @@ def run_stream(args: argparse.Namespace) -> int:
         if target.code == language.code:
             raise ValueError(f"source and target are both {target.name}; nothing to translate.")
         choice = resolve_artifact((language.code, target.code), args.translation_engine)
+    return language, pin, target, choice
+
+
+def run_stream(args: argparse.Namespace) -> int:
+    """Stream a file through the streaming recogniser, printing text as it appears."""
+    language, pin, target, choice = resolve_streaming(args)
 
     source = WavFileSource(args.path, frame_ms=args.frame_ms)
     model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
@@ -602,6 +686,166 @@ def run_stream(args: argparse.Namespace) -> int:
     return EXIT_OK if stats.retention_clean else EXIT_RETENTION_FAILURE
 
 
+def parse_device(value: str | None) -> int | str | None:
+    """A device index or a name substring, whichever the user gave.
+
+    `sounddevice` accepts both, and a user reading their own audio settings has an index
+    in front of them while a user reading `--help` has a name.
+    """
+    if value is None:
+        return None
+    return int(value) if value.lstrip("-").isdigit() else value
+
+
+def run_listen(args: argparse.Namespace) -> int:
+    """Stream from a microphone, printing text as it is spoken.
+
+    The counterpart of `run_stream` for live audio, and the only way to exercise the
+    capture path without a GUI toolkit installed. It reports what a file cannot: how much
+    was discarded while the input settled (ADR 0020), and how much was dropped because the
+    pipeline could not keep up.
+    """
+    language, pin, target, choice = resolve_streaming(args)
+
+    model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
+    recognizer = SherpaStreamingRecognizer(
+        model_dir,
+        num_threads=args.threads,
+        layout=STREAMING_LAYOUTS[pin.name],
+    )
+
+    load_started = time.monotonic()
+    recognizer.warm_up()
+    load_seconds = time.monotonic() - load_started
+
+    print(f"language      {language.name} ({language.code}, streaming)")
+    print(f"model         {pin.name} (local, verified, {pin.licence})")
+    print(f"model load    {load_seconds:.2f}s")
+
+    translator = None
+    if choice is not None and target is not None:
+        translator = open_translator(choice, args.cache_dir, allow_download=args.allow_download)
+        print(f"translation   {choice.name} on {choice.engine} (local, verified, {choice.licence})")
+        # CC-BY-4.0 requires attribution reachable by a user, the same as for a file.
+        print(f"attribution   {choice.attribution}")
+
+    # The device is opened here and not before: nothing above this point needs a
+    # microphone, and holding one open while validating arguments is a privacy problem
+    # whether or not anything reads from it.
+    microphone = MicrophoneSource(device=parse_device(args.device), frame_ms=args.frame_ms)
+    # Settling under the level monitor, so the verdict is about the microphone rather than
+    # about the analog path powering up (ADR 0020).
+    settling = SettlingSource(microphone)
+    watched = LevelWatchingSource(settling)
+    recognizer.validate_format(microphone.audio_format)
+
+    stop_timer = None
+    if args.seconds is not None:
+        if args.seconds <= 0:
+            raise ValueError(f"--seconds must be positive, got {args.seconds}")
+        # Closing the source is how a capture ends everywhere else, including the window's
+        # stop button, so the timed stop takes the same path rather than inventing one.
+        stop_timer = threading.Timer(args.seconds, watched.close)
+        stop_timer.daemon = True
+        stop_timer.start()
+
+    run = StreamingRun(watched, recognizer)
+    translation_times: list[float] = []
+    translated = 0
+    interrupted = False
+
+    events = run.events()
+    stream_out = (
+        translate_finals(
+            events,
+            translator,
+            source_language=language.code,
+            target_language=target.code,
+            store=run.store,
+        )
+        if translator is not None and target is not None
+        else (TranslatedEvent(event) for event in events)
+    )
+
+    limit = f"{args.seconds:g}s" if args.seconds is not None else "Ctrl-C to stop"
+    print()
+    print(f"  listening ({limit})")
+    print()
+
+    try:
+        for item in stream_out:
+            if item.is_final or not args.finals_only:
+                print(f"  {item.event}")
+            if item.translation is not None:
+                translated += 1
+                if item.translation_seconds is not None:
+                    translation_times.append(item.translation_seconds)
+                print(f"  {'':>7}  {ARROW} {item.translation}")
+    except KeyboardInterrupt:
+        # A deliberate stop, not a failure. The summary below is the point of the run.
+        interrupted = True
+    finally:
+        if stop_timer is not None:
+            stop_timer.cancel()
+        # Closed explicitly rather than left to the garbage collector: this is what
+        # releases the device and purges the store, and "eventually" is not a retention
+        # guarantee.
+        events.close()
+
+    stats = run.stats
+    if stats is None:  # pragma: no cover - events() always sets it
+        return EXIT_FAILURE
+
+    print()
+    if interrupted:
+        print("stopped        by Ctrl-C")
+    rate = microphone.capture_rate_hz or microphone.audio_format.sample_rate_hz
+    resampled = (
+        f", resampled to {microphone.audio_format.sample_rate_hz} Hz"
+        if microphone.is_resampling
+        else ""
+    )
+    print(f"device        captured at {rate} Hz{resampled}")
+    settled = "gave up waiting" if settling.gave_up else "before the input steadied"
+    print(f"settling      {settling.discarded_ms}ms discarded, {settled}")
+    print(f"audio         {stats.audio_seconds:.2f}s in {stats.frames_read} frames")
+    print(f"wall time     {stats.wall_seconds:.2f}s")
+    # No real-time factor: live audio arrives in real time by definition, so the ratio is
+    # always about 1.0 and says nothing. Overflows are the live equivalent — they are
+    # words the pipeline was too slow to receive.
+    if microphone.overflow_count:
+        print(f"dropped       {microphone.overflow_count} overflow(s) - audio was lost")
+    else:
+        print("dropped       none - nothing was lost to a slow pipeline")
+    if stats.first_text_after_seconds is not None:
+        print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
+    print(f"events        {stats.partials} partial, {stats.finals} final")
+    if translator is not None:
+        if translation_times:
+            ordered = sorted(translation_times)
+            median = ordered[len(ordered) // 2]
+            print(
+                f"translation   {translated} of {stats.finals} final(s), "
+                f"median {median * 1000:.0f}ms, max {max(ordered) * 1000:.0f}ms"
+            )
+        else:
+            print(f"translation   none produced from {stats.finals} final(s)")
+
+    level = watched.overall_level
+    print(f"input         {level}")
+    if level.quality is not InputQuality.OK:
+        print(f"              {level.quality.advice}")
+
+    if stats.retention_clean:
+        print("retention     clean - nothing retained, no deletion failed")
+    else:
+        print(
+            f"retention     FAILED - {stats.entries_remaining} entr(ies) remain, "
+            f"{len(stats.final_reap.failed)} deletion failure(s)"
+        )
+    return EXIT_OK if stats.retention_clean else EXIT_RETENTION_FAILURE
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -613,6 +857,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_transcribe(args)
         if args.command == "stream":
             return run_stream(args)
+        if args.command == "listen":
+            return run_listen(args)
         if args.command == "gui":
             # Imported here so the command line never needs a GUI toolkit installed.
             from on_the_fly.ui.app import run as run_gui
@@ -620,6 +866,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_gui()
     except (
         WavSourceError,
+        AudioDeviceError,
         ModelStoreError,
         RecognitionError,
         StreamingRecognitionError,
