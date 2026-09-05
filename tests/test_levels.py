@@ -20,9 +20,12 @@ import pytest
 from on_the_fly.domain.audio.formats import AudioFormat
 from on_the_fly.domain.audio.levels import (
     CLIPPED_SAMPLE,
+    FLOOR_WINDOW_FRAMES,
     FULL_SCALE,
+    LOUD_FLOOR,
     InputQuality,
     LevelMonitor,
+    LevelReading,
     LevelWatchingSource,
     frame_levels,
 )
@@ -280,3 +283,122 @@ def test_it_retains_no_audio() -> None:
 
     held = [value for slot in watched.__slots__ for value in [getattr(watched, slot)]]
     assert not any(isinstance(value, bytes) for value in held)
+
+
+# ======================================================================================
+# The floor, and the input that never goes quiet (ADR 0021)
+# ======================================================================================
+
+
+def steady(amplitude: float, frames: int) -> list[bytes]:
+    """A signal that never pauses — a room with the gain wound up."""
+    return [tone(amplitude) for _ in range(frames)]
+
+
+def speech_like(amplitude: float, frames: int, *, pause_every: int = 5) -> list[bytes]:
+    """Loud stretches separated by quiet ones, which is what distinguishes talking."""
+    return [
+        tone(amplitude) if index % pause_every else tone(amplitude / 200) for index in range(frames)
+    ]
+
+
+def observe_all(monitor: LevelMonitor, frames: list[bytes]) -> LevelReading:
+    for frame in frames:
+        monitor.observe(frame)
+    return monitor.reading
+
+
+def test_an_input_that_never_goes_quiet_is_too_loud() -> None:
+    """The failure that started this: an amplified room, transcribed as words nobody said."""
+    monitor = LevelMonitor()
+
+    reading = observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES))
+
+    assert reading.quality is InputQuality.TOO_LOUD
+    assert reading.floor is not None
+    assert reading.floor >= LOUD_FLOOR
+
+
+def test_loud_speech_is_not_condemned_for_being_loud() -> None:
+    """Amplified speech transcribes correctly; a warning here would be a false alarm.
+
+    Measured: the same recording at 24x gain, 21% of its samples at full scale, still
+    transcribed word for word (ADR 0021). Only its pauses keep it out of `TOO_LOUD`.
+    """
+    monitor = LevelMonitor()
+
+    reading = observe_all(monitor, speech_like(0.9, FLOOR_WINDOW_FRAMES))
+
+    assert reading.quality is not InputQuality.TOO_LOUD
+
+
+def test_a_quiet_room_is_not_too_loud_however_flat_it_is() -> None:
+    """A room with no pauses is only a problem when it is also loud enough to recognise."""
+    monitor = LevelMonitor()
+
+    reading = observe_all(monitor, steady(0.02, FLOOR_WINDOW_FRAMES))
+
+    assert reading.quality is not InputQuality.TOO_LOUD
+
+
+def test_the_verdict_waits_for_a_full_window() -> None:
+    """Five seconds, because at one second loud speech and a loud room are the same."""
+    monitor = LevelMonitor()
+
+    reading = observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES - 1))
+
+    assert reading.floor is None
+    assert reading.quality is not InputQuality.TOO_LOUD
+
+
+def test_clipping_is_reported_ahead_of_too_loud() -> None:
+    """The more specific statement about the same problem, and it needs less audio."""
+    monitor = LevelMonitor()
+
+    reading = observe_all(monitor, [square() for _ in range(FLOOR_WINDOW_FRAMES)])
+
+    assert reading.quality is InputQuality.CLIPPING
+
+
+def test_a_finished_recording_is_judged_on_its_worst_stretch() -> None:
+    """A loud room followed by a silent tail must not be excused by the tail."""
+    monitor = LevelMonitor()
+    for frame in steady(0.5, FLOOR_WINDOW_FRAMES):
+        monitor.observe(frame)
+    for frame in steady(0.0001, FLOOR_WINDOW_FRAMES):
+        monitor.observe(frame)
+
+    assert monitor.reading.quality is not InputQuality.TOO_LOUD
+    assert monitor.overall.quality is InputQuality.TOO_LOUD
+
+
+def test_the_floor_is_a_number_and_the_reading_still_holds_no_audio() -> None:
+    monitor = LevelMonitor()
+    reading = observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES))
+
+    assert isinstance(reading.floor, float)
+    assert "floor" in str(reading)
+
+
+def test_resetting_forgets_the_floor() -> None:
+    monitor = LevelMonitor()
+    observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES))
+
+    monitor.reset()
+
+    assert monitor.reading.floor is None
+    assert monitor.overall.quality is InputQuality.OK
+
+
+def test_every_verdict_but_ok_tells_the_user_what_to_do() -> None:
+    for quality in InputQuality:
+        if quality is InputQuality.OK:
+            assert quality.advice == ""
+        else:
+            assert quality.advice, f"{quality} gives the user nothing to act on"
+            assert not quality.is_usable
+
+
+def test_a_floor_window_that_cannot_work_is_refused() -> None:
+    with pytest.raises(ValueError):
+        LevelMonitor(floor_window_frames=0)

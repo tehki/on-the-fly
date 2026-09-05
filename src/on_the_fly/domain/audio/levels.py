@@ -12,10 +12,14 @@ and nothing did.
 
 The measurement that number was taken from has since been corrected (ADR 0020): the 51% of
 full-scale samples ADR 0019 cites came from the analog input powering up, not from the
-microphone, and a `SettlingSource` now discards that. What survives the correction is the
-failure shape above, and one unresolved gap — this machine's *settled* input measures an rms
-five to eight times that of recorded speech with its peak at full scale, and the thresholds
-below call it `OK`, because it does not clip until somebody speaks into it.
+microphone, and a `SettlingSource` now discards that.
+
+**Clipping turned out to be the wrong thing to key on, on its own** (ADR 0021). Recorded
+speech amplified until a fifth of its samples sit at full scale still transcribes word for
+word; what actually produces invented words is an amplified *room*, where there is no pause
+between anything because there is nothing being said. Those two have the same peak, the same
+rms and the same crest factor, so no instantaneous measure separates them. What does is
+whether the input ever goes quiet — see `TOO_LOUD` below.
 
 So this module computes three numbers over a short window and turns them into one verdict.
 It holds **no audio** — the readings are counts and ratios, `OPERATIONAL_METADATA` in the
@@ -64,6 +68,29 @@ CLIPPING_FRACTION = 0.05
 SILENT_PEAK = 0.002
 QUIET_RMS = 0.005
 
+# The quietest tenth of a several-second window. Speech has pauses — between words, between
+# sentences, between turns — so this tracks the room rather than the talking, and it is the
+# one statistic that separates an over-driven microphone from an over-driven speaker.
+#
+# Measured, with the same recorded speech ADR 0019 calibrated against, amplified digitally:
+#
+#     speech x8   0.042      speech x24  0.122   (0.0% word error)
+#     speech x12  0.063      speech x32  0.156   (5.6% word error)
+#     a room at +60 dB       0.333
+#     a room at +30 dB       0.009
+#
+# 0.15 sits between the loudest gain that still transcribes perfectly and the first that does
+# not, and a factor of 2.2 below the input that invented words. It is placed where
+# recognition measurably starts to fail rather than where the numbers look tidy.
+LOUD_FLOOR = 0.15
+
+# Five seconds. Long enough to contain a pause: at one second, heavily amplified speech and
+# an amplified room are indistinguishable by this measure (0.45 against 0.43), and at five
+# they are not (0.12 against 0.33). The cost is that this verdict cannot appear until five
+# seconds of audio has been heard, which is the right trade for a warning that accuses a
+# user's microphone.
+FLOOR_WINDOW_FRAMES = 250
+
 # One second at 20 ms frames. Long enough that a single loud syllable does not condemn a
 # device, short enough that a user who fixes their gain sees the warning clear while they
 # are still looking at it.
@@ -77,6 +104,7 @@ class InputQuality(Enum):
     SILENT = "silent"
     QUIET = "quiet"
     CLIPPING = "clipping"
+    TOO_LOUD = "too_loud"
 
     def __str__(self) -> str:
         return self.value
@@ -98,6 +126,11 @@ class InputQuality(Enum):
             return (
                 "the microphone is too loud and the audio is distorting — turn its input gain down"
             )
+        if self is InputQuality.TOO_LOUD:
+            return (
+                "the microphone is far too loud — turn its input gain down, or the room "
+                "itself is transcribed as words nobody said"
+            )
         if self is InputQuality.SILENT:
             return "no sound is arriving — the microphone may be muted or the wrong device"
         if self is InputQuality.QUIET:
@@ -113,11 +146,15 @@ class LevelReading:
     rms: float
     clipped_fraction: float
     quality: InputQuality
+    # The quietest tenth of the floor window, or None before enough audio has been heard to
+    # say. Defaulted so that constructing a reading from three numbers still works.
+    floor: float | None = None
 
     def __str__(self) -> str:
+        floor = f", floor {self.floor:.3f}" if self.floor is not None else ""
         return (
             f"{self.quality} (peak {self.peak:.2f}, rms {self.rms:.3f}, "
-            f"clipped {self.clipped_fraction:.1%})"
+            f"clipped {self.clipped_fraction:.1%}{floor})"
         )
 
 
@@ -155,19 +192,35 @@ class LevelMonitor:
     """
 
     __slots__ = (
+        "_floor_frames",
+        "_floor_window",
         "_frames",
         "_total_clipped",
         "_total_peak",
         "_total_samples",
         "_total_squares",
         "_window",
+        "_worst_floor",
     )
 
-    def __init__(self, *, window_frames: int = DEFAULT_WINDOW_FRAMES) -> None:
+    def __init__(
+        self,
+        *,
+        window_frames: int = DEFAULT_WINDOW_FRAMES,
+        floor_window_frames: int = FLOOR_WINDOW_FRAMES,
+    ) -> None:
         if window_frames < 1:
             raise ValueError("the window must cover at least one frame")
+        if floor_window_frames < 1:
+            raise ValueError("the floor window must cover at least one frame")
         self._window = window_frames
         self._frames: deque[tuple[float, float, int, int]] = deque(maxlen=window_frames)
+        # A separate, longer window holding one number per frame. `TOO_LOUD` is a statement
+        # about several seconds — whether the input ever goes quiet — and cannot be read off
+        # the one-second window the other verdicts use.
+        self._floor_window = floor_window_frames
+        self._floor_frames: deque[float] = deque(maxlen=floor_window_frames)
+        self._worst_floor = 0.0
         # Running totals as well as the window. The window is what a live caption needs —
         # "is the microphone bad *now*" — and totals are what a finished recording needs,
         # because the last second of a file is usually its silent tail and a verdict taken
@@ -183,6 +236,8 @@ class LevelMonitor:
 
     def reset(self) -> None:
         self._frames.clear()
+        self._floor_frames.clear()
+        self._worst_floor = 0.0
         self._total_peak = 0.0
         self._total_squares = 0.0
         self._total_clipped = 0
@@ -193,11 +248,32 @@ class LevelMonitor:
         entry = frame_levels(frame)
         self._frames.append(entry)
         peak, squares, clipped, samples = entry
+        if samples:
+            self._floor_frames.append(math.sqrt(squares / samples) / FULL_SCALE)
+            floor = self._floor
+            if floor is not None:
+                # The worst window seen, not the latest: a recording is judged on the
+                # loudest stretch of room it contains, the same reasoning that gave
+                # `overall` its running totals rather than a rolling verdict.
+                self._worst_floor = max(self._worst_floor, floor)
         self._total_peak = max(self._total_peak, peak)
         self._total_squares += squares
         self._total_clipped += clipped
         self._total_samples += samples
         return self.reading
+
+    @property
+    def _floor(self) -> float | None:
+        """The quietest tenth of the floor window, once there is a full window of it.
+
+        `None` until then, deliberately: a verdict that tells someone their microphone is
+        unusable should not be reached from two seconds of audio, and the separation this
+        relies on only appears over several (ADR 0021).
+        """
+        if len(self._floor_frames) < self._floor_window:
+            return None
+        ordered = sorted(self._floor_frames)
+        return ordered[int(0.10 * len(ordered))]
 
     @property
     def reading(self) -> LevelReading:
@@ -210,7 +286,8 @@ class LevelMonitor:
         peak = max(entry[0] for entry in self._frames)
         rms = math.sqrt(sum(entry[1] for entry in self._frames) / samples) / FULL_SCALE
         clipped = sum(entry[2] for entry in self._frames) / samples
-        return LevelReading(peak, rms, clipped, _classify(peak, rms, clipped))
+        floor = self._floor
+        return LevelReading(peak, rms, clipped, _classify(peak, rms, clipped, floor), floor)
 
     @property
     def overall(self) -> LevelReading:
@@ -224,19 +301,32 @@ class LevelMonitor:
             return LevelReading(0.0, 0.0, 0.0, InputQuality.OK)
         rms = math.sqrt(self._total_squares / self._total_samples) / FULL_SCALE
         clipped = self._total_clipped / self._total_samples
+        # The worst window rather than the last one, for the same reason the totals exist.
+        floor = self._worst_floor if self._floor_frames else None
         return LevelReading(
-            self._total_peak, rms, clipped, _classify(self._total_peak, rms, clipped)
+            self._total_peak,
+            rms,
+            clipped,
+            _classify(self._total_peak, rms, clipped, floor),
+            floor,
         )
 
 
-def _classify(peak: float, rms: float, clipped_fraction: float) -> InputQuality:
-    """Clipping first: it is the failure that produces confident nonsense rather than none.
+def _classify(
+    peak: float, rms: float, clipped_fraction: float, floor: float | None = None
+) -> InputQuality:
+    """Clipping first, then a floor that never drops.
 
-    A silent or quiet input yields no transcript or an obviously poor one, which a user can
-    see. Distortion yields fluent words nobody said, which they cannot.
+    Both produce fluent words nobody said, which is the failure a user cannot see for
+    themselves; a silent or quiet input yields no transcript or an obviously poor one, which
+    they can. Clipping is reported ahead of `TOO_LOUD` because it is the more specific
+    statement about the same problem, and because it can be said from one second of audio
+    rather than five.
     """
     if clipped_fraction >= CLIPPING_FRACTION:
         return InputQuality.CLIPPING
+    if floor is not None and floor >= LOUD_FLOOR:
+        return InputQuality.TOO_LOUD
     if peak < SILENT_PEAK:
         return InputQuality.SILENT
     if rms < QUIET_RMS:

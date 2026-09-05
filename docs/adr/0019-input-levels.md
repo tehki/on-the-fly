@@ -80,7 +80,7 @@ the same check for free.
 
 | Verdict | Rule | Why there |
 | --- | --- | --- |
-| `CLIPPING` | ≥ **5%** of samples in the window at full scale | Speech measures 0.0000%; the broken machine 51% — but see ADR 0020: that 51% was the power-up transient, and the threshold has never been tested against a microphone that is merely too hot. A single fully-clipped 20 ms frame — a door slam, a knock on the desk — is 2% of a one-second window, and a warning that flickers on every loud noise is one people learn to ignore |
+| `CLIPPING` | ≥ **5%** of samples in the window at full scale | Speech measures 0.0000%; the broken machine 51% — but see ADR 0020 (that 51% was the power-up transient) and ADR 0021 (speech clipped to 21% still transcribes word for word, so this threshold fires long before accuracy suffers). A single fully-clipped 20 ms frame — a door slam, a knock on the desk — is 2% of a one-second window, and a warning that flickers on every loud noise is one people learn to ignore |
 | `SILENT` | peak < 0.002 | Digital silence: muted, or a device that is not the microphone |
 | `QUIET` | rms < 0.005 | An order of magnitude below the quietest recorded speech measured here (0.047) |
 | `OK` | otherwise | |
