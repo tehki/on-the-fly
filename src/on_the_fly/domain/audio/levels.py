@@ -5,11 +5,17 @@ handed a square wave, emits words that were never spoken, and the translation ma
 worse. Nothing in the pipeline notices, because every stage does its job correctly on the
 input it was given. The user sees fluent output and no reason to distrust it.
 
-**This is not hypothetical.** The reference machine's capture path measures a peak of 1.0
-and **51% of samples at full scale**, against 0.5 peak and 0.0% for the recorded speech this
-project tests with. ADR 0015 recorded that as "the microphone produces saturated audio" and
-left it there; the cause is the capture gain pinned at +30 dB in the system mixer, which is
-a setting the user can fix in seconds *if something tells them to*. Nothing did.
+**This is not hypothetical.** ADR 0015 recorded "the microphone produces saturated audio"
+and left it there, and the reference machine's mixer really does hold +60 dB of gain on its
+internal microphone — a setting the user can fix in seconds *if something tells them to*,
+and nothing did.
+
+The measurement that number was taken from has since been corrected (ADR 0020): the 51% of
+full-scale samples ADR 0019 cites came from the analog input powering up, not from the
+microphone, and a `SettlingSource` now discards that. What survives the correction is the
+failure shape above, and one unresolved gap — this machine's *settled* input measures an rms
+five to eight times that of recorded speech with its peak at full scale, and the thresholds
+below call it `OK`, because it does not clip until somebody speaks into it.
 
 So this module computes three numbers over a short window and turns them into one verdict.
 It holds **no audio** — the readings are counts and ratios, `OPERATIONAL_METADATA` in the
@@ -22,12 +28,12 @@ The thresholds are judgement calls, and they were calibrated rather than invente
                        peak    rms      clipped samples
 recorded speech (en)   0.535   0.0471   0.0000%
 recorded speech (ru)   0.500   0.0790   0.0000%
-this machine's mic     1.000   0.8134   51.04%
+this machine's mic     1.000   0.8134   51.04%   <- the power-up, not the mic (ADR 0020)
 ```
 
-The gap between working and broken is three orders of magnitude in clipping, so the
-threshold sits far from both, at **5% of samples in the window**. It has to clear transients
-as well as speech: a door slam or a knock on the desk legitimately puts one whole frame at
+The gap between working and clipped is three orders of magnitude, so the threshold sits
+far from both, at **5% of samples in the window**. It has to clear transients as well as
+speech: a door slam or a knock on the desk legitimately puts one whole frame at
 the rails, which is 2% of a one-second window, and a warning that flickers on every loud
 noise is a warning people learn to ignore. Sustained clipping across a twentieth of a second
 of every second is not a transient.

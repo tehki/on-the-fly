@@ -80,6 +80,7 @@ def build_worker() -> Any:
         def _run(self) -> None:
             from on_the_fly.app.pipeline import StreamingRun, translate_finals
             from on_the_fly.domain.audio.levels import InputQuality, LevelWatchingSource
+            from on_the_fly.domain.audio.settling import SettlingSource
             from on_the_fly.infrastructure.asr import ModelStore
             from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS, resolve
             from on_the_fly.infrastructure.asr.sherpa_streaming import SherpaStreamingRecognizer
@@ -111,7 +112,12 @@ def build_worker() -> Any:
             # A microphone with its gain pinned produces fluent nonsense rather than
             # silence, and nothing downstream can tell (ADR 0019).
             source = MicrophoneSource()
-            watched = LevelWatchingSource(source)
+            # Settling sits under the level monitor, so the verdict the window shows is
+            # about the microphone rather than about the analog path powering up. A cold
+            # capture starts pinned at the rail, which reads as clipping and is not
+            # (ADR 0020).
+            settling = SettlingSource(source)
+            watched = LevelWatchingSource(settling)
             recognizer.validate_format(source.audio_format)
             recognizer.warm_up()
             self.started.emit(
