@@ -126,12 +126,13 @@ object holds no bytes.
   "far too hot" rule needs speech recorded at several gains, which needs a working
   microphone, which is the next change and not this one.
 
-  > **Reproduced live**, once `listen` existed (ADR 0021 does not exist yet; this is the
-  > evidence for it). Eight seconds of an empty room at `Internal Mic Boost` 3 transcribed
-  > as `IN` and `EVERY` — two finals, from noise, with `input ok` printed beside them.
-  > The same room at boost 0 produced **zero events** and read `peak 0.09, rms 0.016`. This
-  > is exactly the failure ADR 0019 was written to prevent, occurring while the check ADR
-  > 0019 added says the input is fine.
+  > **Fixed by [ADR 0021](0021-too-loud-input.md)**, and not in the way this paragraph
+  > expected. Reproduced live once `listen` existed: eight seconds of an empty room at
+  > `Internal Mic Boost` 3 transcribed as `IN` and `EVERY`, with `input ok` beside them.
+  > But the diagnosis above — "far too hot" — turned out to be the wrong one. Speech
+  > amplified until a fifth of its samples clip transcribes word for word; what invents
+  > words is a room with no pauses in it, and the two are identical in peak, rms and crest
+  > factor. The verdict added there keys on whether the input ever goes quiet.
 - **It does not fix the gain for the user.** ADR 0019's reasoning stands: their mixer is
   theirs, and they may be in a call on the same device.
 - **It does not verify live recognition.** No *speech* has yet been recognised from a live

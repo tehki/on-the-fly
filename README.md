@@ -106,11 +106,11 @@ A dark caption window: what is being said in white, the translation under it in 
 partials dimmed so "this may still change" is visible without a word for it.
 
 **It tells you when your microphone is unusable**
-([ADR 0019](docs/adr/0019-input-levels.md)). Clipped audio does not produce silence or an
-error — it produces fluent words nobody said, in a language you probably cannot check. So
-the window says *the microphone is too loud and the audio is distorting — turn its input
-gain down*, and `stream` prints the same for a recording. The readings are four numbers and
-no audio.
+([ADR 0019](docs/adr/0019-input-levels.md), [ADR 0021](docs/adr/0021-too-loud-input.md)).
+Bad input does not produce silence or an error — it produces fluent words nobody said, in a
+language you probably cannot check. So the window says *the microphone is far too loud —
+turn its input gain down*, and `stream` and `listen` print the same for a recording. The
+readings are five numbers and no audio.
 
 The measurement that decision was calibrated against was wrong, and
 [ADR 0020](docs/adr/0020-capture-settling.md) corrects it in place: the **51% of samples at
@@ -150,12 +150,26 @@ No real-time factor: live audio arrives in real time by definition, so the ratio
 about 1.0 and says nothing. `dropped` is the live equivalent — overflows are words the
 pipeline was too slow to receive.
 
-**That run is a silent room, and it is the honest half of a pair.** At the mixer setting
-this machine was found in, the same eight seconds of silence transcribed as `IN` and
-`EVERY` — two finalised words, from noise, with `input ok` printed beside them. The level
-check added by ADR 0019 does not catch it, because audio that hot does not clip until
-somebody speaks into it. That gap is written down in
-[ADR 0020](docs/adr/0020-capture-settling.md) and is the next thing to fix.
+**That run is a silent room, and it used to be the failing half of a pair.** At the mixer
+setting this machine was found in, the same eight seconds of silence transcribed as `IN` and
+`EVERY` — two finalised words, from noise, with `input ok` printed beside them.
+
+It now says `too_loud` ([ADR 0021](docs/adr/0021-too-loud-input.md)), and the reason it did
+not is worth more than the fix. **Clipping was the wrong thing to measure.** Recorded speech
+amplified until 21% of its samples sit at full scale still transcribes *word for word* — the
+recogniser barely minds distortion. What invents words is an amplified room: a noise floor
+lifted to speech-like energy with nothing being said in it. The two are identical in peak,
+rms and crest factor, so nothing instantaneous separates them:
+
+| | peak | rms | crest | outcome |
+| --- | --- | --- | --- | --- |
+| speech at 12x gain | 1.000 | 0.420 | 2.4 | transcribes perfectly |
+| an empty room at +60 dB | 1.000 | 0.409 | 2.4 | invents words |
+
+What separates them is time: **speech has pauses and a room does not.** So the check is now
+the quietest tenth of the last five seconds — 0.122 for speech amplified 24x, 0.333 for that
+room — with the line at 0.15, which is where measured word error starts. Five seconds
+because at one second the two are indistinguishable.
 
 **There is no scrollback, on purpose** ([ADR 0016](docs/adr/0016-desktop-interface.md)). The
 window shows one utterance; the next one replaces it. `docs/RETENTION_POLICY.md` puts it in
