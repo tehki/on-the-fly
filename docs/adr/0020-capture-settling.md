@@ -125,11 +125,19 @@ object holds no bytes.
   now correct about the transient and still wrong about the microphone. Calibrating a
   "far too hot" rule needs speech recorded at several gains, which needs a working
   microphone, which is the next change and not this one.
+
+  > **Reproduced live**, once `listen` existed (ADR 0021 does not exist yet; this is the
+  > evidence for it). Eight seconds of an empty room at `Internal Mic Boost` 3 transcribed
+  > as `IN` and `EVERY` — two finals, from noise, with `input ok` printed beside them.
+  > The same room at boost 0 produced **zero events** and read `peak 0.09, rms 0.016`. This
+  > is exactly the failure ADR 0019 was written to prevent, occurring while the check ADR
+  > 0019 added says the input is fine.
 - **It does not fix the gain for the user.** ADR 0019's reasoning stands: their mixer is
   theirs, and they may be in a call on the same device.
-- **It does not verify live recognition.** Nothing has yet been recognised from a live
-  microphone. What is now true is that the recogniser is no longer handed a rail-pinned
-  second and a half at the start of every session.
+- **It does not verify live recognition.** No *speech* has yet been recognised from a live
+  microphone — nobody has spoken into one under measurement. What is now true is that the
+  recogniser is no longer handed a rail-pinned second and a half at the start of every
+  session, and that the capture path has been driven end to end from a terminal.
 
 ## Consequences
 

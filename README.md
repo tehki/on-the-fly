@@ -48,8 +48,10 @@ well enough to tell when it goes wrong. It comes back when a model does.
 > negative rail — DC −1.0, 100% of samples clipped, no signal at all — and takes about 1.8 s
 > to centre; `arecord` shows the same, and a session opened moments later shows none of it.
 > That transient is now measured and discarded before it reaches the recogniser, adaptively:
-> **1780 ms dropped cold, 240 ms warm**. The mixer on that machine is still holding +60 dB on
-> its internal microphone, and recognition from a live microphone remains unverified.
+> **1780 ms dropped cold, 240 ms warm**. The remaining +30 dB was found in `Internal Mic
+> Boost` rather than the `Capture` control ADR 0019 names, and has been turned off on that
+> machine. **No speech has been recognised from a live microphone yet** — nobody has spoken
+> into one under measurement.
 
 ## What it is meant to be
 
@@ -116,6 +118,44 @@ full scale** ADR 0019 attributes to the reference machine's microphone was the c
 powering up. Settled, at the very same mixer settings, it clips 0.03% of its samples — while
 running five to eight times hotter than recorded speech, which the warning does *not* yet
 catch. Being honest about that is the point of writing the numbers down.
+
+## Listening, without a window
+
+```bash
+python -m on_the_fly listen --seconds 15 --translate-to ru
+```
+
+The same streaming pipeline as `stream`, reading a microphone instead of a file. It runs
+until Ctrl-C or `--seconds`, and it is the only way to exercise the capture path without a
+GUI toolkit installed — which is how both of the findings above became visible.
+
+```text
+language      English (en, streaming)
+model         streaming-en (local, verified, Apache-2.0)
+model load    5.09s
+
+  listening (8s)
+
+device        captured at 16000 Hz
+settling      240ms discarded, before the input steadied
+audio         7.66s in 383 frames
+wall time     8.01s
+dropped       none - nothing was lost to a slow pipeline
+events        0 partial, 0 final
+input         ok (peak 0.09, rms 0.016, clipped 0.0%)
+retention     clean - nothing retained, no deletion failed
+```
+
+No real-time factor: live audio arrives in real time by definition, so the ratio is always
+about 1.0 and says nothing. `dropped` is the live equivalent — overflows are words the
+pipeline was too slow to receive.
+
+**That run is a silent room, and it is the honest half of a pair.** At the mixer setting
+this machine was found in, the same eight seconds of silence transcribed as `IN` and
+`EVERY` — two finalised words, from noise, with `input ok` printed beside them. The level
+check added by ADR 0019 does not catch it, because audio that hot does not clip until
+somebody speaks into it. That gap is written down in
+[ADR 0020](docs/adr/0020-capture-settling.md) and is the next thing to fix.
 
 **There is no scrollback, on purpose** ([ADR 0016](docs/adr/0016-desktop-interface.md)). The
 window shows one utterance; the next one replaces it. `docs/RETENTION_POLICY.md` puts it in
