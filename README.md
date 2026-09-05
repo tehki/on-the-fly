@@ -41,8 +41,15 @@ well enough to tell when it goes wrong. It comes back when a model does.
 > rate the device accepts and resamples to 16 kHz
 > ([ADR 0013](docs/adr/0013-capture-rate-negotiation.md)), and reads through PortAudio's
 > callback rather than blocking reads, which was aborting the process on one device
-> ([ADR 0015](docs/adr/0015-callback-capture.md)). The audio on that machine is still
-> saturated hardware, so recognition from a live microphone remains unverified.
+> ([ADR 0015](docs/adr/0015-callback-capture.md)).
+>
+> **Part of the "saturated hardware" turned out to be the capture path powering up**
+> ([ADR 0020](docs/adr/0020-capture-settling.md)). A cold session begins pinned at the
+> negative rail — DC −1.0, 100% of samples clipped, no signal at all — and takes about 1.8 s
+> to centre; `arecord` shows the same, and a session opened moments later shows none of it.
+> That transient is now measured and discarded before it reaches the recogniser, adaptively:
+> **1780 ms dropped cold, 240 ms warm**. The mixer on that machine is still holding +60 dB on
+> its internal microphone, and recognition from a live microphone remains unverified.
 
 ## What it is meant to be
 
@@ -98,11 +105,17 @@ partials dimmed so "this may still change" is visible without a word for it.
 
 **It tells you when your microphone is unusable**
 ([ADR 0019](docs/adr/0019-input-levels.md)). Clipped audio does not produce silence or an
-error — it produces fluent words nobody said, in a language you probably cannot check. The
-reference machine measures **51% of samples at full scale** against 0.0% for recorded
-speech, because its capture gain is pinned at +30 dB in the system mixer. So the window says
-*the microphone is too loud and the audio is distorting — turn its input gain down*, and
-`stream` prints the same for a recording. The readings are four numbers and no audio.
+error — it produces fluent words nobody said, in a language you probably cannot check. So
+the window says *the microphone is too loud and the audio is distorting — turn its input
+gain down*, and `stream` prints the same for a recording. The readings are four numbers and
+no audio.
+
+The measurement that decision was calibrated against was wrong, and
+[ADR 0020](docs/adr/0020-capture-settling.md) corrects it in place: the **51% of samples at
+full scale** ADR 0019 attributes to the reference machine's microphone was the capture path
+powering up. Settled, at the very same mixer settings, it clips 0.03% of its samples — while
+running five to eight times hotter than recorded speech, which the warning does *not* yet
+catch. Being honest about that is the point of writing the numbers down.
 
 **There is no scrollback, on purpose** ([ADR 0016](docs/adr/0016-desktop-interface.md)). The
 window shows one utterance; the next one replaces it. `docs/RETENTION_POLICY.md` puts it in

@@ -1,6 +1,6 @@
 # ADR 0019 — Telling the user when the microphone is unusable
 
-**Status:** Accepted
+**Status:** Accepted, with its evidence corrected by [ADR 0020](0020-capture-settling.md)
 **Date:** 2026-09-05
 **Deciders:** @tehki
 **Risk:** LOW — one pure domain module, one decorator, one line of interface
@@ -31,6 +31,12 @@ recorded speech (ru)   0.500   0.0790   0.0000%
 this machine's mic     1.000   0.8134   51.04%
 ```
 
+> **The third row is wrong, and ADR 0020 says why.** It is a measurement of the analog input
+> powering up, not of the microphone: a cold capture sits pinned at the negative rail for
+> about half a second and takes 1.8 s to centre. At these same mixer settings the *settled*
+> input clips 0.000%–0.031% of its samples. The gain is genuinely too high — by +30 dB from
+> a control this ADR does not name — but not by this evidence.
+
 **The first hypothesis was wrong.** `sounddevice` reports the default input device as index
 12 while the only device with input channels is 13, so the obvious explanation was that the
 wrong device was being opened. Probed explicitly: device 13 gives the same saturated signal
@@ -47,6 +53,11 @@ $ amixer -c 0 sget Capture
 **Capture gain pinned at +30 dB.** Everything, including the room's noise floor, is driven
 into the rails. It is a ten-second fix *for a user who is told about it*, and nothing told
 them.
+
+> **`Capture` is the wrong control** (ADR 0020). `Internal Mic Boost` on the same card is
+> also at maximum, which is another +30 dB ahead of this one, and it is the one that
+> dominates: turning it off drops the settled level 28x, while `Capture` at 63 on its own
+> leaves an idle room below the quietest speech measured here.
 
 ## Decision
 
@@ -69,7 +80,7 @@ the same check for free.
 
 | Verdict | Rule | Why there |
 | --- | --- | --- |
-| `CLIPPING` | ≥ **5%** of samples in the window at full scale | Speech measures 0.0000%; the broken machine 51%. A single fully-clipped 20 ms frame — a door slam, a knock on the desk — is 2% of a one-second window, and a warning that flickers on every loud noise is one people learn to ignore |
+| `CLIPPING` | ≥ **5%** of samples in the window at full scale | Speech measures 0.0000%; the broken machine 51% — but see ADR 0020: that 51% was the power-up transient, and the threshold has never been tested against a microphone that is merely too hot. A single fully-clipped 20 ms frame — a door slam, a knock on the desk — is 2% of a one-second window, and a warning that flickers on every loud noise is one people learn to ignore |
 | `SILENT` | peak < 0.002 | Digital silence: muted, or a device that is not the microphone |
 | `QUIET` | rms < 0.005 | An order of magnitude below the quietest recorded speech measured here (0.047) |
 | `OK` | otherwise | |
@@ -102,7 +113,8 @@ asserts the decorator holds no bytes.
   application should not take on its own — they may be in a call on the same device. The
   scope is telling them precisely what is wrong and what to change.
 - **It does not verify live speech recognition.** That still needs a microphone that works,
-  and this machine's does not until someone turns the gain down at the mixer. What is now
+  and this machine's does not until someone turns the gain down at the mixer — at
+  `Internal Mic Boost` rather than at `Capture`, per ADR 0020. What is now
   true is that the application *says so* rather than transcribing the noise.
 - **It does not mean clipped audio is worthless.** A deliberately clipped copy of the test
   sample (12x gain, 7.9% of samples at full scale) still transcribed **correctly**. Mild
