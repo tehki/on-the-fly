@@ -240,7 +240,11 @@ def build_window(
             self.detail_label.setText(state.detail)
             self.attribution_label.setText(state.attribution)
 
-            if state.overflow_count:
+            # Input quality first when both apply: dropped blocks lose words a user can
+            # notice missing, while distorted input produces words nobody said.
+            if state.input_quality.advice:
+                self.warning_label.setText(state.input_quality.advice)
+            elif state.overflow_count:
                 self.warning_label.setText(
                     f"{state.overflow_count} audio block(s) dropped — some speech was lost"
                 )

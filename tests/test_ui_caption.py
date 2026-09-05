@@ -10,6 +10,7 @@ difference — and it would break the promise `docs/RETENTION_POLICY.md` makes.
 
 from __future__ import annotations
 
+from on_the_fly.domain.audio.levels import InputQuality
 from on_the_fly.ui.caption import Caption, CaptionModel, Status
 
 
@@ -195,6 +196,28 @@ def test_dropped_audio_is_reported_rather_than_hidden() -> None:
     state = model.note_overflow(3)
 
     assert state.overflow_count == 3
+
+
+def test_an_unusable_microphone_is_reported_rather_than_transcribed_silently() -> None:
+    """Clipped audio produces fluent words nobody said; the user cannot see that (ADR 0019)."""
+    model = listening_model()
+
+    state = model.note_input_quality(InputQuality.CLIPPING)
+
+    assert state.input_quality is InputQuality.CLIPPING
+    assert "gain" in state.input_quality.advice
+
+
+def test_the_input_verdict_clears_when_the_run_stops() -> None:
+    """A verdict about a device that is no longer open describes nothing."""
+    model = listening_model()
+    model.note_input_quality(InputQuality.CLIPPING)
+
+    assert model.stopped().input_quality is InputQuality.OK
+
+
+def test_a_usable_microphone_says_nothing() -> None:
+    assert listening_model().state.input_quality.advice == ""
 
 
 def test_the_overflow_count_resets_when_the_run_stops() -> None:

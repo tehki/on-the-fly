@@ -29,7 +29,7 @@ from on_the_fly.app.pipeline import (
     run_capture,
     translate_finals,
 )
-from on_the_fly.domain.audio import SegmenterConfig
+from on_the_fly.domain.audio import InputQuality, LevelWatchingSource, SegmenterConfig
 from on_the_fly.domain.languages import RecognitionTier
 from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure.asr import (
@@ -530,7 +530,11 @@ def run_stream(args: argparse.Namespace) -> int:
 
     print()
 
-    run = StreamingRun(source, recognizer)
+    # Wrapped so the frames the pipeline reads are the frames that get measured. A file
+    # recorded on a machine with its capture gain pinned is clipped in exactly the way a
+    # live microphone is, and produces the same confident nonsense (ADR 0019).
+    watched = LevelWatchingSource(source)
+    run = StreamingRun(watched, recognizer)
     translation_times: list[float] = []
     translated = 0
 
@@ -559,6 +563,14 @@ def run_stream(args: argparse.Namespace) -> int:
     stats = run.stats
     if stats is None:  # pragma: no cover - events() always sets it
         return EXIT_FAILURE
+
+    level = watched.overall_level
+    if level.quality is not InputQuality.OK:
+        # Printed before the timings, because it changes how the transcript above should be
+        # read: distorted audio produces fluent words nobody said.
+        print()
+        print(f"input         {level}")
+        print(f"              {level.quality.advice}")
 
     print()
     print(f"audio         {stats.audio_seconds:.2f}s in {stats.frames_read} frames")
