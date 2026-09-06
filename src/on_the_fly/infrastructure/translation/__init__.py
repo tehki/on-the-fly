@@ -43,7 +43,9 @@ from on_the_fly.infrastructure.translation.engines import (
 from on_the_fly.infrastructure.translation.engines import resolve as resolve_engine
 from on_the_fly.infrastructure.translation.onnx_artifacts import (
     KNOWN_ONNX_MODELS,
+    ONNX_OPUS_MT_EN_FR,
     ONNX_OPUS_MT_EN_RU,
+    ONNX_OPUS_MT_FR_EN,
     ONNX_OPUS_MT_RU_EN,
     OnnxTranslationModel,
     resolve_onnx,
@@ -61,7 +63,9 @@ __all__ = [
     "DEFAULT_ENGINE",
     "KNOWN_ARTIFACTS",
     "KNOWN_ONNX_MODELS",
+    "ONNX_OPUS_MT_EN_FR",
     "ONNX_OPUS_MT_EN_RU",
+    "ONNX_OPUS_MT_FR_EN",
     "ONNX_OPUS_MT_RU_EN",
     "OPUS_MT_EN_RU",
     "OPUS_MT_RU_EN",

@@ -1027,6 +1027,27 @@ test sets are not representative: on `en-ru`, the publisher's own output scores 
 the first 300 and 66.95 over all 5000 — 1.4 chrF2 on identical text, no model involved. Two
 scores are only comparable if they come from the same slice.
 
+## Seventeenth measurement — 2026-09-06, French on the second engine
+
+Both French pairs on ONNX Runtime (ADR 0033), against the CTranslate2 numbers from the
+sixteenth measurement. Same script, same 1000 sentences, same machine at load average 6-8 on
+four cores:
+
+| pair | CTranslate2 | ONNX | difference | CT2 p50 | ONNX p50 |
+| --- | --- | --- | --- | --- | --- |
+| `en→fr` | 66.31 | 66.26 | −0.05 | 254 ms | 418 ms |
+| `fr→en` | 71.38 | **71.45** | +0.07 | 398 ms | 411 ms |
+
+**No measurable quality difference in either direction**, which is closer agreement than the
+Russian pair managed (0.29 chrF2, traced in ADR 0018 to the export rather than the
+quantisation).
+
+**Latency is a range, not a number.** ONNX measured 1.0x to 1.7x the CTranslate2 latency here.
+ADR 0018 saw 1.6x to 3.0x for Russian and declined to give a decimal; the same caution applies
+and for the same reason — a ratio between two measurements on a contended machine does not
+support that precision. Neither engine's French numbers change any budget line: CTranslate2
+remains the default and remains the one the endpoint-to-caption figures are measured with.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.

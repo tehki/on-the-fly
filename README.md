@@ -44,10 +44,32 @@ own publisher test set, alongside the two directions that already shipped:
 | **`en→fr`** | **66.31** | **254 ms** |
 | **`fr→en`** | **71.38** | **398 ms** |
 
-French is the fastest of the four and sits between the Russian directions on quality. There
-is **no ONNX export pinned for it**, so `--translation-engine onnx --translate-to fr` is
-refused rather than quietly served by the desktop engine — a caller who asked for the engine
-that runs on a phone must not be told French works there.
+French is the fastest of the four and sits between the Russian directions on quality.
+
+**It runs on the portable engine too** ([ADR 0033](docs/adr/0033-french-on-onnx.md)), so
+every pair this project serves is now served on both engines — a new test fails if one is
+ever pinned on one engine and forgotten on the other. The two agree to within a rounding
+error:
+
+| pair | CTranslate2 | ONNX | difference |
+| --- | --- | --- | --- |
+| `en→fr` | 66.31 | 66.26 | −0.05 |
+| `fr→en` | 71.38 | **71.45** | +0.07 |
+
+That is closer than the Russian pair, where ADR 0018 measured a 0.29 chrF2 gap and traced it
+to the export rather than the quantisation. It is also the only evidence available that these
+third-party exports carry Helsinki-NLP's weights: no digest connects an ONNX graph to a
+Marian archive, so the check is behavioural, and two independently converted artefacts
+scoring within 0.07 of the archive-derived conversion is what "the same model" looks like
+from outside.
+
+**Which model, checked before either export was fetched.** `fr-en` publishes two releases and
+[ADR 0032](docs/adr/0032-french-translation.md) refused one of them for being BPE; an ONNX
+export of that vintage would have loaded, produced plausible French, and quietly been a
+different model on one engine than the other. The chain is two declared links and both were
+followed for all four pairs: `artifacts.py` pins an exact `.zip`, the Hugging Face checkpoint
+names that archive as its original weights, and `onnx-community` names that checkpoint as its
+base model.
 
 **Choosing which release to pin took two rounds, and the second one is the interesting one.**
 Both directions publish two releases; the publisher's own re-evaluation over twenty test
