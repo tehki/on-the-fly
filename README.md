@@ -184,6 +184,23 @@ retains.
 PySide6 is an **optional extra**. The pipeline, the command line and the whole test suite run
 without a GUI toolkit installed.
 
+**`input ok` does not mean recognition is working**
+([ADR 0026](docs/adr/0026-accuracy-and-level.md)). Attenuating a voice against this room's own
+recorded noise, the recogniser stays word-perfect to +1 dB SNR, degrades gently to −10 dB, and
+below about −14 dB emits **nothing at all** rather than inventing words — the opposite of the
+over-gain failure, and the safer of the two.
+
+Across that entire range, from word-perfect to recognising nothing, the measured level travels
+from `rms 0.056` to `0.031`. Once the voice is quiet, the room is what is being measured. No
+statistic this project computes separates the working rows from the failing ones — `peak/floor`
+is not even monotonic — so **there is deliberately no verdict for quiet or distant input**. A
+threshold placed anyway would fire on inputs that work and stay silent on inputs that do not.
+
+The same measurement undermines a tidier story: a garbled live run implies about +3 dB SNR,
+which this table puts at 0% word error. Additive noise at a matched ratio is much easier than
+real distance, and what a room does to a voice on its way to a microphone appears to matter
+more than the noise it adds.
+
 **The voice detector used to deafen itself** ([ADR 0025](docs/adr/0025-vad-noise-floor.md)).
 Its noise floor adapted only on frames it called silence — so a frame it *missed* counted as
 silence, lifted the floor, and made the next miss more likely. Sixteen seconds of somebody
