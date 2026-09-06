@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from on_the_fly.domain.audio import AudioFormat, TranscriptEvent
+from on_the_fly.domain.audio import AudioFormat, EndReason, TranscriptEvent
 
 # What the pinned Zipformer models were trained on.
 REQUIRED_SAMPLE_RATE_HZ = 16_000
@@ -61,6 +61,10 @@ SILENCE_AFTER_SPEECH_SECONDS = 1.2
 # "PUNISH" and "ED". It bounds how long a translation can be withheld, which is the cost this
 # exists to bound; the caption itself keeps streaming as partials throughout.
 MAX_UTTERANCE_SECONDS = 8.0
+
+# One 20 ms frame, near enough. The ceiling is checked per frame, so an utterance ended by it
+# lands on or just past the boundary rather than exactly on it.
+_CEILING_TOLERANCE_SECONDS = 0.02
 
 _INT16_FULL_SCALE = 32768.0
 
@@ -118,6 +122,7 @@ class SherpaStreamingRecognizer:
         self._recognizer: Any | None = None
         self._stream: Any | None = None
         self._utterances = 0
+        self._silent_endpoints = 0
         self._last_partial = ""
         self._audio_seconds = 0.0
         self._utterance_started_at = 0.0
@@ -232,7 +237,12 @@ class SherpaStreamingRecognizer:
         if is_endpoint:
             if text:
                 self._utterances += 1
-                events.append(self._event(text, is_final=True))
+                events.append(self._event(text, is_final=True, end_reason=self._why_it_ended()))
+            else:
+                # An endpoint with nothing decoded in it. Invisible to a caller before this
+                # was counted, which made a long silence and a broken ceiling look identical
+                # from the outside (ADR 0023).
+                self._silent_endpoints += 1
             # Reset the decoder state so the next utterance starts clean. Without this the
             # transducer keeps accumulating and every "final" repeats everything before it.
             recognizer.reset(stream)
@@ -262,18 +272,22 @@ class SherpaStreamingRecognizer:
             return ()
 
         self._utterances += 1
-        return (self._event(text, is_final=True),)
+        return (self._event(text, is_final=True, end_reason=EndReason.FLUSH),)
 
     def reset(self) -> None:
         """Discard in-flight state. The loaded model is kept; reloading costs seconds."""
         if self._recognizer is not None:
             self._stream = self._recognizer.create_stream()
         self._utterances = 0
+        self._silent_endpoints = 0
         self._last_partial = ""
         self._audio_seconds = 0.0
         self._utterance_started_at = 0.0
 
-    def _event(self, text: str, *, is_final: bool) -> TranscriptEvent:
+    def _event(
+        self, text: str, *, is_final: bool, end_reason: EndReason | None = None
+    ) -> TranscriptEvent:
+        duration = self._audio_seconds - self._utterance_started_at
         return TranscriptEvent(
             utterance_index=max(1, self._utterances),
             text=text,
@@ -283,7 +297,31 @@ class SherpaStreamingRecognizer:
             # the audio arrived. What a caller cares about is how far behind the audio the
             # text is, which for a partial is essentially nothing.
             latency_seconds=0.0,
+            duration_seconds=duration if is_final else None,
+            end_reason=end_reason,
         )
+
+    def _why_it_ended(self) -> EndReason:
+        """Which rule stopped the utterance.
+
+        sherpa reports only *that* an endpoint occurred, not which of its three rules fired,
+        so this is inferred from the one thing that distinguishes them: rule 3 is a clock and
+        triggers exactly at the ceiling, while the silence rules can only trigger before it.
+        Inferred rather than reported, and named that way, because a measurement whose
+        provenance is a guess should say so.
+        """
+        length = self._audio_seconds - self._utterance_started_at
+        if length >= MAX_UTTERANCE_SECONDS - _CEILING_TOLERANCE_SECONDS:
+            return EndReason.MAX_DURATION
+        return EndReason.SILENCE
+
+    @property
+    def silent_endpoints(self) -> int:
+        """Endpoints that decoded no text. `OPERATIONAL_METADATA`: a count.
+
+        The number that tells a long silence apart from an endpointer that is not firing.
+        """
+        return self._silent_endpoints
 
     def validate_format(self, audio_format: AudioFormat) -> None:
         """Refuse audio the model was not trained on, rather than resampling it."""
