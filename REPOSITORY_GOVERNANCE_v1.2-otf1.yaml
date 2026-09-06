@@ -60,6 +60,23 @@ security_sensitive_paths:
   # inside /infrastructure/asr/ until 2026-09-06; listed explicitly so moving the file did
   # not quietly move it out of code-owner review.
   - /src/on_the_fly/infrastructure/model_store.py
+  # The desktop composition root, for the same reason /src/on_the_fly/app/ is listed: it
+  # opens the microphone and wires the retention store, and if it stops doing the second
+  # nothing else notices. It had never been covered; check_source_classification found it.
+  - /src/on_the_fly/ui/
+  # Every source file must appear above or below. check_source_classification enforces it,
+  # because the check above can only tell whether a declared path still exists — it cannot
+  # notice code moving *out* of one, which is how a control gets weakened by accident.
+  reviewed_not_sensitive:
+  # Package markers and entry points: no logic, nothing to weaken.
+  - /src/on_the_fly/__init__.py
+  - /src/on_the_fly/__main__.py
+  - /src/on_the_fly/domain/__init__.py
+  - /src/on_the_fly/infrastructure/__init__.py
+  # The language registry. It decides which language codes are accepted and refuses the
+  # rest, which is correctness rather than trust: what may actually be loaded is decided by
+  # the pin registries, and those are protected. ADR 0007 governs its contents.
+  - /src/on_the_fly/domain/languages.py
   - /scripts/pin_model.py
   - /requirements.txt
 development_flow:
