@@ -196,6 +196,88 @@ def test_energy_detector_adapts_to_room_tone_but_not_to_speech() -> None:
     assert detector.noise_floor == 0.0
 
 
+def test_a_detector_started_mid_speech_recovers() -> None:
+    """The defect ADR 0025 fixes: seeded on speech, the detector was born deaf.
+
+    Someone who starts the application already talking seeds the floor three times too high,
+    so nothing they say clears the threshold. Before the recovery rate it stayed that way.
+    """
+    detector = EnergyVoiceActivityDetector()
+    speech = frame_of(2400)
+    quiet = frame_of(200)
+
+    # Capture begins in the middle of a sentence.
+    assert detector.is_speech(speech) is False, "seeded on this frame, so it cannot be speech"
+    for _ in range(20):
+        detector.is_speech(speech)
+
+    # One pause between words is enough to learn what the room actually sounds like.
+    for _ in range(10):
+        detector.is_speech(quiet)
+
+    assert detector.is_speech(speech) is True, "still deaf after a pause"
+
+
+def test_the_floor_falls_faster_than_it_rises() -> None:
+    """The asymmetry is the fix, so it is asserted rather than assumed."""
+    detector = EnergyVoiceActivityDetector()
+    detector.is_speech(frame_of(1000))
+    started = detector.noise_floor
+
+    detector.is_speech(frame_of(0))
+    fell = started - detector.noise_floor
+
+    riser = EnergyVoiceActivityDetector()
+    riser.is_speech(frame_of(0))
+    before = riser.noise_floor
+    riser.is_speech(frame_of(100))
+    rose = riser.noise_floor - before
+
+    assert fell > rose * 5
+
+
+def test_continuous_speech_does_not_deafen_the_detector() -> None:
+    """A missed frame counts as silence, which lifts the floor, which misses the next one.
+
+    Measured on sixteen seconds of continuous recorded speech, the symmetric version scored
+    an F1 of 31.8% against a reference labelling even from a clean start (ADR 0025).
+    """
+    detector = EnergyVoiceActivityDetector()
+    loud = frame_of(2400)
+    # Speech is not a constant: real syllables dip between them, and those dips are what a
+    # falling floor uses to stay honest.
+    heard = 0
+    for index in range(400):
+        frame = loud if index % 5 else frame_of(600)
+        if detector.is_speech(frame):
+            heard += 1
+
+    assert heard > 250, f"the detector went deaf during continuous speech ({heard}/400)"
+
+
+def test_room_tone_is_still_not_speech() -> None:
+    """The falling floor must not make an idle microphone audible."""
+    detector = EnergyVoiceActivityDetector()
+    for _ in range(200):
+        detector.is_speech(frame_of(200))
+
+    assert detector.is_speech(frame_of(200)) is False
+    # And digital near-silence stays below the absolute floor however low the floor goes.
+    for _ in range(200):
+        detector.is_speech(frame_of(1))
+    assert detector.is_speech(frame_of(100)) is False
+
+
+def test_a_recovery_rate_below_the_adaptation_rate_is_refused() -> None:
+    """Reversed, the detector deafens itself faster than it recovers."""
+    with pytest.raises(ValueError, match="recovery_rate"):
+        EnergyVoiceActivityDetector(adaptation_rate=0.5, recovery_rate=0.05)
+    with pytest.raises(ValueError, match="recovery_rate"):
+        EnergyVoiceActivityDetector(recovery_rate=0.0)
+    with pytest.raises(ValueError, match="recovery_rate"):
+        EnergyVoiceActivityDetector(recovery_rate=1.5)
+
+
 def test_energy_detector_rejects_nonsense_configuration() -> None:
     with pytest.raises(ValueError, match="speech_factor"):
         EnergyVoiceActivityDetector(speech_factor=1.0)

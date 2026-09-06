@@ -184,6 +184,15 @@ retains.
 PySide6 is an **optional extra**. The pipeline, the command line and the whole test suite run
 without a GUI toolkit installed.
 
+**The voice detector used to deafen itself** ([ADR 0025](docs/adr/0025-vad-noise-floor.md)).
+Its noise floor adapted only on frames it called silence — so a frame it *missed* counted as
+silence, lifted the floor, and made the next miss more likely. Sixteen seconds of somebody
+not pausing was enough, and starting the application mid-sentence seeded the floor on speech
+and made it deaf from the first frame. Scored against a reference labelling it managed 13–32%
+where it now manages 93–96%. The floor now falls fast and rises slowly, which is the whole
+fix. It affects `segment` and `transcribe`; the live path uses the recogniser's own
+endpointing and never touched it.
+
 ## Repository layout
 
 | Path | Contents |
