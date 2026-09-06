@@ -269,18 +269,25 @@ def test_a_removed_language_is_refused_outright(
     assert "unsupported language" in captured.err
 
 
-def test_a_streaming_language_with_no_pinned_model_says_so(
+def test_a_batch_language_is_refused_with_the_command_that_would_work(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """German streams in principle; nobody has pinned a model for it yet."""
+    """German cannot stream, and the refusal has to be useful to a user rather than to a
+    maintainer.
+
+    It used to answer with `pin one with scripts/pin_model.py`, which is advice for someone
+    working on this repository. German is served in batch by the Whisper model `transcribe`
+    already loads, so that is what the message names (ADR 0034).
+    """
     path = speech_wav(tmp_path / "a.wav")
 
     exit_code = main(["stream", str(path), "--language", "de", "--cache-dir", str(tmp_path)])
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "no pinned streaming model" in captured.err
-    assert "pin_model.py" in captured.err
+    assert "is not a streaming language" in captured.err
+    assert "transcribe" in captured.err
+    assert "pin_model.py" not in captured.err, "that is advice for a maintainer, not a user"
 
 
 def test_an_unknown_language_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
