@@ -22,7 +22,8 @@ Seven, at two tiers ([ADR 0007](docs/adr/0007-supported-languages.md)):
 Seven: English, Russian, Spanish, Italian, French, Portuguese, German. Each has a published
 streaming model, so results appear while you speak. **English and Russian are pinned and
 measured**; the other five are named because a model exists, not because one has been
-adopted, licence-checked or tested.
+adopted, licence-checked or tested — and neither the command line nor the window will now
+offer you one of them.
 
 **Tajik was the eighth and has been removed** ([ADR 0010](docs/adr/0010-drop-tajik.md)). It
 had no streaming model anywhere, no licence-clean batch model this project could load
@@ -106,6 +107,24 @@ python -m on_the_fly gui
 
 A dark caption window: what is being said in white, the translation under it in green,
 partials dimmed so "this may still change" is visible without a word for it.
+
+**Its language pickers now offer only what is pinned.** They were built from the tier table
+in `domain/languages.py`, where all seven languages are `STREAMING` because a published
+model exists for each — so the window offered seven sources and seven targets, forty-nine
+pairs, and could serve two. Picking German got you through `STARTING` and `loading
+recognition model` to a raw `KeyError` repr, after the pickers had already promised the
+pair. The command line has always refused the same request before opening a device, with a
+sentence saying what is missing; `src/on_the_fly/app/catalogue.py` now derives the window's
+offer from the same pin registries, so the source list is English and Russian and the target
+list follows the source rather than sitting fixed beside it.
+
+The target picker also offers *no translation* — live captions in the language being spoken,
+which the pipeline has always supported. Its row deliberately carries no language code.
+Using the source's own code was the obvious choice, since a view state encodes "not
+translating" as target == source, and driving the window found what it costs: under an
+English source `ru` means *into Russian*, under a Russian source the same code means *not at
+all*, so switching the source language silently stopped translating while both pickers still
+looked right.
 
 **It tells you when your microphone is unusable**
 ([ADR 0019](docs/adr/0019-input-levels.md), [ADR 0021](docs/adr/0021-too-loud-input.md)).

@@ -24,6 +24,18 @@ from enum import Enum
 
 from on_the_fly.domain.audio.levels import InputQuality
 
+# The target picker's "leave it in the language it was spoken in" row.
+#
+# Its code is empty rather than the source's own code, and that is the whole of a bug found
+# by driving the window: with English selected, the target `ru` means *translate into
+# Russian*; with Russian selected, target == source is how `ViewState` and the worker encode
+# *do not translate*. Carrying the literal code across a change of source therefore switched
+# a user from being translated to not being translated, silently, with both pickers still
+# looking right. An empty code collides with nothing, and the window converts it back at the
+# two edges where the view state is read and written.
+NO_TRANSLATION = ""
+NO_TRANSLATION_LABEL = "no translation"
+
 
 class Status(Enum):
     """What the application is doing, in the user's terms rather than the pipeline's."""
