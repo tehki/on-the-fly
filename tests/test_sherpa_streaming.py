@@ -23,6 +23,7 @@ from on_the_fly.infrastructure.asr import (
     resolve,
 )
 from on_the_fly.infrastructure.asr.sherpa_streaming import (
+    FLUSH_TAIL_SECONDS,
     MAX_UTTERANCE_SECONDS,
     SILENCE_AFTER_SPEECH_SECONDS,
     SILENCE_BEFORE_ANY_SPEECH_SECONDS,
@@ -170,6 +171,127 @@ def test_real_speech_produces_partials_then_a_final() -> None:
     # Partials grow: the model revises a hypothesis rather than appending blindly.
     assert len(partials[0].text) < len(partials[-1].text)
     assert finals[-1].text.strip()
+
+
+# ======================================================================================
+# Flushing. A transducer cannot emit a symbol it has no future frames for, so the last
+# word of every stream used to be truncated or lost outright.
+# ======================================================================================
+
+
+def test_the_flush_tail_is_long_enough_to_matter_and_short_enough_to_be_free() -> None:
+    """300 ms was the longest tail any pinned export needed; 500 ms is that plus margin."""
+    assert 0.3 < FLUSH_TAIL_SECONDS <= 1.0
+
+
+def test_finishing_a_recogniser_that_never_loaded_does_nothing() -> None:
+    """The tail must not be the thing that forces a model load at the end of a silent run."""
+    recognizer = SherpaStreamingRecognizer(Path("absent"))
+
+    assert recognizer.finish() == ()
+    assert "loaded=False" in repr(recognizer)
+
+
+def test_finishing_twice_does_not_emit_the_utterance_again() -> None:
+    """A closed stream cannot take another tail, and a second read would double-count."""
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    for offset in range(0, len(audio), 640):
+        recognizer.accept(audio[offset : offset + 640])
+
+    assert recognizer.finish(), "the first call must produce the trailing utterance"
+    seen = recognizer.utterances_seen
+    assert recognizer.finish() == ()
+    assert recognizer.utterances_seen == seen
+
+
+def test_resetting_reopens_a_finished_recogniser() -> None:
+    """Otherwise a session that stopped could never start again without reloading."""
+    model_dir = real_streaming_model()
+    if model_dir is None:
+        pytest.skip("pinned streaming model is not present in any known cache")
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    recognizer.accept(b"\x00\x00" * 320)
+    recognizer.finish()
+    recognizer.reset()
+
+    assert recognizer.accept(b"\x00\x00" * 320) == ()
+    assert recognizer.finish() == ()
+
+
+def test_the_last_word_survives_the_end_of_the_stream() -> None:
+    """The regression. Without the flush tail this sample ends `...OF THE BROTHEL`.
+
+    The word is named rather than inferred because the publisher ships the reference beside
+    the audio: `AFTER EARLY NIGHTFALL ... THE SQUALID QUARTER OF THE BROTHELS`.
+    """
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    events: list[TranscriptEvent] = []
+    for offset in range(0, len(audio), 640):
+        events.extend(recognizer.accept(audio[offset : offset + 640]))
+    events.extend(recognizer.finish())
+
+    spoken = " ".join(event.text for event in events if event.is_final)
+    assert "BROTHELS" in spoken, f"the last word was lost or truncated: {spoken[-40:]!r}"
+
+
+def test_the_flush_tail_does_not_invent_words() -> None:
+    """Silence fed to a recogniser is how this project's worst failure mode starts.
+
+    An amplified room produces confident nonsense (ADR 0021), so a tail of manufactured
+    silence has to be shown not to decode to anything at all.
+    """
+    model_dir = real_streaming_model()
+    if model_dir is None:
+        pytest.skip("pinned streaming model is not present in any known cache")
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    for _ in range(50):  # one second of silence, then the tail on top of it
+        recognizer.accept(b"\x00\x00" * 320)
+
+    assert recognizer.finish() == ()
+
+
+def test_the_flush_tail_is_not_counted_as_audio_that_arrived() -> None:
+    """It is silence this recogniser made up, so it must not appear in a duration.
+
+    A caller reporting "7.13s of audio" after feeding a 7.13 s file would otherwise be
+    reporting 7.63, and every real-time factor derived from it would be wrong.
+    """
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+        seconds = reader.getnframes() / reader.getframerate()
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    events: list[TranscriptEvent] = []
+    for offset in range(0, len(audio), 640):
+        events.extend(recognizer.accept(audio[offset : offset + 640]))
+    events.extend(recognizer.finish())
+
+    finals = [event for event in events if event.is_final]
+    covered = max(f.audio_offset_seconds + (f.duration_seconds or 0.0) for f in finals)
+    assert covered <= seconds + 0.05, "the manufactured tail leaked into a reported duration"
 
 
 # ======================================================================================

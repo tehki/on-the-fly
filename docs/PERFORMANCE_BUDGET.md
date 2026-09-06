@@ -967,6 +967,37 @@ have; either could dominate. What is established is the cost as the interface pr
 which is what the decision needed — and saying which of those two facts is which is the
 whole point of this section.
 
+## Fifteenth measurement — 2026-09-06, the word that was never decoded
+
+Not a latency measurement. An accuracy one, taken while evaluating a candidate language, on
+the model every other number here was measured with.
+
+`scripts/measure_recognition.py` decodes a folder of wavs the way the pipeline does — 20 ms
+frames, decoding between them — and scores the result against a reference transcript. Run
+against the English pin's own published test set:
+
+| | before | after |
+| --- | --- | --- |
+| `0.wav`, 18 words | 5.6% (`...OF THE BROTHEL`) | **0.0%** |
+| `1.wav`, 48 words | 2.1% (`...A BLESSED SOUL IN HE`) | **0.0%** |
+| both, 66 words | 3.0% | **0.0%** |
+
+The cause is structural rather than a tuning error: a transducer emits a symbol only once it
+has frames after it, and at the end of a stream there are none. `input_finished()` does not
+supply them. Feeding the decoder a tail of silence first does, and the tail needed was
+measured rather than guessed — 300 ms for `0.wav`, 100 ms for `1.wav`, 100 ms for the French
+candidate; past that, more tail changes nothing. The shipped value is 500 ms.
+
+**Cost.** Paid once per stream, at the measured real-time factor: about 0.4 s of decoding at
+the end of a session, none of it on the endpoint-to-caption path this budget is about. Every
+latency number above is unaffected, because they measure finals produced by endpointing
+mid-stream, which always had future frames.
+
+**Two things checked rather than assumed.** The tail decodes to the empty string on its own,
+at every length tested, so it cannot invent words the way an amplified room does (ADR 0021).
+And it is excluded from `_audio_seconds`, so it inflates no duration and no real-time factor
+— including the ones in this document.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
@@ -978,7 +1009,10 @@ the first condition and within 1.4% in the second. p99 is back inside its hard l
 it was not before.
 
 What keeps the status PROVISIONAL: two language pairs rather than three, read speech on the
-English side, no microphone, and no controlled load environment. `ru→en` now has a real
+English side, no microphone, and no controlled load environment. The fifteenth measurement
+adds a caution rather than a number: every accuracy figure in this project taken before
+2026-09-06 was taken against a recogniser that dropped the last word of the stream, so any
+of them derived from whole-file decoding is pessimistic by roughly one word per file. `ru→en` now has a real
 distribution on spontaneous speech, which closes the gap the seventh measurement recorded.
 One remaining gap is a product decision, one is hardware, and one — a quiet machine — is
 what the eighth measurement shows matters most.
