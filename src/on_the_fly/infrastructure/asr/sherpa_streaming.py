@@ -36,6 +36,32 @@ from on_the_fly.domain.audio import AudioFormat, TranscriptEvent
 REQUIRED_SAMPLE_RATE_HZ = 16_000
 
 # int16 full scale; sherpa-onnx wants float32 in [-1, 1).
+# --- endpointing -----------------------------------------------------------------------
+#
+# All three are **seconds**. That is worth stating, because getting it wrong is silent: this
+# file previously passed 300 for the utterance ceiling, in the belief that it counted frames.
+# It counts seconds, so the ceiling was five minutes and could never fire, leaving 1.2 s of
+# trailing silence as the only way an utterance could ever end. Somebody reading aloud does
+# not pause that long, and thirty seconds of live speech came back as two finals — one of
+# them fourteen seconds long, translated in a single lump after the speaker had stopped
+# (ADR 0022).
+
+# Silence before anything has been decoded. The publisher's default, untouched.
+SILENCE_BEFORE_ANY_SPEECH_SECONDS = 2.4
+
+# Silence after something has been decoded: the rule that ends an ordinary sentence. The
+# publisher's default, and deliberately not tuned — the speech available here (LibriSpeech
+# clips, trimmed) contains no internal pause longer than 0.4 s, so every value from 0.4 to
+# 1.2 produces byte-identical output on it. Tuning this needs recordings with pauses in them.
+SILENCE_AFTER_SPEECH_SECONDS = 1.2
+
+# The ceiling, for speech that never pauses. Eight seconds is the shortest value tested that
+# split no word in either sample: the cut lands wherever the clock says, so a shorter ceiling
+# cuts mid-word more often — 6 s turns BROTHEL into "BRO" and "THEL", 4 s turns PUNISHED into
+# "PUNISH" and "ED". It bounds how long a translation can be withheld, which is the cost this
+# exists to bound; the caption itself keeps streaming as partials throughout.
+MAX_UTTERANCE_SECONDS = 8.0
+
 _INT16_FULL_SCALE = 32768.0
 
 
@@ -152,9 +178,9 @@ class SherpaStreamingRecognizer:
                 # The transducer's own endpointing. This is what makes it streaming rather
                 # than a faster batch model.
                 enable_endpoint_detection=True,
-                rule1_min_trailing_silence=2.4,
-                rule2_min_trailing_silence=1.2,
-                rule3_min_utterance_length=300,
+                rule1_min_trailing_silence=SILENCE_BEFORE_ANY_SPEECH_SECONDS,
+                rule2_min_trailing_silence=SILENCE_AFTER_SPEECH_SECONDS,
+                rule3_min_utterance_length=MAX_UTTERANCE_SECONDS,
             )
         except Exception as exc:
             raise StreamingRecognitionError(f"could not load the streaming model: {exc}") from exc

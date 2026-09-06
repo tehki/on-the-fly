@@ -299,6 +299,17 @@ python -m on_the_fly stream recording.wav --language ru --translate-to en --allo
 
 `transcribe --translate-to` remains available for any language without a streaming pin.
 
+**A speaker who never pauses is cut at eight seconds**
+([ADR 0022](docs/adr/0022-endpoint-ceiling.md)). The first live speech this project ever
+recognised came back as two finals, one of them fourteen seconds long, translated in a lump
+after the speaker stopped. The cause was `rule3_min_utterance_length=300` — a value in
+seconds, written as though it counted frames, so the ceiling was five minutes and only 1.2 s
+of trailing silence could ever end an utterance. Nobody reading aloud pauses that long.
+
+Eight seconds is the shortest ceiling that split no word in either test sample; at six,
+`BROTHEL` becomes `BRO` and `THEL`. The clock knows nothing about syllables, so there is no
+value at which that risk is zero.
+
 **Partials are never translated** ([ADR 0009](docs/adr/0009-translation.md)). Translating
 text that is about to be revised costs an inference per partial — sixteen on the sample
 above — and produces a caption that rewrites itself. So the source caption streams and the

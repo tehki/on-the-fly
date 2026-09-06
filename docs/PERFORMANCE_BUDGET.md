@@ -32,6 +32,19 @@ speech ends (VAD endpoint detected)
 Measured from the VAD endpoint, not from the start of the utterance: the speaker is still
 talking before that, so time spent there is not lag the user perceives.
 
+**That reasoning has a hole in it, found on 2026-09-06 and recorded in
+[ADR 0022](adr/0022-endpoint-ceiling.md).** It holds only while endpoints arrive promptly. A
+misconfigured utterance ceiling let one live utterance run for fourteen seconds, and every
+figure in this document was blind to it: the clock starts at the endpoint, so a translation
+withheld for fourteen seconds scored as well as one withheld for one. Every measurement here
+was taken on recordings whose utterances end when the file does, which is exactly the case
+that cannot expose this.
+
+So *speech → endpoint* is now a metric in its own right, with a hard limit and no target: it
+is bounded by configuration rather than by optimisation, and the bound is the recogniser's
+utterance ceiling. It is not something to make smaller — cutting a speaker sooner cuts them
+mid-word — it is something that must not be unbounded.
+
 ## Targets
 
 | Metric | Target | Hard limit | Notes |
@@ -39,6 +52,7 @@ talking before that, so time spent there is not lag the user perceives.
 | Endpoint → caption, p50 | 700 ms | — | Conversational feel |
 | Endpoint → caption, p95 | 1500 ms | 2500 ms | Tail is the real experience |
 | Endpoint → caption, p99 | — | 4000 ms | Above this, treated as a dropped turn |
+| Speech → endpoint, worst case | — | 8000 ms | Added 2026-09-06 (ADR 0022). See below |
 | VAD endpoint detection | 300 ms | 500 ms | Trades against clipping the speaker |
 | Application start → ready to listen | 3 s | 6 s | Excludes first-run model download |
 | Steady-state resident memory | 1200 MB | 2000 MB | Dominated by loaded models |
