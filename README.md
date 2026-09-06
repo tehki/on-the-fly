@@ -219,6 +219,18 @@ comes close. The application does not say so, because DRR cannot be derived from
 measures: the reverberant files are *quieter* than the ones that work, and every row above
 reads `input ok`.
 
+**The reference room has now been measured** ([ADR 0029](docs/adr/0029-measured-room.md)).
+Four averaged sine sweeps put its RT60 at roughly **0.6–0.9 s** — a live room, in the half of
+the grid above where the cliff sits. At 0.4 m that predicts 2.1% word error and at 1.0 m
+35.4%, which is the range the live runs in this project actually produced. The first fit gave
+1.32 s and was wrong: the Schroeder curve stops decaying at the measurement noise floor, and
+fitting past it measures the noise.
+
+What that measurement *cannot* say is anything about distance. A laptop's speaker sits a
+hand's width from its microphone, so 91.5% of the energy arrives within 5 ms and speech
+through that exact path scores 2.1% — nothing like a person a metre away. RT60 transfers
+because it belongs to the room; the direct-to-reverberant ratio does not.
+
 The obvious way to detect it was built and rejected
 ([ADR 0028](docs/adr/0028-blind-reverberation-estimate.md)). Reverberation fills the gaps
 between words, so `floor/rms` should rise with it — and across thirty-four synthetic mixtures
