@@ -110,3 +110,9 @@ level" is not supported; level is a correlate of distance, not the mechanism.
 When a speech-band SNR estimate or a recogniser confidence score is available — either could
 detect what frame energy cannot; or when a room with reverberation can be measured properly,
 which is what actually appears to drive live accuracy.
+
+> **Measured in [ADR 0027](0027-reverberation.md).** It is the room. Reverberation at RT60
+> 0.70 and one metre costs 52.1% of the words on its own, and compounds with noise rather
+> than adding to it — the pair reaches 95.8% where neither alone predicts it. The reverberant
+> files are also *quieter* than the ones that work, which is the sharpest restatement of this
+> ADR's finding that level cannot judge whether recognition will work.

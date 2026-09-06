@@ -196,10 +196,28 @@ statistic this project computes separates the working rows from the failing ones
 is not even monotonic — so **there is deliberately no verdict for quiet or distant input**. A
 threshold placed anyway would fire on inputs that work and stay silent on inputs that do not.
 
-The same measurement undermines a tidier story: a garbled live run implies about +3 dB SNR,
-which this table puts at 0% word error. Additive noise at a matched ratio is much easier than
-real distance, and what a room does to a voice on its way to a microphone appears to matter
-more than the noise it adds.
+The same measurement undermined a tidier story: a garbled live run implied about +3 dB SNR,
+which that table puts at 0% word error. **It was the room**
+([ADR 0027](docs/adr/0027-reverberation.md)). Convolving the same speech with validated
+synthetic impulse responses, at constant level so reverberation is the only variable:
+
+| RT60 | distance | DRR | reverb only | reverb + room noise |
+| --- | --- | --- | --- | --- |
+| 0.44 | 0.5 m | +1.2 dB | 2.1% | 0.0% |
+| 0.44 | 1.0 m | −4.9 dB | 4.2% | 18.8% |
+| 0.70 | 1.0 m | −10.3 dB | **52.1%** | **95.8%** |
+| 0.69 | 2.0 m | −13.1 dB | 45.8% | 87.5% |
+
+There is a cliff between about −9 and −10 dB DRR, and the two mechanisms **compound rather
+than add** — noise alone costs nothing at this level, reverberation at 1 m in a quiet room
+costs 4.2%, and together they cost 18.8%. A normally furnished room with a laptop at arm's
+length sits close to the edge of that cliff.
+
+**Sit closer to the microphone, or use a headset.** From 2.0 m to 0.5 m is 87.5% word error
+down to 37.5% in a live room, and 27.1% down to 0.0% in a quiet one — nothing else available
+comes close. The application does not say so, because DRR cannot be derived from anything it
+measures: the reverberant files are *quieter* than the ones that work, and every row above
+reads `input ok`.
 
 **The voice detector used to deafen itself** ([ADR 0025](docs/adr/0025-vad-noise-floor.md)).
 Its noise floor adapted only on frames it called silence — so a frame it *missed* counted as
