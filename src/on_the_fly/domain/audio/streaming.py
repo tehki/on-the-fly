@@ -39,7 +39,7 @@ from typing import Protocol
 
 from on_the_fly.domain.audio.formats import AudioFormat
 from on_the_fly.domain.audio.ports import SpeechRecognizer
-from on_the_fly.domain.audio.segmenter import Utterance, UtteranceSegmenter
+from on_the_fly.domain.audio.segmenter import EndReason, Utterance, UtteranceSegmenter
 from on_the_fly.domain.retention import EphemeralStore
 
 
@@ -57,6 +57,11 @@ class TranscriptEvent:
     is_final: bool
     audio_offset_seconds: float
     latency_seconds: float
+    # How long the utterance ran, and what stopped it. Finals only; a partial has not ended.
+    # Defaulted because a recogniser that cannot say is entitled not to, and because these
+    # were added after the fact (ADR 0023).
+    duration_seconds: float | None = None
+    end_reason: EndReason | None = None
 
     def __str__(self) -> str:
         # The text is the whole point of this object, so it appears. Callers that log
@@ -64,6 +69,17 @@ class TranscriptEvent:
         # Article 14 does not permit.
         kind = "final  " if self.is_final else "partial"
         return f"[{self.audio_offset_seconds:7.2f}s {kind}] {self.text}"
+
+    @property
+    def shape(self) -> str:
+        """How long this utterance was and why it ended. Timings only, never text.
+
+        Separate from `__str__` because that is a caption line and this is a measurement.
+        Empty when the recogniser did not say, so a caller can print it unconditionally.
+        """
+        if self.duration_seconds is None or self.end_reason is None:
+            return ""
+        return f"{self.duration_seconds:.2f}s {self.end_reason}"
 
 
 class StreamingRecognizer(Protocol):

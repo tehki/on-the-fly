@@ -775,7 +775,11 @@ def run_listen(args: argparse.Namespace) -> int:
     try:
         for item in stream_out:
             if item.is_final or not args.finals_only:
-                print(f"  {item.event}")
+                # The shape of a live utterance — how long it ran and what stopped it — is
+                # the reading a recording cannot give and this command exists to take. It
+                # is timings, never text (ADR 0023).
+                shape = f"  ({item.event.shape})" if item.event.shape else ""
+                print(f"  {item.event}{shape}")
             if item.translation is not None:
                 translated += 1
                 if item.translation_seconds is not None:
@@ -820,6 +824,11 @@ def run_listen(args: argparse.Namespace) -> int:
     if stats.first_text_after_seconds is not None:
         print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
     print(f"events        {stats.partials} partial, {stats.finals} final")
+    silent = getattr(recognizer, "silent_endpoints", None)
+    if silent is not None:
+        # Without this, a room nobody spoke in and an endpointer that never fires produce
+        # the same output: a long gap between finals and no way to tell which happened.
+        print(f"endpoints     {stats.finals} with text, {silent} with none (silence)")
     if translator is not None:
         if translation_times:
             ordered = sorted(translation_times)

@@ -15,6 +15,7 @@ import pytest
 from on_the_fly.domain.audio import (
     AudioFormat,
     BatchStreamingRecognizer,
+    EndReason,
     SegmenterConfig,
     TranscriptEvent,
     UtteranceSegmenter,
@@ -218,3 +219,50 @@ def test_latency_is_measured_per_utterance() -> None:
 
     assert events[0].latency_seconds == pytest.approx(events[0].latency_seconds)
     assert events[0].latency_seconds < 5.0, "a fake recogniser should be effectively instant"
+
+
+# ======================================================================================
+# Utterance shape (ADR 0023)
+# ======================================================================================
+
+
+def test_shape_is_empty_when_the_recogniser_did_not_say() -> None:
+    """Printable unconditionally, so a caller needs no special case for either kind."""
+    event = TranscriptEvent(
+        utterance_index=1,
+        text="hello",
+        is_final=True,
+        audio_offset_seconds=0.0,
+        latency_seconds=0.0,
+    )
+
+    assert event.shape == ""
+
+
+def test_shape_reports_how_long_and_why() -> None:
+    event = TranscriptEvent(
+        utterance_index=1,
+        text="hello",
+        is_final=True,
+        audio_offset_seconds=2.0,
+        latency_seconds=0.0,
+        duration_seconds=8.16,
+        end_reason=EndReason.MAX_DURATION,
+    )
+
+    assert event.shape == "8.16s MAX_DURATION"
+
+
+def test_shape_carries_no_text() -> None:
+    """It is a measurement, not a caption. Article 14: timings may be logged, text may not."""
+    event = TranscriptEvent(
+        utterance_index=1,
+        text="something nobody should log",
+        is_final=True,
+        audio_offset_seconds=0.0,
+        latency_seconds=0.0,
+        duration_seconds=1.5,
+        end_reason=EndReason.SILENCE,
+    )
+
+    assert "nobody" not in event.shape

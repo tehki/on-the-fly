@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from on_the_fly.app.cli import main, parse_device
-from on_the_fly.domain.audio import AudioFormat, TranscriptEvent
+from on_the_fly.domain.audio import AudioFormat, EndReason, TranscriptEvent
 
 SAMPLES_PER_FRAME = 320
 
@@ -82,6 +82,7 @@ class FakeStreamer:
     def __init__(self) -> None:
         self.frames = 0
         self.warmed = False
+        self.silent_endpoints = 2
 
     def warm_up(self) -> None:
         self.warmed = True
@@ -107,6 +108,8 @@ class FakeStreamer:
             is_final=is_final,
             audio_offset_seconds=self.frames * 0.02,
             latency_seconds=0.0,
+            duration_seconds=8.16 if is_final else None,
+            end_reason=EndReason.MAX_DURATION if is_final else None,
         )
 
     def reset(self) -> None:
@@ -292,3 +295,37 @@ def test_the_device_argument_reaches_the_adapter(
     microphone = patched["microphone"]
     assert isinstance(microphone, FakeMicrophone)
     assert microphone.device == 13
+
+
+def test_a_final_says_how_long_it_ran_and_what_stopped_it(
+    patched: dict[str, object], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The reading a recording cannot give, and the one this command was missing."""
+    main(["listen", "--cache-dir", str(tmp_path)])
+
+    output = capsys.readouterr().out
+    assert "(8.16s MAX_DURATION)" in output
+
+
+def test_endpoints_that_decoded_nothing_are_reported(
+    patched: dict[str, object], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Otherwise a silent room and a broken endpointer produce identical output."""
+    main(["listen", "--cache-dir", str(tmp_path)])
+
+    output = capsys.readouterr().out
+    assert "endpoints     1 with text, 2 with none (silence)" in output
+
+
+def test_a_recogniser_that_cannot_count_endpoints_is_not_required_to(
+    patched: dict[str, object], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The port does not require it; only this implementation happens to offer it."""
+    streamer = patched["streamer"]
+    assert isinstance(streamer, FakeStreamer)
+    del streamer.silent_endpoints
+
+    exit_code = main(["listen", "--cache-dir", str(tmp_path)])
+
+    assert exit_code == 0
+    assert "endpoints " not in capsys.readouterr().out

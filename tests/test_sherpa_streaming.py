@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from on_the_fly.domain.audio import AudioFormat, TranscriptEvent
+from on_the_fly.domain.audio import AudioFormat, EndReason, TranscriptEvent
 from on_the_fly.infrastructure.asr import (
     ModelStore,
     ModelStoreError,
@@ -211,3 +211,69 @@ def test_continuous_speech_is_broken_into_utterances() -> None:
     )
     # The ceiling is a clock, so an utterance may overrun it by the frame it is detected in.
     assert longest <= MAX_UTTERANCE_SECONDS + 1.0, f"an utterance ran {longest:.1f}s"
+
+
+def test_silence_produces_endpoints_that_are_counted_not_lost() -> None:
+    """A long silence and an endpointer that never fires must not look the same.
+
+    Before this counter, both produced the same thing from outside: a large gap between
+    finals, and no way to tell which had happened (ADR 0023).
+    """
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+        rate = reader.getframerate()
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    frame_bytes = (rate // 50) * 2
+    speech_then_silence = audio + b"\x00\x00" * (rate * 12)
+    finals: list[TranscriptEvent] = []
+    for offset in range(0, len(speech_then_silence) - frame_bytes, frame_bytes):
+        finals.extend(
+            event
+            for event in recognizer.accept(speech_then_silence[offset : offset + frame_bytes])
+            if event.is_final
+        )
+
+    assert recognizer.silent_endpoints > 0, "twelve seconds of silence endpointed nothing"
+    assert finals, "the speech before the silence still has to produce a final"
+    for event in finals:
+        assert event.shape, "a final must say how long it ran and what stopped it"
+        assert event.duration_seconds is not None
+
+
+def test_a_ceiling_ended_utterance_says_so() -> None:
+    """The end reason is inferred, so it is worth checking against the rule it infers."""
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+        rate = reader.getframerate()
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    frame_bytes = (rate // 50) * 2
+    continuous = audio * 3
+    finals: list[TranscriptEvent] = []
+    for offset in range(0, len(continuous) - frame_bytes, frame_bytes):
+        finals.extend(
+            event
+            for event in recognizer.accept(continuous[offset : offset + frame_bytes])
+            if event.is_final
+        )
+    tail = [event for event in recognizer.finish() if event.is_final]
+
+    assert finals, "continuous speech must be cut by the ceiling"
+    for event in finals:
+        assert event.end_reason is EndReason.MAX_DURATION
+        assert event.duration_seconds is not None
+        assert event.duration_seconds >= MAX_UTTERANCE_SECONDS - 0.02
+    for event in tail:
+        # Whatever is still open when the audio stops was ended by the audio stopping.
+        assert event.end_reason is EndReason.FLUSH
