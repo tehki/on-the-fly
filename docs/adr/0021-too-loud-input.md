@@ -105,6 +105,12 @@ problem, and it can be made from one second rather than five.
 - **It does not detect hallucination.** It detects the input condition that produced it
   here. A recogniser inventing words from *quiet* noise would still not be caught, and
   nothing in this project currently could.
+
+  > **Measured in [ADR 0026](0026-accuracy-and-level.md).** The quiet direction does not
+  > hallucinate — below about −14 dB SNR the recogniser emits nothing at all. It also cannot
+  > be detected from level: across the whole range from word-perfect to recognising nothing,
+  > rms moves by a factor of 1.8 and every verdict reads `ok`. No mirror-image threshold is
+  > available, and none was added.
 - **It does not distinguish a loud room from loud machinery, a fan, or music.** All of them
   are continuous non-speech energy, and the advice — turn the gain down — is the same.
 - ~~**It still has not been tested against live speech.**~~ **Tested, 2026-09-06.** Thirty
