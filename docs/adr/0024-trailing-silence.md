@@ -53,6 +53,13 @@ Above the within-speech cluster by more than a factor of two, below the boundary
 it is meant to catch, and a cadence of about one utterance every 3.3 s — which is roughly
 one sentence, and roughly what a person waits before expecting an answer.
 
+> **The predicted cadence was optimistic.** Measured live at this value, utterances came in
+> at a median of about 5.3 s rather than 3.3 s. The table above counts *energy* gaps, while
+> the recogniser measures trailing silence inside its decoder, and the two do not map one to
+> one — a pause has to be long enough for the decoder to stop emitting, not merely quiet.
+> The direction was right and the magnitude was not, which is worth knowing before this
+> table is used to predict anything else.
+
 Not a rounder number, because 0.6 catches fewer of the boundaries (7 of 75 against 9) for no
 gain and 0.4 starts reaching into the within-speech cluster.
 
@@ -79,8 +86,11 @@ length. Most of that price was being paid because the silence rule was not doing
   is, and nothing here establishes that 0.5 s is right for anybody else.
 - **It does not touch `rule1`** (2.4 s, silence before anything is decoded), which governs
   the gaps between bursts rather than inside them.
-- **It has not been confirmed live.** The measurement is live; the resulting value is
-  verified against recordings only.
+- ~~**It has not been confirmed live.**~~ **Confirmed, same day.** Ninety seconds of live
+  speech at 0.5 s produced sixteen utterances, **fourteen ended by `SILENCE`** and two by the
+  ceiling — the shape this change was aiming for, against every utterance running to the
+  clock before it. Translation latency fell to a median of 188 ms from 553 ms, because the
+  translator is now handed sentences rather than eight-second lumps.
 
 ## Consequences
 

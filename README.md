@@ -313,10 +313,16 @@ the work — 1.2 s of trailing silence — turned out to fire on **two of sevent
 in thirty seconds of measured conversational speech. It was effectively switched off.
 
 Real pauses are two populations: gaps inside speech at 0.12–0.22 s, then sentence boundaries
-from about 0.56 s. The threshold is now 0.5 s, in the space between them, giving about one
-utterance every 3.3 seconds instead of every fifteen. `scripts/measure_pauses.py` derives
-those numbers from a live microphone and keeps no audio — durations only — which is what
-makes the parameter tunable without recording anyone.
+from about 0.56 s. The threshold is now 0.5 s, in the space between them.
+`scripts/measure_pauses.py` derives those numbers from a live microphone and keeps no
+audio — durations only — which is what makes the parameter tunable without recording anyone.
+
+**Confirmed live:** ninety seconds of speech produced sixteen utterances, **fourteen ended by
+a pause** and two by the ceiling, at a median of about 5.3 s each. Translation latency fell
+to a median of 188 ms from 553 ms, because the translator now receives sentences rather than
+eight-second lumps. (The pause table predicted 3.3 s; it counts energy gaps, while the
+recogniser measures silence inside its decoder, so it under-predicts. Direction right,
+magnitude optimistic.)
 
 It also removed most of the ceiling's damage. The ceiling cuts wherever the clock lands,
 including inside a word, and three copies of the test sample used to come out as 20, 22 and
