@@ -106,3 +106,9 @@ arm's length in a normal room is close to the cliff.
 When a blind DRR or reverberation estimate is available, which is what would make the advice
 timeable; or when dereverberation is considered as a dependency; or when a real measured
 impulse response can be used instead of a synthetic one.
+
+> **The obvious estimate was tried and rejected** in [ADR 0028](0028-blind-reverberation-estimate.md).
+> `floor/rms` scored 88% on thirty-four synthetic points with no missed detections, then
+> failed on all five live recordings — the worst real run scores *lower* than the best, and an
+> empty room scores highest of all. The same grid also confirms this ADR at twenty-five points
+> rather than six: DRR separates broken from usable at −10.45 dB with 2 errors in 25.
