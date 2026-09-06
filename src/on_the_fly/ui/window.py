@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from on_the_fly.ui.caption import Status, ViewState
+from on_the_fly.ui.caption import NO_TRANSLATION, Status, ViewState
 
 if TYPE_CHECKING:  # pragma: no cover - import shape only
     from collections.abc import Callable
@@ -106,6 +106,7 @@ STATUS_TEXT = {
 def build_window(
     *,
     languages: list[tuple[str, str]],
+    targets_for: Callable[[str], list[tuple[str, str]]],
     on_start: Callable[[str, str], None],
     on_stop: Callable[[], None],
 ) -> Any:
@@ -113,6 +114,10 @@ def build_window(
 
     Takes its callbacks rather than reaching for a pipeline, so the window can be shown and
     driven in isolation — and so nothing in this file knows how translation works.
+
+    `targets_for` is a function rather than a second list because which targets exist
+    depends on the source: this project pins two directions of one pair, so a fixed target
+    list would offer combinations nothing can serve.
     """
     from PySide6 import QtCore, QtWidgets
 
@@ -140,12 +145,12 @@ def build_window(
             self.target_box = QtWidgets.QComboBox()
             for code, name in languages:
                 self.source_box.addItem(name, code)
-                self.target_box.addItem(name, code)
             # Default to the pair that is actually pinned and measured, rather than
-            # whatever sorts first — offering English to French by default would promise a
-            # model this project has not adopted (ADR 0008).
+            # whatever sorts first (ADR 0008). Both pickers are now built from the pins, so
+            # everything they offer can be served — but the default still has to be chosen.
             self._select(self.source_box, "en")
-            self._select(self.target_box, "ru")
+            self._fill_targets(preferred="ru")
+            self.source_box.currentIndexChanged.connect(self._on_source_changed)
             arrow = QtWidgets.QLabel("→")
             arrow.setObjectName("detail")
             top.addWidget(self.source_box)
@@ -203,7 +208,39 @@ def build_window(
             self.setStyleSheet(STYLE)
 
         def _start(self) -> None:
-            on_start(self.source_box.currentData(), self.target_box.currentData())
+            source = self.source_box.currentData()
+            target = self.target_box.currentData()
+            # The picker spells "no translation" as an empty code; a view state spells it as
+            # target == source. This is one of the two edges where they meet.
+            on_start(source, source if target == NO_TRANSLATION else target)
+
+        def _on_source_changed(self) -> None:
+            """Rebuild the target picker for the new source, keeping the choice if it survives."""
+            self._fill_targets(preferred=self.target_box.currentData())
+
+        def _fill_targets(self, *, preferred: str) -> None:
+            """Populate the target picker from the source's actual pairs.
+
+            Signals are blocked while it refills: `clear()` and `addItem()` each move the
+            current index, and a half-populated box emitting a change would be read as the
+            user choosing something.
+            """
+            source = self.source_box.currentData()
+            self.target_box.blockSignals(True)
+            try:
+                self.target_box.clear()
+                for code, label in targets_for(source):
+                    self.target_box.addItem(label, code)
+                index = self.target_box.findData(preferred)
+                if index < 0:
+                    # The previous target has no model from this source. Fall back to a
+                    # language it does translate into rather than to the row that does not
+                    # translate at all: the user asked to be translated, and silently
+                    # stopping is the failure this encoding exists to prevent.
+                    index = 1 if self.target_box.count() > 1 else 0
+                self.target_box.setCurrentIndex(index)
+            finally:
+                self.target_box.blockSignals(False)
 
         @staticmethod
         def _select(box: Any, code: str) -> None:
@@ -222,8 +259,20 @@ def build_window(
             # The pickers follow the state rather than only feeding it. Without this the
             # window could show one language pair while translating another, which is the
             # kind of quiet disagreement this project keeps finding in its own documents.
-            self._select(self.source_box, state.source_language)
-            self._select(self.target_box, state.target_language)
+            # The source is selected with its signal blocked and the targets are then
+            # rebuilt explicitly, so the rebuild happens exactly once and against the
+            # state's source rather than against a half-applied one.
+            self.source_box.blockSignals(True)
+            try:
+                self._select(self.source_box, state.source_language)
+            finally:
+                self.source_box.blockSignals(False)
+            # The other edge: a state that is not translating carries target == source.
+            self._fill_targets(
+                preferred=NO_TRANSLATION
+                if state.target_language == state.source_language
+                else state.target_language
+            )
             self.start_button.setEnabled(state.can_start)
             self.stop_button.setEnabled(state.can_stop)
             self.source_box.setEnabled(state.can_start)

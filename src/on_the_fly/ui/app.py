@@ -18,8 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from on_the_fly.domain.languages import SUPPORTED, RecognitionTier
-from on_the_fly.ui.caption import CaptionModel
+from on_the_fly.app.catalogue import recognisable_languages, translation_targets
+from on_the_fly.ui.caption import NO_TRANSLATION, NO_TRANSLATION_LABEL, CaptionModel
 
 if TYPE_CHECKING:  # pragma: no cover - import shape only
     from collections.abc import Sequence
@@ -28,16 +28,25 @@ DEFAULT_CACHE = Path.home() / ".cache" / "on-the-fly" / "models"
 
 
 def streaming_languages() -> list[tuple[str, str]]:
-    """The pairs the window may offer, in a stable order.
+    """The source languages the window may offer, in a stable order.
 
-    Only streaming-tier languages: a live caption window is the wrong place to discover that
-    a language runs several seconds behind (ADR 0007).
+    Streaming tier *and* a pinned model. Offering the tier alone would put five languages
+    in the picker that this project has not adopted a model for, and the user would find
+    out after pressing Listen rather than before choosing (`app/catalogue.py`).
     """
-    return [
-        (lang.code, lang.name)
-        for lang in sorted(SUPPORTED.values(), key=lambda item: item.name)
-        if lang.tier is RecognitionTier.STREAMING
-    ]
+    return [(lang.code, lang.name) for lang in recognisable_languages()]
+
+
+def translation_options(source_language: str) -> list[tuple[str, str]]:
+    """What `source_language` may be translated into, with captions-only offered first.
+
+    The list is per source rather than fixed, because the pairs are: this project pins
+    en->ru and ru->en, and nothing about a target picker built from the language table
+    would say so.
+    """
+    options = [(NO_TRANSLATION, NO_TRANSLATION_LABEL)]
+    options.extend((lang.code, lang.name) for lang in translation_targets(source_language))
+    return options
 
 
 def build_worker() -> Any:
@@ -281,7 +290,12 @@ def run(argv: Sequence[str] | None = None) -> int:
         render()
         worker.stop()
 
-    window = build_window(languages=streaming_languages(), on_start=start, on_stop=stop)
+    window = build_window(
+        languages=streaming_languages(),
+        targets_for=translation_options,
+        on_start=start,
+        on_stop=stop,
+    )
     window_ref["window"] = window
     render()
     window.show()
