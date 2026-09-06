@@ -50,8 +50,10 @@ well enough to tell when it goes wrong. It comes back when a model does.
 > That transient is now measured and discarded before it reaches the recogniser, adaptively:
 > **1780 ms dropped cold, 240 ms warm**. The remaining +30 dB was found in `Internal Mic
 > Boost` rather than the `Capture` control ADR 0019 names, and has been turned off on that
-> machine. **No speech has been recognised from a live microphone yet** — nobody has spoken
-> into one under measurement.
+> machine. **Live speech was recognised for the first time on 2026-09-06**: thirty seconds
+> read aloud, transcribed substantially correctly and translated, with nothing dropped and
+> the input measuring `ok (peak 0.63, rms 0.066, floor 0.015)` — squarely inside the
+> recorded-speech range. It also exposed the run-on utterance described below.
 
 ## What it is meant to be
 

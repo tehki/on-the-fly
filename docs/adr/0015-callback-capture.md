@@ -94,6 +94,10 @@ and unnecessary while this one works.
 The audio on the reference machine is still saturated and DC-offset, so **recognition from a
 live microphone remains unverified**. This ADR is about not crashing, not about hearing.
 
+> **Verified 2026-09-06.** Live speech was recognised through this callback path, with
+> nothing dropped over thirty seconds. The DC offset was the capture path powering up
+> ([ADR 0020](0020-capture-settling.md)) rather than a property of the microphone.
+
 > **Followed up 2026-09-05 in [ADR 0019](0019-input-levels.md).** The saturation has a cause:
 > the system mixer's capture gain is pinned at +30 dB, which drives the room's noise floor
 > into the rails — 51% of samples at full scale, against 0.0% for recorded speech. It is not

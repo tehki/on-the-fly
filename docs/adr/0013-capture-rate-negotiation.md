@@ -160,6 +160,11 @@ adapter. Rate negotiation removes one real obstacle between the pipeline and a w
 microphone. It does not conjure a working microphone, and recognition from live capture
 remains unverified.
 
+> **Verified 2026-09-06.** Live speech was recognised through this negotiated path. Two
+> corrections to the paragraph above: the "saturated and DC-offset" measurement was largely
+> the analog input powering up ([ADR 0020](0020-capture-settling.md)), and the residual gain
+> problem was `Internal Mic Boost`, not `Capture`.
+
 **The blocking-read crash above is untouched.** One of three input devices on the reference
 machine still aborts the process when captured from, for reasons outside this project.
 

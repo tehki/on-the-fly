@@ -6,10 +6,9 @@ opens a microphone before the arguments have been refused, that a stop is a stop
 failure, that the settling decorator sits under the level monitor (ADR 0020), and that the
 run reports what a live capture can lose and a file cannot.
 
-A fake source stands in for the microphone. Real hardware is exercised by hand: the command
-has been run against this machine's input and reports what it captured, but **no speech has
-been recognised from a live microphone yet** — nobody has spoken into it under measurement.
-That sentence stays until someone does.
+A fake source stands in for the microphone. Real hardware is exercised by hand, and on
+2026-09-06 it recognised live speech for the first time — thirty seconds read aloud,
+transcribed substantially correctly and translated.
 """
 
 from __future__ import annotations

@@ -140,6 +140,9 @@ object holds no bytes.
   recogniser is no longer handed a rail-pinned second and a half at the start of every
   session, and that the capture path has been driven end to end from a terminal.
 
+  > **Done, 2026-09-06.** Live speech was recognised, with `settling 780ms discarded` on that
+  > run. The settling this ADR added is on the path every live session now takes.
+
 ## Consequences
 
 - A cold capture session yields its first audio about 1.8 s after the microphone opens
