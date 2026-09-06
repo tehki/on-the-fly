@@ -342,6 +342,27 @@ events        16 partial, 1 final
 retention     clean - nothing retained, no deletion failed
 ```
 
+**That run is from an idle machine, and it predates a bug in the last word.** The clip
+continues `...HERE AND THERE THE SQUALID QUARTER OF THE BROTHELS`, and until 2026-09-06 the
+final ended at `BROTHEL`. A transducer emits a symbol only once it has frames after it, and
+when audio simply stops there are none — `input_finished()` does not supply them — so the
+last word of every stream came out truncated or not at all. `finish()` now feeds the decoder
+half a second of silence before closing the stream, which recovers it. Over the English
+model's own published test set that is **3.0% word error against 0.0%**: two files, two lost
+words, on the pin this project measures everything else against.
+
+The tail is silence the recogniser makes up, so two things are checked rather than assumed.
+It decodes to nothing on its own — a stream of digital zeros stays empty at every tail
+length tested, which is the failure mode [ADR 0021](docs/adr/0021-too-loud-input.md) exists
+to guard against. And it is not counted as audio that arrived, so no duration or real-time
+factor is inflated by it. What it does cost is about 0.4 s of decoding at the end of a
+stream, once, which the `wall time` above does not include.
+
+`scripts/measure_recognition.py` is the tool that found it: point it at a model directory
+and a folder of wavs with a reference transcript, and it reports real-time factor and word
+error rate the way the pipeline decodes — 20 ms frames, decoding between them, rather than a
+batch pass that would flatter a model that cannot keep up.
+
 Only languages with a pinned streaming model are accepted. A language without one is
 refused rather than silently downgraded to batch latency — being told "no, use transcribe"
 is better than wondering why it is slow.

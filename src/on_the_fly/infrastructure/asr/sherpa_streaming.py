@@ -80,6 +80,30 @@ MAX_UTTERANCE_SECONDS = 8.0
 # lands on or just past the boundary rather than exactly on it.
 _CEILING_TOLERANCE_SECONDS = 0.02
 
+# --- the flush tail ---------------------------------------------------------------------
+#
+# Silence appended before the stream is closed, so the encoder can see past the last word.
+#
+# A transducer needs future frames to emit a symbol. When audio simply stops, the final
+# chunk has no future, and `input_finished()` does not supply one — so the last word came
+# out truncated or not at all. Measured on both pinned exports, decoding each publisher's
+# own test set with a growing tail:
+#
+#     model       file        0 ms                     recovered at
+#     english     0.wav       ...OF THE BROTHEL        300 ms  -> BROTHELS
+#     english     1.wav       ...A BLESSED SOUL IN HE  100 ms  -> HEAVEN
+#     french      19738183    ...DE L'HISTOIRE RO      100 ms  -> ROMAINE
+#
+# Over the whole of the English model's own test set that is **3.0% word error against
+# 0.0%** — two files, two lost words, on the flagship pin. Past the threshold, more tail
+# changes nothing, and a stream carrying nothing but digital zeros still decodes to the
+# empty string at any tail length, so this cannot invent words the way an amplified room
+# does (ADR 0021).
+#
+# 500 ms is 300 ms plus margin for a model neither of these measured. It is paid once, when
+# a stream ends, and costs about 0.4 s of decoding at the measured real-time factor.
+FLUSH_TAIL_SECONDS = 0.5
+
 _INT16_FULL_SCALE = 32768.0
 
 
@@ -135,6 +159,7 @@ class SherpaStreamingRecognizer:
 
         self._recognizer: Any | None = None
         self._stream: Any | None = None
+        self._finished = False
         self._utterances = 0
         self._silent_endpoints = 0
         self._last_partial = ""
@@ -271,12 +296,34 @@ class SherpaStreamingRecognizer:
         return tuple(events)
 
     def finish(self) -> Sequence[TranscriptEvent]:
-        """End the stream and return any remaining hypothesis as a final."""
-        if self._recognizer is None or self._stream is None:
+        """End the stream and return any remaining hypothesis as a final.
+
+        The stream is given `FLUSH_TAIL_SECONDS` of silence first. Without it the last word
+        of every stream was truncated or lost outright, because a transducer cannot emit a
+        symbol it has no future frames for — see the measurement beside that constant.
+
+        The tail is silence this method makes up, not audio anyone spoke. It is fed to the
+        decoder and never surfaces: nothing is stored, and `_audio_seconds` is deliberately
+        not advanced by it, so the durations and offsets a caller reports keep describing
+        the audio that actually arrived.
+
+        Calling this twice returns nothing the second time. A closed stream cannot accept
+        the tail, and re-reading the hypothesis would emit the same utterance again and
+        count it twice. `reset()` reopens the stream and clears the flag.
+        """
+        if self._recognizer is None or self._stream is None or self._finished:
             return ()
+        self._finished = True
+
+        try:
+            import numpy
+        except ImportError as exc:  # pragma: no cover - numpy arrives with the stack
+            raise StreamingRecognitionError(f"numpy is required: {exc}") from exc
 
         recognizer = self._recognizer
         stream = self._stream
+        tail = numpy.zeros(int(REQUIRED_SAMPLE_RATE_HZ * FLUSH_TAIL_SECONDS), dtype=numpy.float32)
+        stream.accept_waveform(REQUIRED_SAMPLE_RATE_HZ, tail)
         stream.input_finished()
         while recognizer.is_ready(stream):
             recognizer.decode_stream(stream)
@@ -292,6 +339,7 @@ class SherpaStreamingRecognizer:
         """Discard in-flight state. The loaded model is kept; reloading costs seconds."""
         if self._recognizer is not None:
             self._stream = self._recognizer.create_stream()
+        self._finished = False
         self._utterances = 0
         self._silent_endpoints = 0
         self._last_partial = ""
