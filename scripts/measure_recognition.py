@@ -11,7 +11,9 @@ decodes between them, so that is what this measures — not a batch decode of th
 which would flatter a model that cannot keep up live.
 
 **Word error rate.** Against a reference transcript, so the number means something. This
-project treats about 15% as the line where output stops being usable (ADR 0027).
+project treats about 15% as the line where output stops being usable (ADR 0027). The
+recogniser's own flush tail is applied here too — without it the last word of every file is
+scored as an error the shipping code does not make.
 
 It runs against a model *directory* rather than a pinned name, because the point is to
 evaluate a candidate before deciding whether to pin it. Nothing here writes audio, text or
@@ -38,6 +40,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from on_the_fly.infrastructure.asr.sherpa_streaming import (  # noqa: E402
+    FLUSH_TAIL_SECONDS,
+)
 
 REQUIRED_SAMPLE_RATE_HZ = 16_000
 FRAME_SAMPLES = 320  # 20 ms, the frame size the pipeline uses
@@ -207,6 +216,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             stream.accept_waveform(REQUIRED_SAMPLE_RATE_HZ, frame)
             while recognizer.is_ready(stream):
                 recognizer.decode_stream(stream)
+        # The same flush tail the recogniser uses, for the same reason: a transducer cannot
+        # emit a symbol it has no future frames for, so without this the last word of every
+        # file is scored as an error that the shipping code does not make.
+        tail_samples = int(REQUIRED_SAMPLE_RATE_HZ * FLUSH_TAIL_SECONDS)
+        stream.accept_waveform(REQUIRED_SAMPLE_RATE_HZ, np.zeros(tail_samples, dtype=np.float32))
         stream.input_finished()
         while recognizer.is_ready(stream):
             recognizer.decode_stream(stream)
