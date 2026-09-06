@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -376,6 +377,149 @@ def test_the_desktop_composition_root_is_protected() -> None:
     paths = manifest["security_sensitive_paths"]["paths"]
 
     assert "/src/on_the_fly/ui/" in paths
+
+
+# ---------------------------------------------------------------------------------------
+# Exceptions expire.
+#
+# Article 13: "An exception that has passed its expiry authorises nothing, whatever the code
+# still does." Nothing read the date until this check existed, so the register could go on
+# authorising a relaxed control for as long as nobody reread it. Every test here injects the
+# day, so they assert the logic rather than the calendar.
+# ---------------------------------------------------------------------------------------
+
+
+EXCEPTION_TEMPLATE = """## EXC-2026-09-01-001 — A relaxed control
+
+| Field | Value |
+| --- | --- |
+| **Status** | {status} |
+| **Owner** | @tehki |
+| **Reason** | Because. |
+| **Scope** | One setting. |
+| **Risk** | MODERATE. |
+| **Approved by** | @tehki, 2026-09-01 |
+| **Issued at** | 2026-09-01 |
+| **Expires at** | {expires} |
+| **Removal condition** | When it is no longer needed. |
+
+**Compensating controls:**
+
+1. Something else still applies.
+"""
+
+
+def register(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, status: str, expires: str) -> None:
+    """Point the validator at a synthetic exception register."""
+    path = tmp_path / "EXCEPTIONS.md"
+    path.write_text(EXCEPTION_TEMPLATE.format(status=status, expires=expires), encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "EXCEPTIONS_FILE", path)
+
+
+def citing_manifest() -> dict[str, Any]:
+    return {"approval_limitation": {"exception_record": "EXC-2026-09-01-001"}}
+
+
+def test_this_repositorys_exceptions_are_well_formed() -> None:
+    """Every record carries Article 13's fields, a known status and an ISO expiry.
+
+    No date comparison, so this asserts the register's shape and never rots. The clock is
+    checked by the validator itself, which is what will fail on the day one expires.
+    """
+    records = governance_validator.parse_exception_records(
+        governance_validator.EXCEPTIONS_FILE.read_text(encoding="utf-8")
+    )
+
+    assert records, "the register must contain parseable records"
+    for identifier, fields in records.items():
+        for field in (*governance_validator.EXCEPTION_TABLE_FIELDS, "Compensating controls"):
+            assert fields.get(field), f"{identifier} is missing {field}"
+        assert fields["Status"] in governance_validator.EXCEPTION_STATUSES
+        date.fromisoformat(fields["Expires at"])
+
+
+def test_the_live_exception_fails_the_day_after_it_expires() -> None:
+    """The real record, against its own real expiry. This is the gate, not a hypothetical."""
+    records = governance_validator.parse_exception_records(
+        governance_validator.EXCEPTIONS_FILE.read_text(encoding="utf-8")
+    )
+    live = {name: f for name, f in records.items() if f["Status"] == "ACTIVE"}
+    assert live, "if nothing is ACTIVE this test has nothing to protect"
+
+    for name, fields in live.items():
+        expires = date.fromisoformat(fields["Expires at"])
+        errors: list[str] = []
+        governance_validator.check_exception_records({}, errors, today=expires)
+        assert not any(name in error for error in errors), "it is still live on its last day"
+
+        errors = []
+        governance_validator.check_exception_records({}, errors, today=expires + timedelta(days=1))
+        assert any(name in error and "authorises nothing" in error for error in errors)
+
+
+def test_an_expired_record_marked_expired_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The register is meant to keep the history. What it may not do is call it ACTIVE."""
+    register(monkeypatch, tmp_path, status="EXPIRED", expires="2026-01-01")
+    errors: list[str] = []
+
+    governance_validator.check_exception_records({}, errors, today=date(2026, 9, 6))
+
+    assert errors == []
+
+
+def test_a_manifest_citing_a_closed_exception_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A relaxed control authorised by a withdrawn exception is authorised by nothing."""
+    register(monkeypatch, tmp_path, status="REMOVED", expires="2027-01-01")
+    errors: list[str] = []
+
+    governance_validator.check_exception_records(citing_manifest(), errors, today=date(2026, 9, 6))
+
+    assert any("whose status is REMOVED" in error for error in errors)
+
+
+def test_a_record_missing_an_article_13_field_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Nine fields, or it is not an exception. Compensating controls are prose, not a row."""
+    path = tmp_path / "EXCEPTIONS.md"
+    body = EXCEPTION_TEMPLATE.format(status="ACTIVE", expires="2027-01-01")
+    path.write_text(body.replace("| **Owner** | @tehki |\n", ""), encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "EXCEPTIONS_FILE", path)
+    errors: list[str] = []
+
+    governance_validator.check_exception_records({}, errors, today=date(2026, 9, 6))
+
+    assert any("missing Article 13 field(s): Owner" in error for error in errors)
+
+
+def test_an_expiry_that_cannot_be_read_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ "Six months" is not an expiry a build can check, which is the point of requiring one."""
+    register(monkeypatch, tmp_path, status="ACTIVE", expires="in six months")
+    errors: list[str] = []
+
+    governance_validator.check_exception_records({}, errors, today=date(2026, 9, 6))
+
+    assert any("unreadable expiry" in error for error in errors)
+
+
+def test_a_register_with_no_parseable_records_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An empty register beside a manifest that cites one is a silent loss of the record."""
+    path = tmp_path / "EXCEPTIONS.md"
+    path.write_text("# Exception register\n\nNothing here.\n", encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "EXCEPTIONS_FILE", path)
+    errors: list[str] = []
+
+    governance_validator.check_exception_records({}, errors, today=date(2026, 9, 6))
+
+    assert any("no parseable exception records" in error for error in errors)
 
 
 # ---------------------------------------------------------------------------------------
