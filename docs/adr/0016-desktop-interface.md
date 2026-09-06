@@ -110,6 +110,11 @@ which is what a phone's cores want.
   driven through every state
   with synthetic ones. The worker's pipeline path is the same one the command line uses and
   is covered by that path's tests, but *the two together* are unverified.
+
+  > **Half done, 2026-09-06.** Live speech was recognised, but through `listen` on the
+  > command line rather than through this window. The gain fix that made it possible was at
+  > `Internal Mic Boost` rather than the `Capture` control named above. The window and a live
+  > microphone together are still unverified.
 - No device picker. The default input device is used, and choosing between devices is a real
   feature this does not have.
 - No packaging. Running it needs a checkout and `pip install -r requirements-ui.txt`.

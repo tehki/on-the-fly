@@ -116,6 +116,11 @@ asserts the decorator holds no bytes.
   and this machine's does not until someone turns the gain down at the mixer — at
   `Internal Mic Boost` rather than at `Capture`, per ADR 0020. What is now
   true is that the application *says so* rather than transcribing the noise.
+
+  > **Done, 2026-09-06.** The gain was turned down at that control and live speech was
+  > recognised. The check added here reported `ok` throughout, with a floor an order of
+  > magnitude below the ADR 0021 threshold — so it neither missed the bad input nor
+  > false-alarmed on the good one.
 - **It does not mean clipped audio is worthless.** A deliberately clipped copy of the test
   sample (12x gain, 7.9% of samples at full scale) still transcribed **correctly**. Mild
   clipping degrades gracefully; 51% is not mild. The line is advice, not a refusal, and it is

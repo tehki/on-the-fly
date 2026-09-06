@@ -107,10 +107,13 @@ problem, and it can be made from one second rather than five.
   nothing in this project currently could.
 - **It does not distinguish a loud room from loud machinery, a fan, or music.** All of them
   are continuous non-speech energy, and the advice — turn the gain down — is the same.
-- **It still has not been tested against live speech.** Every speech figure here is
-  digitally amplified from a recording. Nobody has yet spoken into a microphone under
-  measurement, so the false-alarm rate on real live speech is reasoned about rather than
-  observed. That is the remaining gap, and it is the same one ADR 0019 and ADR 0020 left.
+- ~~**It still has not been tested against live speech.**~~ **Tested, 2026-09-06.** Thirty
+  seconds of live speech at the corrected gain measured a floor of **0.015** against this
+  ADR's threshold of 0.15 — an order of magnitude of margin — and the verdict stayed `ok`
+  throughout. The speech figures above are still digitally amplified from a recording, so
+  the *upper* boundary (how loud live speech must get before it is wrongly flagged) remains
+  reasoned about rather than observed. One live sample is also one speaker, one room and one
+  microphone.
 
 ## Consequences
 
@@ -127,5 +130,6 @@ problem, and it can be made from one second rather than five.
 
 ## Review trigger
 
-When live speech can be measured, which is the first chance to observe a false-alarm rate
-rather than argue one; or if the clipping threshold is revisited on the evidence above.
+When live speech is measured across more than one speaker, room or microphone — the
+2026-09-06 run is a single sample and establishes only that the threshold is not obviously
+too low; or if the clipping threshold is revisited on the evidence above.
