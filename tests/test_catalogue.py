@@ -40,14 +40,18 @@ def test_only_languages_with_a_pinned_model_can_be_recognised() -> None:
     assert offered == pinned
 
 
-def test_the_five_unadopted_languages_are_not_offered() -> None:
-    """Spanish, Italian, French, Portuguese and German are named because a published model
-    exists (ADR 0007), not because one has been adopted, licence-checked or tested. The
-    README says so; until today the window did not."""
+def test_the_unadopted_languages_are_not_offered() -> None:
+    """Spanish, Italian, Portuguese and German are named because a published model exists
+    (ADR 0007), not because one has been adopted, licence-checked or tested.
+
+    French was the fifth until ADR 0031 pinned one. The four that remain are not waiting on
+    effort: the five-language family that covers them points at an empty LICENSE file, and
+    the one Apache-2.0 Spanish model found emits phonemes rather than words.
+    """
     offered = {lang.code for lang in recognisable_languages()}
 
-    assert offered == {"en", "ru"}
-    assert not offered & {"es", "it", "fr", "pt", "de"}
+    assert offered == {"en", "ru", "fr"}
+    assert not offered & {"es", "it", "pt", "de"}
 
 
 def test_an_unknown_language_is_not_recognisable() -> None:

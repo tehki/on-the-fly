@@ -2,11 +2,13 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: it translates English and Russian, both directions, live.** Point it at a WAV
-> file and it will find the utterances, transcribe them with a local, integrity-verified
-> streaming model, and translate the finalised text with `--translate-to`. Both directions
-> keep up with the audio — 0.54x real time for English→Russian, 0.26x for Russian→English.
-> No other pair has a translation model pinned.
+> **Status: it translates English and Russian, both directions, live, and now recognises
+> French.** Point it at a WAV file and it will find the utterances, transcribe them with a
+> local, integrity-verified streaming model, and translate the finalised text with
+> `--translate-to`. Both directions keep up with the audio — 0.54x real time for
+> English→Russian, 0.26x for Russian→English. No other pair has a translation model pinned,
+> **French included**: it captions, it does not yet translate
+> ([ADR 0031](docs/adr/0031-french-recognition.md)).
 >
 > **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
 > using sherpa-onnx with a pinned Apache-2.0 model
@@ -20,10 +22,28 @@ Live speech translation. Speak without bounds with anyone worldwide.
 Seven, at two tiers ([ADR 0007](docs/adr/0007-supported-languages.md)):
 
 Seven: English, Russian, Spanish, Italian, French, Portuguese, German. Each has a published
-streaming model, so results appear while you speak. **English and Russian are pinned and
-measured**; the other five are named because a model exists, not because one has been
+streaming model, so results appear while you speak. **English, Russian and French are pinned
+and measured**; the other four are named because a model exists, not because one has been
 adopted, licence-checked or tested — and neither the command line nor the window will now
 offer you one of them.
+
+**French is the third** ([ADR 0031](docs/adr/0031-french-recognition.md)), Apache-2.0 and
+trained on Common Voice. The publisher reports **10.57% word error** on the full Common Voice
+French test set for the exact checkpoint and decoding method pinned here, and it decodes at
+essentially English's speed — 0.868x against 0.804x median over six paired runs on identical
+audio, on a machine already carrying a load average of 6 to 8 on four cores. It **captions
+only**: no `en↔fr` translation artefact is pinned, so the target picker offers French
+speakers *no translation* and says so rather than implying otherwise.
+
+**The other four are not waiting on effort.** They are waiting on two specific things, and
+both are somebody else's to fix:
+
+| | |
+| --- | --- |
+| The `kroko` family — `es`, `fr`, `it`, `de`, `pt` from one publisher, and ADR 0007's strongest lead | Its republications say only *"See license at Banafo/Kroko-ASR"*. That repository declares `license: other`, `license_name: test`, `license_link: LICENSE` — and **the LICENSE file is empty**, zero bytes, unchanged since 2025-01-29. A README saying "our community models are CC-BY-SA" is prose, not a grant. ADR 0007's own rule, written about Tajik: *no licence is not permission.* |
+| `bookbot/…-streaming-robust-es-v0` — genuinely Apache-2.0, and the smallest model found | It is a **phoneme recogniser**. Its vocabulary is 37 IPA symbols where the English pin has 502 word-pieces; it emits `["w", "ɑ", "ʃ", "i", "ɑ"]`, not words. Unreadable as a caption and untranslatable as input. |
+
+One commit adding a real licence file would make five languages evaluable at once.
 
 **Tajik was the eighth and has been removed** ([ADR 0010](docs/adr/0010-drop-tajik.md)). It
 had no streaming model anywhere, no licence-clean batch model this project could load
@@ -366,6 +386,41 @@ batch pass that would flatter a model that cannot keep up.
 Only languages with a pinned streaming model are accepted. A language without one is
 refused rather than silently downgraded to batch latency — being told "no, use transcribe"
 is better than wondering why it is slow.
+
+French streams the same way, and stops there:
+
+```bash
+python -m on_the_fly stream recording.wav --language fr --allow-download
+```
+
+```text
+language      French (fr, streaming)
+model         streaming-fr (local, verified, Apache-2.0)
+
+  [   0.00s partial] CE DERNIER ÉVOLUE TOUT AU LONG DE L'HISTOIRE RO
+  [   0.00s final  ] CE DERNIER ÉVOLUE TOUT AU LONG DE L'HISTOIRE ROMAINE
+
+audio         3.80s in 190 frames
+wall time     4.33s
+real-time     1.140x  (TOO SLOW)  excludes model load
+first text    1.06s into the audio
+events        9 partial, 1 final
+retention     clean - nothing retained, no deletion failed
+```
+
+**That `TOO SLOW` is left in because it is what the command printed.** It is a 3.8-second
+clip on a machine at load average 7, which is a measurement of the machine and of the fixed
+cost of one short stream, not of the model — the six paired runs above, over 23 seconds of
+identical audio, put French at 0.868x against English's 0.804x under the same conditions.
+Both models cross 1.0 on this machine when it spikes. The honest summary is that French
+costs about what English costs, and that neither has much headroom on a laptop doing other
+things.
+
+`--translate-to` has nothing to offer it yet. `scripts/measure_recognition.py` is how that
+model was evaluated before being pinned: point it at a model directory and a folder of wavs
+with a reference transcript, and it reports real-time factor and word error rate the way the
+pipeline decodes — 20 ms frames, decoding between them, rather than a batch pass that would
+flatter a model that cannot keep up.
 
 Add `--translate-to ru` and finalised text is translated as well:
 

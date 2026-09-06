@@ -22,6 +22,7 @@ from on_the_fly.infrastructure.asr import (
     StreamingRecognitionError,
     resolve,
 )
+from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS
 from on_the_fly.infrastructure.asr.sherpa_streaming import (
     FLUSH_TAIL_SECONDS,
     MAX_UTTERANCE_SECONDS,
@@ -32,13 +33,30 @@ from on_the_fly.infrastructure.asr.sherpa_streaming import (
 RATE = 16_000
 
 
-def test_the_streaming_pin_is_complete_and_permissively_licensed() -> None:
-    pin = resolve("streaming-en")
+@pytest.mark.parametrize("name", ["streaming-en", "streaming-ru", "streaming-fr"])
+def test_every_streaming_pin_is_complete_and_permissively_licensed(name: str) -> None:
+    """Three languages, three publishers, one rule: pinned, and licensed so this can ship."""
+    pin = resolve(name)
 
     assert pin.is_pinned
     assert pin.licence == "Apache-2.0"
     assert len(pin.digests) == 4
-    assert any(name.endswith("tokens.txt") for name in pin.digests)
+    assert any(entry.endswith("tokens.txt") for entry in pin.digests)
+
+
+@pytest.mark.parametrize("name", ["streaming-en", "streaming-ru", "streaming-fr"])
+def test_every_streaming_pin_has_a_layout_naming_files_it_pins(name: str) -> None:
+    """A layout that names a file the pin does not cover would load unverified weights.
+
+    Each publisher names these files differently — after a training epoch, a chunk size, or
+    an icefall recipe — which is why the layout exists at all, and why it has to be checked
+    against the pin rather than trusted to match it.
+    """
+    pin = resolve(name)
+    layout = STREAMING_LAYOUTS[name]
+
+    for role in (layout.encoder, layout.decoder, layout.joiner, layout.tokens):
+        assert role in pin.digests, f"{name} layout names {role!r}, which is not pinned"
 
 
 def test_it_promises_partials() -> None:
