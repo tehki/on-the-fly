@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Detect pushes to main that did not arrive through a reviewed pull request.
 
-This is a compensating control, not a preventive one. It cannot stop an unauthorised
-push; it makes one loud after the fact. It exists because remote branch protection is a
-provider-side control that this repository does not yet have configured, and
-REPOSITORY_GOVERNANCE_v1.2-otf1.yaml requires detection while that gap is open. Deleting this
-check once branch protection is verified is a deliberate decision to record, not a
-cleanup to perform silently.
+This is a compensating control, not a preventive one. It cannot stop an unauthorised push;
+it makes one loud after the fact.
+
+It was written because remote branch protection did not exist. It does now: the
+`main-protection` ruleset was applied and read back from the API on 2026-09-01, which closed
+`EXC-2026-09-01-002`. This check was **kept** rather than removed, deliberately and on the
+record — branch protection is a provider-side control that can be disabled by whoever holds
+the repository, and this is what would make that visible. So it now guards against a ruleset
+being turned off as much as against a direct push.
 
 Checks, in order of cost:
   1. the push was not forced (history rewrite on main);
