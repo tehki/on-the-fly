@@ -72,8 +72,10 @@ def test_recognisable_languages_are_ordered_by_name() -> None:
 
 
 def test_translation_targets_come_from_the_pinned_pairs() -> None:
-    assert [lang.code for lang in translation_targets("en")] == ["ru"]
+    """Ordered by language name, which is why French precedes Russian under English."""
+    assert [lang.code for lang in translation_targets("en")] == ["fr", "ru"]
     assert [lang.code for lang in translation_targets("ru")] == ["en"]
+    assert [lang.code for lang in translation_targets("fr")] == ["en"]
 
 
 def test_a_source_with_no_pinned_pair_offers_no_targets() -> None:
@@ -108,7 +110,7 @@ def test_servable_pairs_needs_both_a_recogniser_and_a_translator() -> None:
     """A pair is only end-to-end servable when the source can be heard and the pair written."""
     pairs = {(source.code, target.code) for source, target in servable_pairs()}
 
-    assert pairs == {("en", "ru"), ("ru", "en")}
+    assert pairs == {("en", "ru"), ("ru", "en"), ("en", "fr"), ("fr", "en")}
 
 
 # --------------------------------------------------------------------------------------
@@ -141,7 +143,7 @@ def test_captions_without_translation_is_offered_first() -> None:
     options = translation_options("en")
 
     assert options[0] == (NO_TRANSLATION, "no translation")
-    assert options[1:] == [("ru", "Russian")]
+    assert options[1:] == [("fr", "French"), ("ru", "Russian")]
     assert NO_TRANSLATION not in SUPPORTED, "the row must not collide with a language"
 
 

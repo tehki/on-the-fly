@@ -44,6 +44,12 @@ publisher's own hypotheses at chrF2 95.3, and scores 66.56 against their referen
 they published 66.9 — so the metric and the setup are both sound before the question is
 asked.
 
+**"No detectable cost" was one direction at 300 sentences, and it does not generalise**
+(ADR 0032). Measured across all four directions at 1000 sentences, greedy costs between 0.26
+and 1.39 chrF2 — `fr->en` is the expensive one. The decision does not change, but its reason
+does: greedy is kept because beam 6 costs 1.5x to 3.3x more time per sentence against a
+latency budget already at its target under load, not because the two are equivalent.
+
 What it does **not** establish: the test set is short Tatoeba sentences, single-reference.
 chrF cannot tell "different but equally correct" from "worse", and the two decodings differ
 on 78 of 300 sentences — mostly word order and the gender English leaves ambiguous, where

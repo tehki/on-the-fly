@@ -31,7 +31,10 @@ from on_the_fly.infrastructure.translation import (
     sentence_case,
 )
 from on_the_fly.infrastructure.translation.artifacts import (
+    KNOWN_ARTIFACTS,
+    OPUS_MT_EN_FR,
     OPUS_MT_EN_RU,
+    OPUS_MT_FR_EN,
     OPUS_MT_RU_EN,
     file_digest,
 )
@@ -343,11 +346,48 @@ def test_the_later_russian_english_release_is_the_pinned_one() -> None:
     assert "opus-2020-02-26" in OPUS_MT_RU_EN.url
 
 
-def test_both_directions_carry_their_attribution() -> None:
+def test_every_direction_carries_its_attribution() -> None:
     """CC-BY-4.0 obliges attribution for each artefact actually used, not once overall."""
-    for artefact in (OPUS_MT_EN_RU, OPUS_MT_RU_EN):
+    for artefact in KNOWN_ARTIFACTS.values():
         assert "CC-BY-4.0" in artefact.attribution
         assert "Helsinki-NLP" in artefact.attribution
+
+
+# --------------------------------------------------------------------------------------
+# French (ADR 0032). The pair that showed two releases of one direction need not even be
+# the same kind of artefact.
+# --------------------------------------------------------------------------------------
+
+
+def test_the_pinned_french_artefacts_are_declared_correctly() -> None:
+    assert OPUS_MT_EN_FR.pair == ("en", "fr")
+    assert OPUS_MT_FR_EN.pair == ("fr", "en")
+    for artefact in (OPUS_MT_EN_FR, OPUS_MT_FR_EN):
+        assert artefact.licence == "CC-BY-4.0"
+        assert len(artefact.sha256) == 64
+        assert artefact.url.startswith("https://")
+    assert OPUS_MT_EN_FR.sha256 != OPUS_MT_FR_EN.sha256
+
+
+def test_the_sentencepiece_french_releases_are_the_pinned_ones() -> None:
+    """`fr-en/opus-2019-12-05` scores marginally better and is deliberately not pinned.
+
+    It is a BPE model — its manifest says `normalization + tokenization + BPE`, and it ships
+    `source.bpe` where `opus_mt.py` needs `source.spm`. Loading it means admitting a BPE
+    implementation under Article 12 to buy 0.11 chrF2. Pinned by exact URL, so the rejection
+    is visible in the pin rather than only in an ADR.
+    """
+    assert "opus-2020-02-26" in OPUS_MT_EN_FR.url
+    assert "opus-2020-02-26" in OPUS_MT_FR_EN.url
+    assert "2019" not in OPUS_MT_FR_EN.url
+
+
+def test_every_pinned_artefact_expects_sentencepiece() -> None:
+    """A pin whose members named `.bpe` files would extract and then fail to tokenise."""
+    for artefact in KNOWN_ARTIFACTS.values():
+        assert "source.spm" in artefact.members
+        assert "target.spm" in artefact.members
+        assert not any(member.endswith(".bpe") for member in artefact.members)
 
 
 def test_resolving_the_reverse_pair_finds_the_reverse_artefact() -> None:
