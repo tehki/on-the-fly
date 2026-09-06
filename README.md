@@ -181,14 +181,15 @@ A dark caption window: what is being said in white, the translation under it in 
 partials dimmed so "this may still change" is visible without a word for it.
 
 **Its language pickers now offer only what is pinned.** They were built from the tier table
-in `domain/languages.py`, where all seven languages are `STREAMING` because a published
-model exists for each — so the window offered seven sources and seven targets, forty-nine
-pairs, and could serve two. Picking German got you through `STARTING` and `loading
+in `domain/languages.py`, which at the time marked all seven languages `STREAMING` because a
+published model existed for each — so the window offered seven sources and seven targets,
+forty-nine pairs, and could serve two. Picking German got you through `STARTING` and `loading
 recognition model` to a raw `KeyError` repr, after the pickers had already promised the
 pair. The command line has always refused the same request before opening a device, with a
 sentence saying what is missing; `src/on_the_fly/app/catalogue.py` now derives the window's
-offer from the same pin registries, so the source list is English and Russian and the target
-list follows the source rather than sitting fixed beside it.
+offer from the same pin registries, so the source list is whatever has a pinned model — three
+languages today — and the target list follows the source rather than sitting fixed beside
+it. French was added afterwards and needed no change here, which is the point of deriving it.
 
 The target picker also offers *no translation* — live captions in the language being spoken,
 which the pipeline has always supported. Its row deliberately carries no language code.

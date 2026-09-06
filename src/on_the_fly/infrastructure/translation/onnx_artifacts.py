@@ -59,9 +59,9 @@ from on_the_fly.infrastructure.translation.artifacts import TranslationArtifactE
 
 # `ModelPin`/`ModelStore` are `infrastructure/model_store.py`. They lived under `asr/` for
 # the historical reason that speech models needed pinning first, and ADR 0018 recorded
-# moving them as the correct end state; that was done once four of the seven pinned
-# artefacts were translation models and a translator reaching into `asr/` to verify its own
-# weights had stopped making sense.
+# moving them as the correct end state; that was done once half the artefacts `ModelStore`
+# verifies were translation models — four of eight — and a translator reaching into `asr/` to
+# verify its own weights had stopped making sense.
 
 # The three graphs, the tokenisers, and both configs the decoding loop reads —
 # `generation_config.json` included, because it carries the `bad_words_ids` the loop is
