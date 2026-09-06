@@ -1,9 +1,18 @@
-"""Pinned, integrity-verified model files.
+"""Pinned, integrity-verified model files, for every engine that loads one.
 
-A speech model is executable trust in the same way a package is (Article 12): it is
-fetched over a network, it is large, it is opaque, and it decides what the application
-says. Unlike a package it is fetched at *runtime*, on the user's machine, long after any
-review happened — so the verification has to live here.
+A model is executable trust in the same way a package is (Article 12): it is fetched over a
+network, it is large, it is opaque, and it decides what the application says. Unlike a
+package it is fetched at *runtime*, on the user's machine, long after any review happened —
+so the verification has to live here.
+
+**This is not a speech module, and it used to be filed as one.** It sat in
+`infrastructure/asr/` because speech models needed pinning first; nothing in it is
+speech-specific, and by the time four of the seven pinned artefacts were translation models
+(ADR 0033) a translator reaching into `asr/` to verify its own weights had stopped making
+sense. `security_sensitive_paths` and CODEOWNERS name this file explicitly, because the
+directory rule that used to cover it does not reach here — a move that dropped the code out
+of code-owner review would have been a control weakened by accident, and `make check` would
+not have said a word about it.
 
 Three rules, all fail-closed:
 

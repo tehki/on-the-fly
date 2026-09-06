@@ -16,8 +16,6 @@ import pytest
 
 from on_the_fly.domain.audio import AudioFormat, EndReason, TranscriptEvent
 from on_the_fly.infrastructure.asr import (
-    ModelStore,
-    ModelStoreError,
     SherpaStreamingRecognizer,
     StreamingRecognitionError,
     resolve,
@@ -29,6 +27,7 @@ from on_the_fly.infrastructure.asr.sherpa_streaming import (
     SILENCE_AFTER_SPEECH_SECONDS,
     SILENCE_BEFORE_ANY_SPEECH_SECONDS,
 )
+from on_the_fly.infrastructure.model_store import ModelStore, ModelStoreError
 
 RATE = 16_000
 

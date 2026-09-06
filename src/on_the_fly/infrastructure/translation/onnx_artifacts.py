@@ -54,14 +54,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from on_the_fly.infrastructure.asr.model_store import ModelPin
+from on_the_fly.infrastructure.model_store import ModelPin
 from on_the_fly.infrastructure.translation.artifacts import TranslationArtifactError
 
-# `ModelPin`/`ModelStore` live under `asr/` for the historical reason that speech models
-# needed pinning first. Nothing in them is speech-specific — they pin a Hugging Face
-# revision and check digests — so they are reused here rather than duplicated. Moving them
-# to `infrastructure/` proper is the correct end state and is deliberately not bundled into
-# this change (ADR 0018, review trigger).
+# `ModelPin`/`ModelStore` are `infrastructure/model_store.py`. They lived under `asr/` for
+# the historical reason that speech models needed pinning first, and ADR 0018 recorded
+# moving them as the correct end state; that was done once four of the seven pinned
+# artefacts were translation models and a translator reaching into `asr/` to verify its own
+# weights had stopped making sense.
 
 # The three graphs, the tokenisers, and both configs the decoding loop reads —
 # `generation_config.json` included, because it carries the `bad_words_ids` the loop is

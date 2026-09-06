@@ -11,8 +11,8 @@ repository is Apache-2.0 (ADR 0001).
 
 from __future__ import annotations
 
-from on_the_fly.infrastructure.asr.model_store import ModelPin
 from on_the_fly.infrastructure.asr.sherpa_streaming import ENGLISH_LAYOUT, StreamingLayout
+from on_the_fly.infrastructure.model_store import ModelPin
 
 # 78.2 MB. The smallest useful Whisper model: fast enough to prove the pipeline on a CPU,
 # and honestly not accurate enough to ship a translator on. Larger models are added by

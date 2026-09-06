@@ -115,7 +115,7 @@ def open_translator(
                 "beam_size is not supported on the ONNX engine, which decodes greedily. "
                 "Measure beam width on CTranslate2, where it is implemented."
             )
-        from on_the_fly.infrastructure.asr.model_store import ModelStore
+        from on_the_fly.infrastructure.model_store import ModelStore
         from on_the_fly.infrastructure.translation.onnx_translator import load as load_onnx
 
         model = resolve_onnx(choice.pair)
