@@ -299,16 +299,29 @@ python -m on_the_fly stream recording.wav --language ru --translate-to en --allo
 
 `transcribe --translate-to` remains available for any language without a streaming pin.
 
-**A speaker who never pauses is cut at eight seconds**
-([ADR 0022](docs/adr/0022-endpoint-ceiling.md)). The first live speech this project ever
-recognised came back as two finals, one of them fourteen seconds long, translated in a lump
-after the speaker stopped. The cause was `rule3_min_utterance_length=300` — a value in
-seconds, written as though it counted frames, so the ceiling was five minutes and only 1.2 s
-of trailing silence could ever end an utterance. Nobody reading aloud pauses that long.
+**Utterances end where you pause** ([ADR 0024](docs/adr/0024-trailing-silence.md)), with an
+eight-second ceiling for a speaker who does not
+([ADR 0022](docs/adr/0022-endpoint-ceiling.md)).
 
-Eight seconds is the shortest ceiling that split no word in either test sample; at six,
-`BROTHEL` becomes `BRO` and `THEL`. The clock knows nothing about syllables, so there is no
-value at which that risk is zero.
+Both of those were wrong until today. The first live speech this project ever recognised came
+back as two finals, one of them fourteen seconds long, translated in a lump after the speaker
+stopped. Two causes, found in that order:
+
+`rule3_min_utterance_length=300` was a value in seconds written as though it counted frames,
+so the ceiling was five minutes and could never fire. And the rule that was left doing all
+the work — 1.2 s of trailing silence — turned out to fire on **two of seventy-five** pauses
+in thirty seconds of measured conversational speech. It was effectively switched off.
+
+Real pauses are two populations: gaps inside speech at 0.12–0.22 s, then sentence boundaries
+from about 0.56 s. The threshold is now 0.5 s, in the space between them, giving about one
+utterance every 3.3 seconds instead of every fifteen. `scripts/measure_pauses.py` derives
+those numbers from a live microphone and keeps no audio — durations only — which is what
+makes the parameter tunable without recording anyone.
+
+It also removed most of the ceiling's damage. The ceiling cuts wherever the clock lands,
+including inside a word, and three copies of the test sample used to come out as 20, 22 and
+13 words with `BROTHEL` split across two utterances. They now come out as three whole
+18-word sentences, and the ceiling never fires at all.
 
 **Partials are never translated** ([ADR 0009](docs/adr/0009-translation.md)). Translating
 text that is about to be revised costs an inference per partial — sixteen on the sample
