@@ -142,9 +142,80 @@ OPUS_MT_RU_EN = MarianArtifact(
     ),
 )
 
+# French, both directions (ADR 0032). Each pair publishes two releases, and choosing between
+# them took two rounds — the publisher's scores, and then a question the scores cannot see.
+#
+# Averaged over the twenty test sets both releases of a direction were re-evaluated on:
+#
+#     en-fr   opus-2019-12-04  chrF2 0.63654   wins  4 of 20
+#             opus-2020-02-26  chrF2 0.63899   wins 16 of 20   <- taken
+#     fr-en   opus-2019-12-05  chrF2 0.63359   wins 15 of 20   <- rejected anyway
+#             opus-2020-02-26  chrF2 0.63247   wins  5 of 20   <- taken
+#
+# **The fr-en release that scores better cannot be loaded here.** Its own manifest says
+# `pre-processing: normalization + tokenization + BPE`, and it ships `source.bpe` and
+# `target.bpe` where every other artefact in this file ships `source.spm` and `target.spm`.
+# `opus_mt.py` tokenises with sentencepiece; loading that release means admitting a BPE
+# implementation under Article 12 to buy 0.11 chrF2. It is not worth a dependency, and it
+# would not have been visible from the scores alone.
+#
+# ADR 0009's rule was already "pin an exact URL, because 'the OPUS-MT model for this pair'
+# is not a well-defined phrase". This is what that looks like when two releases of one pair
+# are not even the same kind of artefact.
+#
+# Verified 2026-09-06: both HTTP 200, last modified 2020-02-26, and the downloaded bytes
+# matched the advertised content-length exactly — 278391154 for en-fr and 278208212 for
+# fr-en. That check is not a formality. A first attempt at en-fr was cut off by a timeout at
+# 191651840 bytes and produced a perfectly well-formed SHA-256 of a truncated file, and a
+# second attempt at fr-en was corrupted to 290024502 bytes — larger than the real artefact —
+# by two downloads writing to one path.
+OPUS_MT_EN_FR = MarianArtifact(
+    name="opus-mt-en-fr",
+    url="https://object.pouta.csc.fi/OPUS-MT-models/en-fr/opus-2020-02-26.zip",
+    sha256="fd2431cea589bf136f11a7428f6f84ba960ce42c3e3f5009deef9e10a766d395",
+    source_language="en",
+    target_language="fr",
+    licence="CC-BY-4.0",
+    attribution=(
+        "English-French translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+    members=(
+        "decoder.yml",
+        "opus.spm32k-spm32k.transformer-align.model1.npz.best-perplexity.npz",
+        "opus.spm32k-spm32k.vocab.yml",
+        "source.spm",
+        "target.spm",
+        "LICENSE",
+    ),
+)
+
+OPUS_MT_FR_EN = MarianArtifact(
+    name="opus-mt-fr-en",
+    url="https://object.pouta.csc.fi/OPUS-MT-models/fr-en/opus-2020-02-26.zip",
+    sha256="9bfe937fd2bf1467b6a31ab1730870d4057bd171bd2c5d8083af5528cadbe770",
+    source_language="fr",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "French-English translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+    members=(
+        "decoder.yml",
+        "opus.spm32k-spm32k.transformer-align.model1.npz.best-perplexity.npz",
+        "opus.spm32k-spm32k.vocab.yml",
+        "source.spm",
+        "target.spm",
+        "LICENSE",
+    ),
+)
+
 KNOWN_ARTIFACTS: dict[str, MarianArtifact] = {
     OPUS_MT_EN_RU.name: OPUS_MT_EN_RU,
     OPUS_MT_RU_EN.name: OPUS_MT_RU_EN,
+    OPUS_MT_EN_FR.name: OPUS_MT_EN_FR,
+    OPUS_MT_FR_EN.name: OPUS_MT_FR_EN,
 }
 
 

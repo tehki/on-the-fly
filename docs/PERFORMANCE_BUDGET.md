@@ -998,6 +998,35 @@ at every length tested, so it cannot invent words the way an amplified room does
 And it is excluded from `_audio_seconds`, so it inflates no duration and no real-time factor
 — including the ones in this document.
 
+## Sixteenth measurement — 2026-09-06, four directions at one sample size
+
+Taken to decide French translation (ADR 0032), and it revised something already written
+down. `scripts/measure_translation.py` translates a publisher test set through the shipped
+translator and scores chrF2 against their human references. 1000 sentences per direction,
+same machine, same session, on a machine carrying a load average of 6 to 8 on four cores:
+
+| pair | greedy (shipped) | beam 6 | greedy costs | greedy p50 | beam 6 p50 |
+| --- | --- | --- | --- | --- | --- |
+| `en→ru` | 64.51 | 64.77 | 0.26 | 330 ms | 817 ms |
+| `ru→en` | 71.46 | 72.31 | 0.85 | 319 ms | 488 ms |
+| `en→fr` | 66.31 | 67.03 | 0.72 | 254 ms | 840 ms |
+| `fr→en` | 71.38 | 72.77 | 1.39 | 398 ms | 820 ms |
+
+**French is the fastest of the four at greedy** and sits between the Russian directions on
+quality, so it costs this budget nothing new.
+
+**What changed is the sixth measurement's conclusion.** That one found greedy decoding cost
+*nothing detectable* against the publisher's beam 6, and the finding has been quoted since.
+It was one direction at 300 sentences. At 1000 every direction pays something, up to 1.39
+chrF2 for `fr→en`. Greedy is still right — beam 6 adds 400–580 ms to every final, against a
+p50 already at the 700 ms target under load — but it is a trade rather than a free choice,
+and the documents now say so.
+
+**A caution about every 300-sentence number in this file.** The first 300 sentences of these
+test sets are not representative: on `en-ru`, the publisher's own output scores 65.58 over
+the first 300 and 66.95 over all 5000 — 1.4 chrF2 on identical text, no model involved. Two
+scores are only comparable if they come from the same slice.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
@@ -1009,7 +1038,8 @@ the first condition and within 1.4% in the second. p99 is back inside its hard l
 it was not before.
 
 What keeps the status PROVISIONAL: two language pairs rather than three, read speech on the
-English side, no microphone, and no controlled load environment. The fifteenth measurement
+English side, no microphone, and no controlled load environment. Three language pairs now
+rather than two, which closes part of that. The fifteenth measurement
 adds a caution rather than a number: every accuracy figure in this project taken before
 2026-09-06 was taken against a recogniser that dropped the last word of the stream, so any
 of them derived from whole-file decoding is pessimistic by roughly one word per file. `ru→en` now has a real

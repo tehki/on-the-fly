@@ -91,15 +91,30 @@ def resolve(pair: tuple[str, str], engine: TranslationEngine = DEFAULT_ENGINE) -
 
 
 def open_translator(
-    choice: TranslationChoice, cache_dir: Path | str, *, allow_download: bool = False
+    choice: TranslationChoice,
+    cache_dir: Path | str,
+    *,
+    allow_download: bool = False,
+    beam_size: int | None = None,
 ) -> Translator:
     """Fetch, verify and load the model `choice` names.
 
     Both branches raise rather than returning an unverified model: `ModelStore.ensure` and
     `TranslationModelStore.ensure` each check every pinned digest before anything is loaded,
     and neither has a path that returns a directory it could not verify.
+
+    `beam_size` overrides the shipped decoding width and exists for one caller:
+    `scripts/measure_translation.py`, which has to be able to re-ask ADR 0009's question —
+    *is greedy as good as the publisher's beam 6* — per pair rather than inheriting the
+    answer measured for `en<->ru`. The application never passes it, and the ONNX engine
+    refuses it rather than accepting a setting it does not implement.
     """
     if choice.engine is TranslationEngine.ONNX:
+        if beam_size is not None:
+            raise ValueError(
+                "beam_size is not supported on the ONNX engine, which decodes greedily. "
+                "Measure beam width on CTranslate2, where it is implemented."
+            )
         from on_the_fly.infrastructure.asr.model_store import ModelStore
         from on_the_fly.infrastructure.translation.onnx_translator import load as load_onnx
 
@@ -118,9 +133,11 @@ def open_translator(
     converted, spm = TranslationModelStore(cache_dir, allow_download=allow_download).ensure(
         artefact
     )
+    extra = {} if beam_size is None else {"beam_size": beam_size}
     return load_opus_mt(
         converted,
         spm,
         source_language=artefact.source_language,
         target_language=artefact.target_language,
+        **extra,
     )

@@ -14,6 +14,7 @@ crashes or silently re-attends to nothing).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -27,6 +28,7 @@ from on_the_fly.infrastructure.translation import (
     TranslationEngine,
     TranslationError,
     UnsupportedPairError,
+    open_translator,
     resolve_engine,
     resolve_onnx,
 )
@@ -555,3 +557,29 @@ def test_a_pair_the_requested_engine_cannot_serve_does_not_fall_back() -> None:
 
     with pytest.raises(TranslationArtifactError):
         resolve_engine(("en", "de"), TranslationEngine.ONNX)
+
+
+def test_french_is_served_on_ctranslate2_and_refused_on_onnx() -> None:
+    """ADR 0032 pins the Marian archives and no ONNX export; the engines say so separately.
+
+    Refusing is the point. A caller who asked for the engine that runs on a phone must not
+    be handed the desktop one and told French works there.
+    """
+    assert resolve_engine(("en", "fr")).name == "opus-mt-en-fr"
+    assert resolve_engine(("fr", "en")).name == "opus-mt-fr-en"
+
+    for pair in (("en", "fr"), ("fr", "en")):
+        with pytest.raises(TranslationArtifactError, match="no pinned ONNX"):
+            resolve_engine(pair, TranslationEngine.ONNX)
+
+
+def test_the_onnx_engine_refuses_a_beam_width_it_does_not_implement(tmp_path: Path) -> None:
+    """`beam_size` exists for `scripts/measure_translation.py` and only CTranslate2 has it.
+
+    Accepting and ignoring it would make a measurement labelled "beam 6" report greedy
+    numbers, which is worse than not offering the option.
+    """
+    choice = resolve_engine(("en", "ru"), TranslationEngine.ONNX)
+
+    with pytest.raises(ValueError, match="not supported on the ONNX engine"):
+        open_translator(choice, tmp_path, beam_size=6)

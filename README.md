@@ -2,13 +2,12 @@
 
 Live speech translation. Speak without bounds with anyone worldwide.
 
-> **Status: it translates English and Russian, both directions, live, and now recognises
-> French.** Point it at a WAV file and it will find the utterances, transcribe them with a
-> local, integrity-verified streaming model, and translate the finalised text with
-> `--translate-to`. Both directions keep up with the audio — 0.54x real time for
-> English→Russian, 0.26x for Russian→English. No other pair has a translation model pinned,
-> **French included**: it captions, it does not yet translate
-> ([ADR 0031](docs/adr/0031-french-recognition.md)).
+> **Status: it translates English, Russian and French, live.** Point it at a WAV file and it
+> will find the utterances, transcribe them with a local, integrity-verified streaming model,
+> and translate the finalised text with `--translate-to`. Every pair keeps up with the audio
+> — 0.54x real time for English→Russian, 0.26x for Russian→English. French joined as
+> captions only ([ADR 0031](docs/adr/0031-french-recognition.md)) and now translates in both
+> directions against English ([ADR 0032](docs/adr/0032-french-translation.md)).
 >
 > **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
 > using sherpa-onnx with a pinned Apache-2.0 model
@@ -31,9 +30,32 @@ offer you one of them.
 trained on Common Voice. The publisher reports **10.57% word error** on the full Common Voice
 French test set for the exact checkpoint and decoding method pinned here, and it decodes at
 essentially English's speed — 0.868x against 0.804x median over six paired runs on identical
-audio, on a machine already carrying a load average of 6 to 8 on four cores. It **captions
-only**: no `en↔fr` translation artefact is pinned, so the target picker offers French
-speakers *no translation* and says so rather than implying otherwise.
+audio, on a machine already carrying a load average of 6 to 8 on four cores.
+
+**And it translates, both ways against English**
+([ADR 0032](docs/adr/0032-french-translation.md)). Two more OPUS-MT archives, CC-BY-4.0 read
+out of the archive rather than off a model page. Measured on 1000 sentences of each pair's
+own publisher test set, alongside the two directions that already shipped:
+
+| pair | chrF2 vs human references | translation p50 |
+| --- | --- | --- |
+| `en→ru` | 64.51 | 330 ms |
+| `ru→en` | 71.46 | 319 ms |
+| **`en→fr`** | **66.31** | **254 ms** |
+| **`fr→en`** | **71.38** | **398 ms** |
+
+French is the fastest of the four and sits between the Russian directions on quality. There
+is **no ONNX export pinned for it**, so `--translation-engine onnx --translate-to fr` is
+refused rather than quietly served by the desktop engine — a caller who asked for the engine
+that runs on a phone must not be told French works there.
+
+**Choosing which release to pin took two rounds, and the second one is the interesting one.**
+Both directions publish two releases; the publisher's own re-evaluation over twenty test
+suites picks the 2020 release for `en→fr` and the *2019* one for `fr→en`. That second answer
+is wrong, and no score table could say so: the 2019 `fr-en` release is a **BPE** model —
+`source.bpe`, `target.bpe` — where every artefact here tokenises with sentencepiece. Loading
+it means admitting a BPE implementation on every user's machine to buy 0.11 chrF2. Both
+directions take the 2020 release.
 
 **The other four are not waiting on effort.** They are waiting on two specific things, and
 both are somebody else's to fix:
@@ -416,11 +438,27 @@ Both models cross 1.0 on this machine when it spikes. The honest summary is that
 costs about what English costs, and that neither has much headroom on a laptop doing other
 things.
 
-`--translate-to` has nothing to offer it yet. `scripts/measure_recognition.py` is how that
-model was evaluated before being pinned: point it at a model directory and a folder of wavs
-with a reference transcript, and it reports real-time factor and word error rate the way the
-pipeline decodes — 20 ms frames, decoding between them, rather than a batch pass that would
-flatter a model that cannot keep up.
+And with `--translate-to en` it finishes the job:
+
+```text
+  [   0.00s final  ] CE DERNIER ÉVOLUE TOUT AU LONG DE L'HISTOIRE ROMAINE
+           → The latter evolves throughout Roman history
+```
+
+Two measurement scripts back those numbers, and both are in `scripts/`.
+`measure_recognition.py` decodes a folder of wavs the way the pipeline does — 20 ms frames,
+decoding between them, rather than a batch pass that would flatter a model that cannot keep
+up — and reports real-time factor and word error rate. `measure_translation.py` translates a
+publisher test set through the shipped translator and reports chrF2 and latency; its chrF2 is
+written out rather than pulled in from `sacrebleu`, and checked against Helsinki-NLP's own
+published figure before being trusted — **66.95 where they publish 66.9**.
+
+**Greedy decoding is not free, and the documents used to say it was.** ADR 0009 measured one
+direction at 300 sentences, found greedy indistinguishable from the publisher's beam 6, and
+that finding got quoted. At 1000 sentences every direction pays something — 0.26 chrF2 for
+`en→ru`, up to **1.39 for `fr→en`**. Greedy is still what ships, because beam 6 adds 400–580
+ms to every final against a latency budget already at its target under load. It is a trade,
+not a free lunch, and [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md) now says so.
 
 Add `--translate-to ru` and finalised text is translated as well:
 
