@@ -219,6 +219,14 @@ comes close. The application does not say so, because DRR cannot be derived from
 measures: the reverberant files are *quieter* than the ones that work, and every row above
 reads `input ok`.
 
+The obvious way to detect it was built and rejected
+([ADR 0028](docs/adr/0028-blind-reverberation-estimate.md)). Reverberation fills the gaps
+between words, so `floor/rms` should rise with it — and across thirty-four synthetic mixtures
+it did, separating broken from usable with no missed detections. On five real recordings it
+inverted: the worst run scored *lower* than the best, and an empty room scored highest of all,
+because a statistic measuring energy in the gaps cannot tell a live room from a silent one.
+The synthetic set had exactly one thing wrong with it — every sample contained speech.
+
 **The voice detector used to deafen itself** ([ADR 0025](docs/adr/0025-vad-noise-floor.md)).
 Its noise floor adapted only on frames it called silence — so a frame it *missed* counted as
 silence, lifted the floor, and made the next miss more likely. Sixteen seconds of somebody
