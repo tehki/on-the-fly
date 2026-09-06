@@ -219,6 +219,16 @@ comes close. The application does not say so, because DRR cannot be derived from
 measures: the reverberant files are *quieter* than the ones that work, and every row above
 reads `input ok`.
 
+**Dereverberation was measured and not adopted**
+([ADR 0030](docs/adr/0030-dereverberation.md)). WPE is the standard fix, and single-channel
+WPE was implemented and tuned to find out whether it was worth a dependency. It helps
+consistently — 87.5% word error becomes 41.7% at its best setting — and never damages input
+that already works, so it would need no detector. It was still rejected: it **rescues
+nothing**, moving no broken case below the 15% this project treats as usable; the best setting
+costs **0.84x real time** on top of recognition's 0.399x, against a latency budget already at
+its target under load; and the measurement is offline with full lookahead, so anything live
+would do worse. The same room at 0.4 m instead of 1.0 m measures 2.1% against 87.5%, for free.
+
 **The reference room has now been measured** ([ADR 0029](docs/adr/0029-measured-room.md)).
 Four averaged sine sweeps put its RT60 at roughly **0.6–0.9 s** — a live room, in the half of
 the grid above where the cliff sits. At 0.4 m that predicts 2.1% word error and at 1.0 m
