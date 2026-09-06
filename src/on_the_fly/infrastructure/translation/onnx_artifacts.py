@@ -117,6 +117,54 @@ _RU_EN_FILES = {
 }
 
 
+# French, both directions (ADR 0033). Same publisher, same file set, same int8 choice as the
+# Russian pair above.
+#
+# The joint-vocabulary cross-check the `_RU_EN_FILES` comment describes holds here too, and
+# was used the same way: this export's `source.spm` is the other's `target.spm` and vice
+# versa, `vocab.json` is byte-identical across the two repositories, and only `config.json`
+# differs. Two unrelated exports that happened to share a naming convention would not do
+# that.
+#
+# Their file *sizes* are identical to the byte across both directions — 50065734 for every
+# encoder, 178814001 for every decoder. That is one architecture and one vocabulary size,
+# not one artefact published twice: the digests differ, which is what was checked.
+_EN_FR_FILES = {
+    "onnx/encoder_model_int8.onnx": (
+        "b6190be92972c9674abb94561dcffc12d89463269748be0db459974037319b79"
+    ),
+    "onnx/decoder_model_int8.onnx": (
+        "84e1755a83fb34c110c7edf67ab95348cd2bcf942a1b6cb721bbfc6c7f520ffe"
+    ),
+    "onnx/decoder_with_past_model_int8.onnx": (
+        "34f57a0bf86b0599cccdce0af5ba4458afbc7c7e32922e2b715852e1b11a522c"
+    ),
+    "source.spm": "173e9f493a668fe396d599e28d414a201193094e6ffd7a4678e5aab0f6d3d838",
+    "target.spm": "78d0e717c77053f1c4b856d8661d9cb87c64f083a35418c087b9146300e4f585",
+    "vocab.json": "f2ba9c69ae20f96b8bd821239a9152be422394f980350b77907cffc183db5f2d",
+    "config.json": "5c3abfc0f9fce281e988cce9cd33e157c56ffbddf1271e98b0ee139d4e71942d",
+    "generation_config.json": ("3517305631bcbf7c07429f5c6b85e9e7cbf96e607445cf38f627e6f447055e2f"),
+}
+
+
+_FR_EN_FILES = {
+    "onnx/encoder_model_int8.onnx": (
+        "df4c59dc69e422f504ccb7bf1895f656f20e16542135c1da1d7092b80b17e095"
+    ),
+    "onnx/decoder_model_int8.onnx": (
+        "7dc2836a33957b5db646074806828301ab643a1adc2eabde6c3782cda503cdc9"
+    ),
+    "onnx/decoder_with_past_model_int8.onnx": (
+        "5cd4ea62be08cdb257d9c52b82f743c5bebe7c04baabf25f19300296ca4bf370"
+    ),
+    "source.spm": "78d0e717c77053f1c4b856d8661d9cb87c64f083a35418c087b9146300e4f585",
+    "target.spm": "173e9f493a668fe396d599e28d414a201193094e6ffd7a4678e5aab0f6d3d838",
+    "vocab.json": "f2ba9c69ae20f96b8bd821239a9152be422394f980350b77907cffc183db5f2d",
+    "config.json": "3dfa2f43c43a62be5f95ad61aac93faa139dcfab5d4527633e82df2677bb8d1d",
+    "generation_config.json": ("3517305631bcbf7c07429f5c6b85e9e7cbf96e607445cf38f627e6f447055e2f"),
+}
+
+
 @dataclass(frozen=True)
 class OnnxTranslationModel:
     """A pinned ONNX export serving one direction.
@@ -188,9 +236,58 @@ ONNX_OPUS_MT_RU_EN = OnnxTranslationModel(
     ),
 )
 
+# Both French exports descend from the releases `artifacts.py` pins, and that was checked
+# before either was fetched rather than assumed afterwards: each Hugging Face checkpoint the
+# export was converted from names `opus-2020-02-26.zip` as its original weights, and
+# onnx-community's own metadata names that checkpoint as `base_model`.
+#
+# It matters more here than for Russian. `fr-en` publishes two releases, and the other one is
+# a **BPE** model that ADR 0032 refused for the CTranslate2 side. An ONNX export of that
+# vintage would have run, produced plausible French, and quietly been a different model on
+# one engine than on the other.
+ONNX_OPUS_MT_EN_FR = OnnxTranslationModel(
+    name="onnx-opus-mt-en-fr",
+    pin=ModelPin(
+        name="onnx-opus-mt-en-fr",
+        repo_id="onnx-community/opus-mt-en-fr",
+        revision="060ab253b6aae185f277c1e048fb0cf61a02c6c0",
+        licence="CC-BY-4.0",
+        digests=_EN_FR_FILES,
+    ),
+    source_language="en",
+    target_language="fr",
+    licence="CC-BY-4.0",
+    attribution=(
+        "English-French translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. ONNX conversion by onnx-community. "
+        "https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+)
+
+ONNX_OPUS_MT_FR_EN = OnnxTranslationModel(
+    name="onnx-opus-mt-fr-en",
+    pin=ModelPin(
+        name="onnx-opus-mt-fr-en",
+        repo_id="onnx-community/opus-mt-fr-en",
+        revision="f7e3c392bacfe300a66b0ddbd20de1d2dfc3b77e",
+        licence="CC-BY-4.0",
+        digests=_FR_EN_FILES,
+    ),
+    source_language="fr",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "French-English translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. ONNX conversion by onnx-community. "
+        "https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+)
+
 KNOWN_ONNX_MODELS: dict[str, OnnxTranslationModel] = {
     ONNX_OPUS_MT_EN_RU.name: ONNX_OPUS_MT_EN_RU,
     ONNX_OPUS_MT_RU_EN.name: ONNX_OPUS_MT_RU_EN,
+    ONNX_OPUS_MT_EN_FR.name: ONNX_OPUS_MT_EN_FR,
+    ONNX_OPUS_MT_FR_EN.name: ONNX_OPUS_MT_FR_EN,
 }
 
 

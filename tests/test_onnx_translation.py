@@ -21,7 +21,11 @@ import numpy as np
 import pytest
 
 from on_the_fly.infrastructure.translation import (
+    KNOWN_ARTIFACTS,
+    KNOWN_ONNX_MODELS,
+    ONNX_OPUS_MT_EN_FR,
     ONNX_OPUS_MT_EN_RU,
+    ONNX_OPUS_MT_FR_EN,
     ONNX_OPUS_MT_RU_EN,
     OnnxTranslator,
     TranslationArtifactError,
@@ -559,18 +563,62 @@ def test_a_pair_the_requested_engine_cannot_serve_does_not_fall_back() -> None:
         resolve_engine(("en", "de"), TranslationEngine.ONNX)
 
 
-def test_french_is_served_on_ctranslate2_and_refused_on_onnx() -> None:
-    """ADR 0032 pins the Marian archives and no ONNX export; the engines say so separately.
-
-    Refusing is the point. A caller who asked for the engine that runs on a phone must not
-    be handed the desktop one and told French works there.
-    """
+def test_french_is_served_on_both_engines() -> None:
+    """ADR 0032 pinned the Marian archives; ADR 0033 pinned the exports, so French runs on
+    the engine a phone can run as well as the desktop one."""
     assert resolve_engine(("en", "fr")).name == "opus-mt-en-fr"
     assert resolve_engine(("fr", "en")).name == "opus-mt-fr-en"
+    assert resolve_engine(("en", "fr"), TranslationEngine.ONNX).name == "onnx-opus-mt-en-fr"
+    assert resolve_engine(("fr", "en"), TranslationEngine.ONNX).name == "onnx-opus-mt-fr-en"
 
-    for pair in (("en", "fr"), ("fr", "en")):
-        with pytest.raises(TranslationArtifactError, match="no pinned ONNX"):
-            resolve_engine(pair, TranslationEngine.ONNX)
+
+def test_every_pair_is_served_on_both_engines_or_neither() -> None:
+    """Otherwise `--translation-engine onnx` is a promise the catalogue cannot keep.
+
+    Derived from the two registries rather than listed, so pinning a pair on one engine and
+    forgetting the other fails here instead of at a user's first attempt.
+    """
+    marian = {artefact.pair for artefact in KNOWN_ARTIFACTS.values()}
+    onnx = {model.pair for model in KNOWN_ONNX_MODELS.values()}
+
+    assert marian == onnx, f"served on one engine only: {marian ^ onnx}"
+
+
+def test_the_french_exports_are_pinned_like_the_russian_ones() -> None:
+    for model in (ONNX_OPUS_MT_EN_FR, ONNX_OPUS_MT_FR_EN):
+        assert model.licence == "CC-BY-4.0"
+        assert "CC-BY-4.0" in model.attribution
+        assert "onnx-community" in model.attribution, "the converter must be named too"
+        assert "Helsinki-NLP" in model.attribution
+        assert len(model.pin.digests) == 8
+        assert all(len(digest) == 64 for digest in model.pin.digests.values())
+
+
+def test_the_two_french_exports_share_one_joint_vocabulary() -> None:
+    """A free cross-check that these are one model family rather than two unrelated exports.
+
+    OPUS-MT trains a pair on a single joint sentencepiece vocabulary, so each direction's
+    `source.spm` must be the other's `target.spm`, and `vocab.json` must be byte-identical.
+    Only `config.json` should differ, because only the direction metadata does.
+    """
+    en_fr = ONNX_OPUS_MT_EN_FR.pin.digests
+    fr_en = ONNX_OPUS_MT_FR_EN.pin.digests
+
+    assert en_fr["source.spm"] == fr_en["target.spm"]
+    assert en_fr["target.spm"] == fr_en["source.spm"]
+    assert en_fr["vocab.json"] == fr_en["vocab.json"]
+    assert en_fr["config.json"] != fr_en["config.json"]
+
+
+def test_the_two_french_exports_are_not_the_same_weights() -> None:
+    """Their file sizes are identical to the byte across both directions — one architecture
+    and one vocabulary size. The digests are what distinguish them, so they are asserted."""
+    for name in (
+        "onnx/encoder_model_int8.onnx",
+        "onnx/decoder_model_int8.onnx",
+        "onnx/decoder_with_past_model_int8.onnx",
+    ):
+        assert ONNX_OPUS_MT_EN_FR.pin.digests[name] != ONNX_OPUS_MT_FR_EN.pin.digests[name]
 
 
 def test_the_onnx_engine_refuses_a_beam_width_it_does_not_implement(tmp_path: Path) -> None:
