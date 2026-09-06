@@ -1058,15 +1058,17 @@ idle and 710 ms with three of four cores busy, against a 700 ms target — met c
 the first condition and within 1.4% in the second. p99 is back inside its hard limit, which
 it was not before.
 
-What keeps the status PROVISIONAL: two language pairs rather than three, read speech on the
-English side, no microphone, and no controlled load environment. Three language pairs now
-rather than two, which closes part of that. The fifteenth measurement
-adds a caution rather than a number: every accuracy figure in this project taken before
-2026-09-06 was taken against a recogniser that dropped the last word of the stream, so any
-of them derived from whole-file decoding is pessimistic by roughly one word per file. `ru→en` now has a real
-distribution on spontaneous speech, which closes the gap the seventh measurement recorded.
-One remaining gap is a product decision, one is hardware, and one — a quiet machine — is
-what the eighth measurement shows matters most.
+What keeps the status PROVISIONAL: read speech on the English side, no microphone, and no
+controlled load environment. `ru→en` has a real distribution on spontaneous speech, which
+closed the gap the seventh measurement recorded, and the pair count closed with it — the
+sixteenth and seventeenth measurements cover **four** pairs on two engines, where this line
+once said two. One remaining gap is a product decision, one is hardware, and one — a quiet
+machine — is what the eighth measurement shows matters most.
+
+The fifteenth measurement adds a caution rather than a number: every accuracy figure in this
+project taken before 2026-09-06 was measured against a recogniser that dropped the last word
+of the stream, so any of them derived from whole-file decoding is pessimistic by roughly one
+word per file.
 
 ## Owner and review
 

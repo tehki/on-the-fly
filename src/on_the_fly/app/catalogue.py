@@ -1,21 +1,27 @@
 """What this project can actually serve, as opposed to what it names.
 
-`domain/languages.py` records the tier a language *could* be served at, and all seven of
-them are `STREAMING` because a published streaming model exists for each. Whether one has
-been pinned, licence-checked and committed is a different question, and only English and
-Russian answer it yes (ADR 0008, ADR 0012). Translation narrows it again: two directions of
-one pair (ADR 0009).
+Recognition needs a tier *and* a pin; translation needs an artefact for the exact direction.
+This module is the one place that asks all of those at once, so that an interface can offer
+only what will work.
 
-The command line asks the second question. `resolve_streaming` refuses `--language de`
-before a device is opened, with a sentence that says what is missing. A picker built from
-the tier asks the first, offers forty-nine pairs, serves two, and tells the user which is
-which only after they press Listen — by which point the window has already promised the
-pair it is about to fail on.
+It was written because the two disagreed. `domain/languages.py` marked all seven languages
+`STREAMING` on ADR 0007's evidence that a published model existed for each — a fact about
+Hugging Face rather than about this repository — while only two had a pin. A picker built
+from that table offered forty-nine pairs, served two, and told the user which was which only
+after they pressed Listen, by which point the window had already promised the pair it was
+about to fail on.
 
-So this module derives the offer from the pin registries themselves. It answers by asking
-the same resolvers every other caller asks, rather than keeping a second list of servable
-pairs that could drift from the first. Nothing here touches the network or loads a model:
-these are table lookups over pins that are already in the source tree.
+ADR 0034 has since fixed the registry to describe what this project serves, so the tier and
+the pins now agree: English, Russian and French stream, and the other four are `BATCH`
+through Whisper. That makes the two conditions in `can_recognise` belt and braces rather
+than a contradiction — which is the right state for them to be in, and not a reason to drop
+either. A pin added without a tier change, or the reverse, is exactly the drift this module
+exists to refuse.
+
+It answers by asking the same resolvers every other caller asks, rather than keeping a
+second list of servable pairs that could get out of step with the first. Nothing here
+touches the network or loads a model: these are table lookups over pins that are already in
+the source tree.
 """
 
 from __future__ import annotations
@@ -40,10 +46,10 @@ def streaming_pin_name(code: str) -> str:
 def can_recognise(code: str) -> bool:
     """Whether live recognition of `code` is something this project can actually do.
 
-    Two conditions, and the second is the one that keeps being forgotten: the language must
-    be served at the streaming tier, *and* a model for it must be pinned. A language can
-    have a published streaming model — all seven do — without this repository having
-    adopted one.
+    Two conditions: the language must be served at the streaming tier, *and* a model for it
+    must be pinned. Since ADR 0034 those cannot disagree for any language currently in the
+    registry, because the tier is assigned from the pin. Both are still checked, because the
+    day they disagree is the day this matters — and refusing is the safe direction.
     """
     language = SUPPORTED.get(code.strip().lower())
     if language is None or language.tier is not RecognitionTier.STREAMING:
