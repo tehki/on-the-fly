@@ -90,10 +90,10 @@ def build_worker() -> Any:
             from on_the_fly.app.pipeline import StreamingRun, translate_finals
             from on_the_fly.domain.audio.levels import InputQuality, LevelWatchingSource
             from on_the_fly.domain.audio.settling import SettlingSource
-            from on_the_fly.infrastructure.asr import ModelStore
             from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS, resolve
             from on_the_fly.infrastructure.asr.sherpa_streaming import SherpaStreamingRecognizer
             from on_the_fly.infrastructure.audio import MicrophoneSource
+            from on_the_fly.infrastructure.model_store import ModelStore
             from on_the_fly.infrastructure.translation import open_translator, resolve_engine
 
             # Everything that can be refused is refused before the microphone is opened.

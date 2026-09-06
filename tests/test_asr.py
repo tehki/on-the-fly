@@ -27,17 +27,19 @@ from on_the_fly.infrastructure.asr import (
     DEFAULT_MODEL,
     KNOWN_MODELS,
     FasterWhisperRecognizer,
+    RecognitionError,
+    resolve,
+)
+from on_the_fly.infrastructure.audio import WavFileSource
+from on_the_fly.infrastructure.model_store import (
     ModelIntegrityError,
     ModelNotPresentError,
     ModelPin,
     ModelStore,
     ModelStoreError,
-    RecognitionError,
     compute_digests,
     file_digest,
-    resolve,
 )
-from on_the_fly.infrastructure.audio import WavFileSource
 
 RATE = 16_000
 

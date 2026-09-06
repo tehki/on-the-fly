@@ -44,8 +44,6 @@ from on_the_fly.infrastructure.asr import (
     KNOWN_MODELS,
     STREAMING_LAYOUTS,
     FasterWhisperRecognizer,
-    ModelStore,
-    ModelStoreError,
     RecognitionError,
     SherpaStreamingRecognizer,
     StreamingRecognitionError,
@@ -54,6 +52,7 @@ from on_the_fly.infrastructure.asr import (
 from on_the_fly.infrastructure.audio.backend import AudioDeviceError
 from on_the_fly.infrastructure.audio.microphone import MicrophoneSource
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
+from on_the_fly.infrastructure.model_store import ModelStore, ModelStoreError
 from on_the_fly.infrastructure.translation import (
     DEFAULT_ENGINE,
     TranslationArtifactError,

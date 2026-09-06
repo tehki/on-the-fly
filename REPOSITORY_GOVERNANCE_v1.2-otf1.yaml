@@ -56,6 +56,10 @@ security_sensitive_paths:
   - /src/on_the_fly/app/
   - /src/on_the_fly/infrastructure/asr/
   - /src/on_the_fly/infrastructure/translation/
+  # Model trust itself, which is neither speech nor translation and serves both. It was
+  # inside /infrastructure/asr/ until 2026-09-06; listed explicitly so moving the file did
+  # not quietly move it out of code-owner review.
+  - /src/on_the_fly/infrastructure/model_store.py
   - /scripts/pin_model.py
   - /requirements.txt
 development_flow:

@@ -352,6 +352,7 @@ endpointing and never touched it.
 | `src/on_the_fly/domain/retention/` | The ten-second rule, enforced at runtime |
 | `src/on_the_fly/domain/audio/` | Capture, voice activity detection, utterance segmentation |
 | `src/on_the_fly/infrastructure/audio/` | Microphone and WAV adapters — the only place PortAudio exists |
+| `src/on_the_fly/infrastructure/model_store.py` | Model pins and digest verification, for both engines |
 | `src/on_the_fly/infrastructure/asr/` | Pinned models and the Whisper recogniser |
 | `src/on_the_fly/infrastructure/translation/` | Pinned translation artefacts and both translators, CTranslate2 and ONNX Runtime |
 | `src/on_the_fly/app/` | Composition root and command line |
