@@ -18,13 +18,22 @@ Live speech translation. Speak without bounds with anyone worldwide.
 
 ## Languages
 
-Seven, at two tiers ([ADR 0007](docs/adr/0007-supported-languages.md)):
+Seven, at two tiers ([ADR 0007](docs/adr/0007-supported-languages.md),
+[ADR 0034](docs/adr/0034-tiers-describe-this-project.md)):
 
-Seven: English, Russian, Spanish, Italian, French, Portuguese, German. Each has a published
-streaming model, so results appear while you speak. **English, Russian and French are pinned
-and measured**; the other four are named because a model exists, not because one has been
-adopted, licence-checked or tested — and neither the command line nor the window will now
-offer you one of them.
+**Streaming — English, Russian, French.** A model is pinned, verified and measured here, and
+text appears while you are still talking.
+
+**Batch — Spanish, Italian, Portuguese, German.** `transcribe` runs them through Whisper, an
+utterance at a time and several seconds behind. They cannot stream, and **nobody here has
+measured how well Whisper does on any of them**, so that is a statement about latency rather
+than about quality.
+
+Those four were marked streaming until ADR 0034, on ADR 0007's evidence that a published
+streaming model existed for each — which is a fact about Hugging Face rather than about this
+repository. It managed to overstate and understate them at once: it promised live captions
+that do not exist, and it made the command line answer a request for German with advice about
+pinning a model instead of naming the command that works.
 
 **French is the third** ([ADR 0031](docs/adr/0031-french-recognition.md)), Apache-2.0 and
 trained on Common Voice. The publisher reports **10.57% word error** on the full Common Voice
@@ -80,14 +89,13 @@ it means admitting a BPE implementation on every user's machine to buy 0.11 chrF
 directions take the 2020 release.
 
 **The other four are not waiting on effort.** They are waiting on two specific things, and
-both are somebody else's to fix:
+both are somebody else's to fix — one commit adding a real licence file would make four
+languages evaluable again:
 
 | | |
 | --- | --- |
-| The `kroko` family — `es`, `fr`, `it`, `de`, `pt` from one publisher, and ADR 0007's strongest lead | Its republications say only *"See license at Banafo/Kroko-ASR"*. That repository declares `license: other`, `license_name: test`, `license_link: LICENSE` — and **the LICENSE file is empty**, zero bytes, unchanged since 2025-01-29. A README saying "our community models are CC-BY-SA" is prose, not a grant. ADR 0007's own rule, written about Tajik: *no licence is not permission.* |
+| The `kroko` family — `es`, `it`, `de`, `pt` and also `fr`, from one publisher, and ADR 0007's strongest lead | Its republications say only *"See license at Banafo/Kroko-ASR"*. That repository declares `license: other`, `license_name: test`, `license_link: LICENSE` — and **the LICENSE file is empty**, zero bytes, unchanged since 2025-01-29. A README saying "our community models are CC-BY-SA" is prose, not a grant. ADR 0007's own rule, written about Tajik: *no licence is not permission.* |
 | `bookbot/…-streaming-robust-es-v0` — genuinely Apache-2.0, and the smallest model found | It is a **phoneme recogniser**. Its vocabulary is 37 IPA symbols where the English pin has 502 word-pieces; it emits `["w", "ɑ", "ʃ", "i", "ɑ"]`, not words. Unreadable as a caption and untranslatable as input. |
-
-One commit adding a real licence file would make five languages evaluable at once.
 
 **Tajik was the eighth and has been removed** ([ADR 0010](docs/adr/0010-drop-tajik.md)). It
 had no streaming model anywhere, no licence-clean batch model this project could load

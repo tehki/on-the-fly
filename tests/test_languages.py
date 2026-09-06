@@ -29,12 +29,28 @@ def test_the_seven_supported_languages_are_present() -> None:
 
 
 def test_the_tiers_match_what_can_actually_be_served() -> None:
-    """ADR 0007's evidence, ADR 0010's removal, ADR 0012's restoration of Russian."""
+    """The tier is about this repository, not about Hugging Face (ADR 0034).
+
+    ADR 0007 assigned STREAMING to all seven on the evidence that a published streaming
+    model existed for each. ADR 0031 found four of those cannot be adopted, and they are
+    served in batch instead — so the tiers now say which is which.
+    """
     streaming = {lang.code for lang in streaming_languages()}
     batch = {lang.code for lang in batch_languages()}
 
-    assert streaming == {"en", "ru", "es", "it", "fr", "pt", "de"}
-    assert batch == set()
+    assert streaming == {"en", "ru", "fr"}
+    assert batch == {"es", "it", "pt", "de"}
+    assert streaming | batch == set(SUPPORTED)
+
+
+def test_every_batch_language_says_why_it_is_not_streaming() -> None:
+    """`has_caveat` exists so a UI cannot render the set without deciding what to do about
+    it. It had no members to guard between ADR 0010 and ADR 0034; now it has four."""
+    for language in batch_languages():
+        assert language.has_caveat
+        assert language.note
+
+    assert all(not language.has_caveat for language in streaming_languages())
 
 
 def test_russian_streams_again() -> None:
@@ -88,7 +104,8 @@ def test_lookup_is_forgiving_about_case_and_spacing() -> None:
 
 
 def test_rendering_a_language_states_its_tier() -> None:
-    assert "STREAMING" in str(resolve("de"))
+    assert "BATCH" in str(resolve("de"))
+    assert "STREAMING" in str(resolve("fr"))
 
 
 def test_a_language_is_immutable() -> None:
