@@ -34,6 +34,9 @@ TINY = ModelPin(
 # entries stay readable rather than wrapping mid-hash.
 _EN_VARIANT = "epoch-99-avg-1-chunk-16-left-64.int8.onnx"
 
+# The same, for French. No chunk size in the name: a different icefall recipe.
+_FR_VARIANT = "epoch-29-avg-9-with-averaged-model.int8.onnx"
+
 # Streaming English (ADR 0006, ADR 0008). Apache-2.0, 72.7 MB. The int8 chunk-16-left-64
 # variant: the smaller left context is the lower-latency one, which is the whole point.
 STREAMING_EN = ModelPin(
@@ -86,6 +89,35 @@ STREAMING_RU = ModelPin(
     },
 )
 
+# Streaming French (ADR 0031). Apache-2.0, 128.2 MB across three int8 files.
+#
+# A third publisher, and the first model here that is a republication of somebody else's
+# training run: `shaojieli` exported it to ONNX from their own icefall recipe trained on
+# Common Voice French, and the model card names that source repository. Both declare
+# Apache-2.0.
+#
+# The file names carry no chunk size, because this is the `pruned_transducer_stateless7_
+# streaming` recipe rather than the chunked exports the English and Russian pins use. The
+# streaming geometry is baked into the graph instead of selected by filename.
+STREAMING_FR = ModelPin(
+    name="streaming-fr",
+    repo_id="shaojieli/sherpa-onnx-streaming-zipformer-fr-2023-04-14",
+    revision="3db9565d9633758d6b87b9a7b3dc09ebfb6b2c73",
+    licence="Apache-2.0",
+    digests={
+        f"decoder-{_FR_VARIANT}": (
+            "e72b2b9ed36355bd0dd43433f7dd258e7226ab54c9ef42b28c73ebb785805623"
+        ),
+        f"encoder-{_FR_VARIANT}": (
+            "47a94a7fdc8dff63d708be4ea0535747640224467f91e238311f1ddbdd09327e"
+        ),
+        f"joiner-{_FR_VARIANT}": (
+            "fc2f3bb851a15a532c6f2422d53eecd1ca949f12b0897e07a852021c30481711"
+        ),
+        "tokens.txt": "37fb3f2a7bcb85e5fff3f1f66be04e6fbb05077a22f56d177fe85704e945fb31",
+    },
+)
+
 # Which file plays which role, per pin. The English model names its files after a training
 # epoch and the Russian one after a chunk size; neither is a convention worth guessing at.
 STREAMING_LAYOUTS: dict[str, StreamingLayout] = {
@@ -96,12 +128,18 @@ STREAMING_LAYOUTS: dict[str, StreamingLayout] = {
         joiner="am-onnx/joiner.chunk64.onnx",
         tokens="lang/tokens.txt",
     ),
+    STREAMING_FR.name: StreamingLayout(
+        encoder=f"encoder-{_FR_VARIANT}",
+        decoder=f"decoder-{_FR_VARIANT}",
+        joiner=f"joiner-{_FR_VARIANT}",
+    ),
 }
 
 KNOWN_MODELS: dict[str, ModelPin] = {
     TINY.name: TINY,
     STREAMING_EN.name: STREAMING_EN,
     STREAMING_RU.name: STREAMING_RU,
+    STREAMING_FR.name: STREAMING_FR,
 }
 
 DEFAULT_MODEL = TINY
