@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,120 @@ def check_branch_rules(governance: dict[str, Any], errors: list[str]) -> None:
                 errors.append("approval_limitation.compensating_controls must not be empty")
             if not limitation.get("removal_condition"):
                 errors.append("approval_limitation.removal_condition must be stated (Article 13)")
+
+
+# Article 13's nine fields, as they are written in docs/EXCEPTIONS.md. Compensating controls
+# are prose rather than a table row, so they are checked separately.
+EXCEPTION_TABLE_FIELDS = (
+    "Status",
+    "Owner",
+    "Reason",
+    "Scope",
+    "Risk",
+    "Approved by",
+    "Issued at",
+    "Expires at",
+    "Removal condition",
+)
+EXCEPTION_STATUSES = ("ACTIVE", "EXPIRED", "REMOVED")
+
+
+def parse_exception_records(text: str) -> dict[str, dict[str, str]]:
+    """Read `docs/EXCEPTIONS.md` into `{identifier: {field: value}}`.
+
+    Each record is a `## EXC-...` heading followed by a `| **Field** | Value |` table. The
+    parser is deliberately literal: a record whose fields it cannot read is a record whose
+    expiry nobody can check, and that must surface as a violation rather than be skipped.
+    """
+    records: dict[str, dict[str, str]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        heading = re.match(r"^##\s+(EXC-\d{4}-\d{2}-\d{2}-\d+)", line.strip())
+        if heading:
+            current = heading.group(1)
+            records[current] = {}
+            continue
+        if line.startswith("## "):
+            current = None
+            continue
+        if current is None:
+            continue
+        row = re.match(r"^\|\s*\*\*(.+?)\*\*\s*\|\s*(.*?)\s*\|$", line.strip())
+        if row:
+            records[current][row.group(1).strip()] = row.group(2).strip()
+        elif "**Compensating controls**" in line or "**Compensating controls:**" in line:
+            records[current]["Compensating controls"] = "present"
+    return records
+
+
+def check_exception_records(
+    governance: dict[str, Any], errors: list[str], today: date | None = None
+) -> None:
+    """Exceptions carry Article 13's fields, and none has outlived its expiry.
+
+    `check_branch_rules` already refuses a zero-approval requirement that cites no exception,
+    and refuses one whose identifier is absent from the register. What it cannot see is the
+    thing Article 13 is actually about: *"An exception that has passed its expiry authorises
+    nothing, whatever the code still does."* Nothing read the date, so the register could go
+    on authorising a relaxed control for as long as nobody reread it.
+
+    So the expiry is enforced against the clock, and a cited record must additionally still
+    be ACTIVE — a governance manifest pointing at a REMOVED exception is authorised by
+    nothing at all.
+    """
+    if not EXCEPTIONS_FILE.exists():
+        return
+
+    now = today or date.today()
+    records = parse_exception_records(EXCEPTIONS_FILE.read_text(encoding="utf-8"))
+    if not records:
+        errors.append(f"docs/{EXCEPTIONS_FILE.name} contains no parseable exception records")
+        return
+
+    for identifier, fields in sorted(records.items()):
+        missing = [
+            field
+            for field in (*EXCEPTION_TABLE_FIELDS, "Compensating controls")
+            if not fields.get(field)
+        ]
+        if missing:
+            errors.append(f"{identifier} is missing Article 13 field(s): {', '.join(missing)}")
+
+        status = fields.get("Status", "")
+        if status and status not in EXCEPTION_STATUSES:
+            errors.append(
+                f"{identifier} has status {status!r}; expected one of "
+                f"{', '.join(EXCEPTION_STATUSES)}"
+            )
+
+        raw_expiry = fields.get("Expires at", "")
+        if not raw_expiry:
+            continue
+        try:
+            expires = date.fromisoformat(raw_expiry)
+        except ValueError:
+            errors.append(
+                f"{identifier} has an unreadable expiry {raw_expiry!r}; it must be an "
+                "ISO date (YYYY-MM-DD) so that it can be checked against the clock"
+            )
+            continue
+
+        if status == "ACTIVE" and expires < now:
+            errors.append(
+                f"{identifier} is ACTIVE but expired on {expires.isoformat()}. An exception "
+                "past its expiry authorises nothing (Article 13): either renew it "
+                "deliberately with a new expiry, or remove the behaviour it covers and mark "
+                "it EXPIRED."
+            )
+
+    cited = (governance.get("approval_limitation") or {}).get("exception_record")
+    if cited and cited in records:
+        status = records[cited].get("Status", "")
+        if status and status != "ACTIVE":
+            errors.append(
+                f"approval_limitation cites {cited}, whose status is {status}. A relaxed "
+                "control must be authorised by a live exception, not a closed one."
+            )
 
 
 def parse_codeowners_patterns(text: str) -> list[str]:
@@ -413,6 +528,7 @@ def main() -> int:
     check_validation_lanes(governance, errors)
     check_sensitive_paths(governance, errors)
     check_source_classification(governance, errors)
+    check_exception_records(governance, errors)
     check_ci_wiring(governance, errors)
     check_truthfulness(governance, errors)
     check_cross_document_versions(governance, errors)

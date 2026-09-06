@@ -177,6 +177,13 @@ Stated plainly, because the failure mode of governance work is believing it is f
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.
 - **Dependencies are version-pinned but not hash-pinned.**
+- **Renewing an exception is a human decision; only the deadline is enforced.** Since
+  2026-09-07 `check_exception_records` fails the build when an `ACTIVE` record in
+  `docs/EXCEPTIONS.md` has passed its expiry, when a record is missing one of Article 13's
+  nine fields, or when the manifest cites an exception that is no longer live. What it
+  cannot do is decide whether an exception still deserves to exist — it forces someone to
+  look on the day, and `EXC-2026-09-01-001` expires 2027-03-01.
+
 - **What counts as security-sensitive is a human judgement, and only its bookkeeping is
   checked.** Since 2026-09-06 every `.py` file under `src/` must appear either in
   `security_sensitive_paths.paths` or in `reviewed_not_sensitive`, and

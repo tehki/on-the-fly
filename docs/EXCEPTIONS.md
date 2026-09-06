@@ -6,8 +6,15 @@ approving authority, compensating controls, issue time, explicit expiry, and rem
 condition. An exception that has passed its expiry authorises nothing, whatever the code
 still does.
 
-`scripts/validate_repository_governance.py` fails the build if the governance manifest
-cites a record that is not present in this file.
+`scripts/validate_repository_governance.py` fails the build if the governance manifest cites
+a record that is not present in this file, if a record is missing any of those nine fields,
+if a record's expiry is not an ISO date it can compare against the clock — and, since
+2026-09-07, **if an `ACTIVE` record has passed its expiry**. Until then the sentence above
+was a claim with nothing behind it: nothing read the date, so a relaxed control could go on
+being authorised by a dead exception for as long as nobody reread this file.
+
+A record cited by the governance manifest must also still be `ACTIVE`. A manifest pointing at
+a `REMOVED` exception is authorised by nothing at all.
 
 ## Status legend
 
