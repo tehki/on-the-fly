@@ -21,6 +21,11 @@ from on_the_fly.infrastructure.asr import (
     StreamingRecognitionError,
     resolve,
 )
+from on_the_fly.infrastructure.asr.sherpa_streaming import (
+    MAX_UTTERANCE_SECONDS,
+    SILENCE_AFTER_SPEECH_SECONDS,
+    SILENCE_BEFORE_ANY_SPEECH_SECONDS,
+)
 
 RATE = 16_000
 
@@ -146,3 +151,63 @@ def test_real_speech_produces_partials_then_a_final() -> None:
     # Partials grow: the model revises a hypothesis rather than appending blindly.
     assert len(partials[0].text) < len(partials[-1].text)
     assert finals[-1].text.strip()
+
+
+# ======================================================================================
+# Endpointing (ADR 0022)
+# ======================================================================================
+
+
+def test_the_endpoint_rules_are_seconds_and_plausibly_so() -> None:
+    """The bug this guards against was a units error, and units errors are silent.
+
+    A ceiling of 300 reads perfectly well as frames and is five minutes as seconds. Nothing
+    fails, nothing logs, and utterances simply stop ending.
+    """
+    assert 0.0 < SILENCE_AFTER_SPEECH_SECONDS <= SILENCE_BEFORE_ANY_SPEECH_SECONDS
+    # A conversation's turn, not a lecture. Anything above this is not a ceiling.
+    assert SILENCE_BEFORE_ANY_SPEECH_SECONDS < MAX_UTTERANCE_SECONDS <= 15.0
+
+
+def test_continuous_speech_is_broken_into_utterances() -> None:
+    """Speech that never pauses must still produce more than one final.
+
+    The regression: with the ceiling disabled, only trailing silence could end an utterance,
+    so someone reading aloud produced a single final covering everything they said and a
+    translation that arrived after they stopped.
+    """
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+        rate = reader.getframerate()
+
+    # Repeated end to end, so there is no pause anywhere in it and only the ceiling can fire.
+    continuous = audio * 3
+    seconds = len(continuous) / (rate * 2)
+    assert seconds > MAX_UTTERANCE_SECONDS, "the sample must outlast the ceiling to test it"
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    frame_bytes = (rate // 50) * 2
+    finals: list[TranscriptEvent] = []
+    for offset in range(0, len(continuous) - frame_bytes, frame_bytes):
+        finals.extend(
+            event
+            for event in recognizer.accept(continuous[offset : offset + frame_bytes])
+            if event.is_final
+        )
+
+    # The last utterance is still open when the audio runs out; the pipeline always calls
+    # finish(), and without it the tail would be measured as an utterance that never ended.
+    finals.extend(event for event in recognizer.finish() if event.is_final)
+
+    assert len(finals) > 1, "continuous speech produced one run-on utterance"
+    starts = [event.audio_offset_seconds for event in finals]
+    longest = max(
+        [starts[i + 1] - starts[i] for i in range(len(starts) - 1)] + [seconds - starts[-1]]
+    )
+    # The ceiling is a clock, so an utterance may overrun it by the frame it is detected in.
+    assert longest <= MAX_UTTERANCE_SECONDS + 1.0, f"an utterance ran {longest:.1f}s"
