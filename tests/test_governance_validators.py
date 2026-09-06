@@ -262,6 +262,123 @@ def test_codeowners_parser_ignores_comments_and_blank_lines() -> None:
 
 
 # ---------------------------------------------------------------------------------------
+# Every source file is classified.
+#
+# The path check can only ask whether a declared path still exists and has an owner. The
+# failure it cannot see is code moving *out* of a protected directory: the behaviour is
+# unchanged, the review is gone, and nothing says so. These tests drive that from both
+# ends, because a check that cannot fail is not a check.
+# ---------------------------------------------------------------------------------------
+
+
+def classification_manifest(**overrides: Any) -> dict[str, Any]:
+    """The shape `check_source_classification` reads, with this repository's real paths."""
+    section: dict[str, Any] = {
+        "paths": [
+            "/src/on_the_fly/domain/retention/",
+            "/src/on_the_fly/domain/audio/",
+            "/src/on_the_fly/infrastructure/audio/",
+            "/src/on_the_fly/infrastructure/asr/",
+            "/src/on_the_fly/infrastructure/translation/",
+            "/src/on_the_fly/infrastructure/model_store.py",
+            "/src/on_the_fly/app/",
+            "/src/on_the_fly/ui/",
+        ],
+        "reviewed_not_sensitive": [
+            "/src/on_the_fly/__init__.py",
+            "/src/on_the_fly/__main__.py",
+            "/src/on_the_fly/domain/__init__.py",
+            "/src/on_the_fly/infrastructure/__init__.py",
+            "/src/on_the_fly/domain/languages.py",
+        ],
+    }
+    section.update(overrides)
+    return {"security_sensitive_paths": section}
+
+
+def test_this_repository_classifies_every_source_file() -> None:
+    errors: list[str] = []
+    governance_validator.check_source_classification(classification_manifest(), errors)
+
+    assert errors == []
+
+
+def test_a_file_that_left_a_protected_directory_is_caught() -> None:
+    """The failure mode this check exists for, and one that actually happened.
+
+    `model_store.py` moved out of `infrastructure/asr/` to the package root. Drop its
+    explicit rule and the digest verification deciding which weights may be loaded is
+    unreviewed, with every other check still green.
+    """
+    paths = [
+        path
+        for path in classification_manifest()["security_sensitive_paths"]["paths"]
+        if path != "/src/on_the_fly/infrastructure/model_store.py"
+    ]
+    errors: list[str] = []
+    governance_validator.check_source_classification(classification_manifest(paths=paths), errors)
+
+    assert any("model_store.py" in error for error in errors)
+
+
+def test_an_unclassified_file_is_refused_rather_than_assumed_safe() -> None:
+    """Silence must not mean "not sensitive". A new file has to be given a home."""
+    exempt = [
+        path
+        for path in classification_manifest()["security_sensitive_paths"]["reviewed_not_sensitive"]
+        if path != "/src/on_the_fly/domain/languages.py"
+    ]
+    errors: list[str] = []
+    governance_validator.check_source_classification(
+        classification_manifest(reviewed_not_sensitive=exempt), errors
+    )
+
+    assert any("languages.py" in error and "neither" in error for error in errors)
+
+
+def test_an_exemption_for_a_file_that_no_longer_exists_is_refused() -> None:
+    """A stale exemption is a decision nobody is making any more."""
+    errors: list[str] = []
+    governance_validator.check_source_classification(
+        classification_manifest(
+            reviewed_not_sensitive=["/src/on_the_fly/domain/deleted_last_year.py"]
+        ),
+        errors,
+    )
+
+    assert any("does not exist" in error for error in errors)
+
+
+def test_a_file_that_is_both_protected_and_exempt_is_refused() -> None:
+    """Two answers is not an answer, and the exemption is the one that would be believed."""
+    errors: list[str] = []
+    governance_validator.check_source_classification(
+        classification_manifest(
+            reviewed_not_sensitive=[
+                "/src/on_the_fly/__init__.py",
+                "/src/on_the_fly/__main__.py",
+                "/src/on_the_fly/domain/__init__.py",
+                "/src/on_the_fly/infrastructure/__init__.py",
+                "/src/on_the_fly/domain/languages.py",
+                "/src/on_the_fly/app/cli.py",
+            ]
+        ),
+        errors,
+    )
+
+    assert any("also covered by a protected path" in error for error in errors)
+
+
+def test_the_desktop_composition_root_is_protected() -> None:
+    """`ui/app.py` opens the microphone and wires the retention store, exactly as
+    `app/cli.py` does. It was unclassified until this check was written."""
+    manifest = governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE)
+    paths = manifest["security_sensitive_paths"]["paths"]
+
+    assert "/src/on_the_fly/ui/" in paths
+
+
+# ---------------------------------------------------------------------------------------
 # Article 15 authorization boundaries, added upstream in Constitution 1.3.
 #
 # All three controls are ways of not asking for approval again, so each one is only safe

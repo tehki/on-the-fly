@@ -142,6 +142,74 @@ def check_sensitive_paths(governance: dict[str, Any], errors: list[str]) -> None
             errors.append(f"security_sensitive_paths: {declared} has no CODEOWNERS rule")
 
 
+SOURCE_ROOT = REPO_ROOT / "src"
+
+
+def classification_of(relative: str, sensitive: list[str]) -> bool:
+    """Whether a repository-relative path is covered by any declared sensitive path."""
+    for declared in sensitive:
+        target = str(declared).lstrip("/")
+        if target.endswith("/"):
+            if relative.startswith(target):
+                return True
+        elif relative == target:
+            return True
+    return False
+
+
+def check_source_classification(governance: dict[str, Any], errors: list[str]) -> None:
+    """Every source file is protected, or is declared in writing not to need protecting.
+
+    `check_sensitive_paths` asks whether each declared path exists and has an owner. It
+    cannot see the opposite failure, which is the one that happens by accident: code that
+    moves *out* of a protected directory keeps every line of its behaviour and silently
+    loses its review, and nothing in this repository would have said so.
+
+    That is not hypothetical. `model_store.py` — which decides which model weights may be
+    loaded — moved from `infrastructure/asr/` to the package root, and `/src/on_the_fly/
+    infrastructure/` is not itself a declared path. Writing this check also found that
+    `ui/app.py` had never been covered at all, despite opening the microphone and wiring
+    the retention store, which is exactly what `/src/on_the_fly/app/` is protected for.
+
+    So the rule is that no source file may be unclassified. Adding one costs a line in the
+    manifest and a decision about which list it belongs in, which is the right amount of
+    friction for adding code to an application arranged around a retention promise.
+    """
+    section = governance.get("security_sensitive_paths", {})
+    sensitive = [str(path) for path in (section.get("paths") or [])]
+    exempt_declared = [str(path) for path in (section.get("reviewed_not_sensitive") or [])]
+    exempt = {path.lstrip("/") for path in exempt_declared}
+
+    if not SOURCE_ROOT.is_dir():
+        errors.append("security_sensitive_paths: src/ does not exist")
+        return
+
+    for source in sorted(SOURCE_ROOT.rglob("*.py")):
+        if "__pycache__" in source.parts:
+            continue
+        relative = source.relative_to(REPO_ROOT).as_posix()
+        if classification_of(relative, sensitive) or relative in exempt:
+            continue
+        errors.append(
+            f"security_sensitive_paths: /{relative} is in neither paths nor "
+            "reviewed_not_sensitive. Every source file must be classified: protect it, or "
+            "record in writing that it does not need protecting."
+        )
+
+    for declared in exempt_declared:
+        relative = declared.lstrip("/")
+        if not (REPO_ROOT / relative).exists():
+            errors.append(
+                f"reviewed_not_sensitive: {declared} does not exist. A stale exemption is a "
+                "decision nobody is making any more."
+            )
+        elif classification_of(relative, sensitive):
+            errors.append(
+                f"reviewed_not_sensitive: {declared} is also covered by a protected path. "
+                "One of the two is wrong, and leaving both leaves the file's status unclear."
+            )
+
+
 def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
     ci = governance.get("ci", {})
 
@@ -344,6 +412,7 @@ def main() -> int:
     check_development_flow(governance, errors)
     check_validation_lanes(governance, errors)
     check_sensitive_paths(governance, errors)
+    check_source_classification(governance, errors)
     check_ci_wiring(governance, errors)
     check_truthfulness(governance, errors)
     check_cross_document_versions(governance, errors)

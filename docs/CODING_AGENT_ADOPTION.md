@@ -177,6 +177,18 @@ Stated plainly, because the failure mode of governance work is believing it is f
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.
 - **Dependencies are version-pinned but not hash-pinned.**
+- **What counts as security-sensitive is a human judgement, and only its bookkeeping is
+  checked.** Since 2026-09-06 every `.py` file under `src/` must appear either in
+  `security_sensitive_paths.paths` or in `reviewed_not_sensitive`, and
+  `check_source_classification` fails the build otherwise — so a file can no longer leave a
+  protected directory, or arrive without one, and quietly go unreviewed. What the check
+  cannot do is tell you which list a file belongs in. It forces the decision to be made and
+  written down; it does not make it.
+
+  It was written after `model_store.py` moved to the package root and would have lost
+  code-owner review with `make check` still green. Writing it found a second one: `ui/app.py`
+  opens the microphone and wires the retention store, exactly as `app/cli.py` does, and had
+  never been covered at all.
 
 Remote branch protection *is* now configured and verified — ruleset `22044161`, applied
 2026-09-01, read back from the API and observed rejecting a direct push. `EXC-2026-09-01-002`
