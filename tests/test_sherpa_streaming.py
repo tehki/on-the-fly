@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import tempfile
 import wave
+from array import array
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,24 @@ def published_speech_sample() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def unbroken_speech(audio: bytes, rate: int, *, copies: int = 3) -> bytes:
+    """The sample with its trailing silence trimmed, repeated — speech with no pauses in it.
+
+    The published clip carries 0.86 s of silence at its end, which is longer than
+    `SILENCE_AFTER_SPEECH_SECONDS`, so simply repeating it produces pauses and tests the
+    silence rule instead of the ceiling. Trimming makes it what it is meant to be here: a
+    speaker who does not stop.
+    """
+    frame_bytes = (rate // 50) * 2
+    end = len(audio)
+    while end > frame_bytes:
+        chunk = audio[end - frame_bytes : end]
+        if max(abs(value) for value in array("h", chunk)) > 1200:
+            break
+        end -= frame_bytes
+    return audio[:end] * copies
+
+
 def test_silence_produces_no_events() -> None:
     model_dir = real_streaming_model()
     if model_dir is None:
@@ -185,8 +204,8 @@ def test_continuous_speech_is_broken_into_utterances() -> None:
         audio = reader.readframes(reader.getnframes())
         rate = reader.getframerate()
 
-    # Repeated end to end, so there is no pause anywhere in it and only the ceiling can fire.
-    continuous = audio * 3
+    # Trimmed and repeated, so there is no pause anywhere in it and only the ceiling can fire.
+    continuous = unbroken_speech(audio, rate)
     seconds = len(continuous) / (rate * 2)
     assert seconds > MAX_UTTERANCE_SECONDS, "the sample must outlast the ceiling to test it"
 
@@ -259,7 +278,7 @@ def test_a_ceiling_ended_utterance_says_so() -> None:
 
     recognizer = SherpaStreamingRecognizer(model_dir)
     frame_bytes = (rate // 50) * 2
-    continuous = audio * 3
+    continuous = unbroken_speech(audio, rate)
     finals: list[TranscriptEvent] = []
     for offset in range(0, len(continuous) - frame_bytes, frame_bytes):
         finals.extend(
@@ -277,3 +296,52 @@ def test_a_ceiling_ended_utterance_says_so() -> None:
     for event in tail:
         # Whatever is still open when the audio stops was ended by the audio stopping.
         assert event.end_reason is EndReason.FLUSH
+
+
+def test_a_pause_ends_an_utterance_before_the_ceiling_does() -> None:
+    """The point of tuning the silence rule (ADR 0024).
+
+    The published clip carries 0.86 s of trailing silence. Repeated, that is a speaker who
+    pauses between sentences, and the silence rule must be what cuts them — not the clock.
+    At the publisher's 1.2 s it was the clock, and the cuts landed mid-word.
+    """
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+        rate = reader.getframerate()
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    frame_bytes = (rate // 50) * 2
+    with_pauses = audio * 3
+    finals: list[TranscriptEvent] = []
+    for offset in range(0, len(with_pauses) - frame_bytes, frame_bytes):
+        finals.extend(
+            event
+            for event in recognizer.accept(with_pauses[offset : offset + frame_bytes])
+            if event.is_final
+        )
+
+    assert finals, "three sentences with pauses between them must produce finals"
+    assert all(event.end_reason is EndReason.SILENCE for event in finals), (
+        "a speaker who pauses must be cut by the pause, not by the ceiling"
+    )
+    # Each repetition is a whole sentence, so no cut lands inside a word.
+    assert all(event.duration_seconds is not None for event in finals)
+    assert all(
+        event.duration_seconds < MAX_UTTERANCE_SECONDS  # type: ignore[operator]
+        for event in finals
+    )
+
+
+def test_the_silence_rule_is_short_enough_to_fire_on_conversation() -> None:
+    """Calibrated against 75 measured pauses; at 1.2 s it fired on two of them (ADR 0024)."""
+    assert SILENCE_AFTER_SPEECH_SECONDS <= 0.6, (
+        "above this the rule stops firing on natural speech and the ceiling does the cutting"
+    )
+    # Still long enough that a gap between words is not a sentence boundary: the measured
+    # within-speech cluster sits at 0.12-0.22 s.
+    assert SILENCE_AFTER_SPEECH_SECONDS >= 0.3

@@ -49,11 +49,25 @@ REQUIRED_SAMPLE_RATE_HZ = 16_000
 # Silence before anything has been decoded. The publisher's default, untouched.
 SILENCE_BEFORE_ANY_SPEECH_SECONDS = 2.4
 
-# Silence after something has been decoded: the rule that ends an ordinary sentence. The
-# publisher's default, and deliberately not tuned — the speech available here (LibriSpeech
-# clips, trimmed) contains no internal pause longer than 0.4 s, so every value from 0.4 to
-# 1.2 produces byte-identical output on it. Tuning this needs recordings with pauses in them.
-SILENCE_AFTER_SPEECH_SECONDS = 1.2
+# Silence after something has been decoded: the rule that ends an ordinary sentence, and the
+# one that governs how promptly a translation appears. The publisher's default of 1.2 s is
+# far too long for conversation. Measured over 30 s of live conversational speech — 75 pauses,
+# durations only, no audio kept (ADR 0024):
+#
+#     p50 0.12s   p75 0.22s   p90 0.56s   longest 1.34s
+#
+#     threshold   pauses it ends an utterance on    resulting cadence
+#        1.2s        2 of 75  ( 2.7%)               one per 15.0s
+#        0.6s        7 of 75  ( 9.3%)               one per  4.3s
+#        0.5s        9 of 75  (12.0%)               one per  3.3s
+#        0.3s       14 of 75  (18.7%)               one per  2.1s
+#
+# Those pauses are two populations: gaps inside speech, clustered at 0.12-0.22 s, and sentence
+# boundaries from about 0.56 s. The threshold belongs in the gap between them, which is why
+# 0.5 rather than a rounder number — above the within-speech cluster, below the boundaries it
+# is meant to catch. At the publisher's 1.2 the rule fires twice in thirty seconds, which is
+# why the utterance ceiling was doing all the work.
+SILENCE_AFTER_SPEECH_SECONDS = 0.5
 
 # The ceiling, for speech that never pauses. Eight seconds is the shortest value tested that
 # split no word in either sample: the cut lands wherever the clock says, so a shorter ceiling

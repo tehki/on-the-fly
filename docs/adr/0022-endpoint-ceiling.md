@@ -67,6 +67,11 @@ because LibriSpeech clips are trimmed and contain no internal pause longer than 
 is nothing here to calibrate against, and picking a number that no measurement can
 distinguish is how 300 got written in the first place.
 
+> **Tuned to 0.5 s in [ADR 0024](0024-trailing-silence.md)**, once live pauses could be
+> measured without retaining audio. At 1.2 s it fired on two of seventy-five real pauses.
+> That also removed most of the mid-word cuts this ADR accepted as the ceiling's price —
+> they were the ceiling doing work the silence rule should have been doing.
+
 ## What this does not do
 
 - **It does not stop utterances being cut mid-word.** It makes it rarer, at the value tested.
