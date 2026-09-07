@@ -86,23 +86,31 @@ _CEILING_TOLERANCE_SECONDS = 0.02
 #
 # A transducer needs future frames to emit a symbol. When audio simply stops, the final
 # chunk has no future, and `input_finished()` does not supply one — so the last word came
-# out truncated or not at all. Measured on both pinned exports, decoding each publisher's
-# own test set with a growing tail:
+# out truncated or not at all. Measured on every pinned export, decoding each publisher's
+# own test audio with a growing tail:
 #
 #     model       file        0 ms                     recovered at
-#     english     0.wav       ...OF THE BROTHEL        300 ms  -> BROTHELS
-#     english     1.wav       ...A BLESSED SOUL IN HE  100 ms  -> HEAVEN
-#     french      19738183    ...DE L'HISTOIRE RO      100 ms  -> ROMAINE
+#     english     0.wav       ...OF THE BROTHEL        300 ms   -> BROTHELS
+#     english     1.wav       ...A BLESSED SOUL IN HE  100 ms   -> HEAVEN
+#     french      19738183    ...DE L'HISTOIRE RO      100 ms   -> ROMAINE
+#     russian     test.wav    ...И ДАВНО ОПРЕДЕЛИЛ     1000 ms  -> ПРО СЕБЯ
 #
 # Over the whole of the English model's own test set that is **3.0% word error against
 # 0.0%** — two files, two lost words, on the flagship pin. Past the threshold, more tail
 # changes nothing, and a stream carrying nothing but digital zeros still decodes to the
-# empty string at any tail length, so this cannot invent words the way an amplified room
-# does (ADR 0021).
+# empty string at any tail length tried, so this cannot invent words the way an amplified
+# room does (ADR 0021).
 #
-# 500 ms is 300 ms plus margin for a model neither of these measured. It is paid once, when
-# a stream ends, and costs about 0.4 s of decoding at the measured real-time factor.
-FLUSH_TAIL_SECONDS = 0.5
+# **This was 0.5 s and that was too short.** The Russian row above was not measured when the
+# constant was chosen: 500 ms was picked as "300 ms plus margin for a model neither of these
+# measured", and the model neither of them measured needed twice the value that reasoning
+# produced. Every Russian utterance ending a stream lost its tail, silently, for a day.
+#
+# 1.5 s is 50% clear of the largest requirement now measured rather than 67% clear of a
+# guess. The cost is bounded and paid once, when a stream ends: at these models' measured
+# real-time factors it is between 0.2 s and 1.3 s of decoding, none of it on the
+# endpoint-to-caption path, because mid-stream finals always have future frames.
+FLUSH_TAIL_SECONDS = 1.5
 
 _INT16_FULL_SCALE = 32768.0
 

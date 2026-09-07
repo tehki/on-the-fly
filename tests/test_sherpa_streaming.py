@@ -196,9 +196,22 @@ def test_real_speech_produces_partials_then_a_final() -> None:
 # ======================================================================================
 
 
-def test_the_flush_tail_is_long_enough_to_matter_and_short_enough_to_be_free() -> None:
-    """300 ms was the longest tail any pinned export needed; 500 ms is that plus margin."""
-    assert 0.3 < FLUSH_TAIL_SECONDS <= 1.0
+def test_the_flush_tail_clears_the_largest_measured_requirement() -> None:
+    """1000 ms is the longest tail any pinned export needs — the Russian one.
+
+    The bound used to be `<= 1.0`, written when only English and French had been measured
+    and 500 ms looked like 300 ms plus margin. Russian needed 1000 ms and lost the tail of
+    every stream for a day. The lower bound here is now the measurement rather than a guess,
+    so shortening this constant below what a pinned model actually needs fails.
+    """
+    largest_measured_requirement = 1.0
+
+    assert FLUSH_TAIL_SECONDS >= largest_measured_requirement * 1.25, (
+        "leave real margin: the last value chosen without it was wrong for the model that "
+        "had not been measured"
+    )
+    # And still bounded. This is paid once per stream, but it is decoding time.
+    assert FLUSH_TAIL_SECONDS <= 3.0
 
 
 def test_finishing_a_recogniser_that_never_loaded_does_nothing() -> None:

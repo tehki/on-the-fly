@@ -429,16 +429,23 @@ continues `...HERE AND THERE THE SQUALID QUARTER OF THE BROTHELS`, and until 202
 final ended at `BROTHEL`. A transducer emits a symbol only once it has frames after it, and
 when audio simply stops there are none — `input_finished()` does not supply them — so the
 last word of every stream came out truncated or not at all. `finish()` now feeds the decoder
-half a second of silence before closing the stream, which recovers it. Over the English
-model's own published test set that is **3.0% word error against 0.0%**: two files, two lost
-words, on the pin this project measures everything else against.
+silence before closing the stream, which recovers it. Over the English model's own published
+test set that is **3.0% word error against 0.0%**: two files, two lost words, on the pin this
+project measures everything else against.
+
+**The length was wrong at first.** It was set at 500 ms from English and French, which need
+300 ms and 100 ms — "300 plus margin for a model neither of these measured". The model
+neither of them measured was Russian, which needs **1000 ms**, so for a day every Russian
+utterance ending a stream quietly lost its tail. It is now 1.5 s: margin over a measurement
+rather than over a guess.
 
 The tail is silence the recogniser makes up, so two things are checked rather than assumed.
-It decodes to nothing on its own — a stream of digital zeros stays empty at every tail
-length tested, which is the failure mode [ADR 0021](docs/adr/0021-too-loud-input.md) exists
-to guard against. And it is not counted as audio that arrived, so no duration or real-time
-factor is inflated by it. What it does cost is about 0.4 s of decoding at the end of a
-stream, once, which the `wall time` above does not include.
+It decodes to nothing on its own — three seconds of digital zeros stays empty on all three
+pinned models at every tail length tested, which is the failure mode
+[ADR 0021](docs/adr/0021-too-loud-input.md) exists to guard against. And it is not counted as
+audio that arrived, so no duration or real-time factor is inflated by it. What it does cost
+is 0.2 to 1.3 s of decoding at the end of a stream, once, which the `wall time` above does
+not include.
 
 `scripts/measure_recognition.py` is the tool that found it: point it at a model directory
 and a folder of wavs with a reference transcript, and it reports real-time factor and word
