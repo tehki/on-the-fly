@@ -143,8 +143,11 @@ ci:
       unknown_relevance_falls_back_to_full: true
       implemented: false
       not_implemented_reason: A FAST lane may omit work only against a versioned, tested impact map. No
-        such map exists yet, and the suite runs in seconds, so there is nothing to gain and a real control
-        to lose. FULL runs on every push until that changes.
+        such map exists yet, so FULL runs on every push until that changes. This reason used to add "and
+        the suite runs in seconds, so there is nothing to gain"; that stopped being true once real speech
+        models entered the tests. Measured 2026-09-08 it is about three minutes, 73% of it in
+        tests/test_sherpa_streaming.py loading three streaming models and decoding real audio. So there is
+        now time to gain, which is an argument for building the impact map rather than for skipping it.
     FULL:
       required_on_final_ready_for_review_head: true
       required_for_security_sensitive_paths: true
