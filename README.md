@@ -4,17 +4,23 @@ Live speech translation. Speak without bounds with anyone worldwide.
 
 > **Status: it translates English, Russian and French, live.** Point it at a WAV file and it
 > will find the utterances, transcribe them with a local, integrity-verified streaming model,
-> and translate the finalised text with `--translate-to`. Every pair keeps up with the audio
-> — 0.54x real time for English→Russian, 0.26x for Russian→English. French joined as
-> captions only ([ADR 0031](docs/adr/0031-french-recognition.md)) and now translates in both
-> directions against English ([ADR 0032](docs/adr/0032-french-translation.md)).
+> and translate the finalised text with `--translate-to`. Measured end to end, both Russian
+> directions keep up comfortably — 0.54x real time for English→Russian, 0.26x for
+> Russian→English. French joined as captions only
+> ([ADR 0031](docs/adr/0031-french-recognition.md)) and now translates in both directions
+> against English ([ADR 0032](docs/adr/0032-french-translation.md)), on both engines
+> ([ADR 0033](docs/adr/0033-french-on-onnx.md)); its translation stage is the fastest of the
+> four, and no end-to-end figure has been taken for it.
 >
-> **English now streams faster than real time** (0.399x, first text 1.10 s into the audio),
-> using sherpa-onnx with a pinned Apache-2.0 model
-> ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md)). The other six languages still run
-> through Whisper, which pads every utterance to a 30-second window and is several times too
-> slow for live use. Measurements in
-> [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
+> **Three of the seven languages stream**, using sherpa-onnx with pinned Apache-2.0 models
+> ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md),
+> [ADR 0012](docs/adr/0012-russian-streams-after-all.md),
+> [ADR 0031](docs/adr/0031-french-recognition.md)) — English at 0.399x with first text 1.10 s
+> into the audio. The other four run an utterance at a time through Whisper, which is a
+> statement about latency rather than throughput: `tiny` decodes English at 0.279x, so it is
+> not slow, it simply has nothing to say until the speaker stops — and
+> [ADR 0035](docs/adr/0035-the-batch-tier-measured.md) measured what it says when it does.
+> Measurements in [docs/PERFORMANCE_BUDGET.md](docs/PERFORMANCE_BUDGET.md).
 
 ## Languages
 
