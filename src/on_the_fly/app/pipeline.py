@@ -305,7 +305,14 @@ class StreamingStats:
 
     @property
     def keeps_up(self) -> bool:
-        """True when the run processed audio at least as fast as it arrived."""
+        """True when the run processed audio faster than it arrived — strictly under 1.0x.
+
+        Strictly, and not "at least as fast", which is what this said until 2026-09-08. At
+        exactly real time there is no margin: any jitter, any busier moment on the machine,
+        and the run is behind with nothing held back to catch up from. The target in
+        `docs/PERFORMANCE_BUDGET.md` is written "under 1.0x" for that reason, and the code
+        always agreed with it — the sentence here did not.
+        """
         return self.real_time_factor < 1.0
 
     @property

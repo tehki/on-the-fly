@@ -16,9 +16,11 @@ import pytest
 
 from on_the_fly.app import StreamingRun
 from on_the_fly.app.cli import main
+from on_the_fly.app.pipeline import StreamingStats
 from on_the_fly.domain import languages
 from on_the_fly.domain.audio import AudioFormat, TranscriptEvent
 from on_the_fly.domain.languages import Language, RecognitionTier
+from on_the_fly.domain.retention import ReapReport
 from on_the_fly.infrastructure.audio import WavFileSource
 
 RATE = 16_000
@@ -312,3 +314,74 @@ def test_the_recogniser_defaults_to_one_thread() -> None:
     args = build_parser().parse_args(["stream", "x.wav"])
 
     assert args.threads == 1
+
+
+# --------------------------------------------------------------------------------------
+# The arithmetic the command line prints
+#
+# `real_time_factor`, `keeps_up` and `retention_clean` are three properties a reader takes
+# at face value: "0.399x (keeps up)", "retention clean". Mutation testing found their
+# comparisons could be flipped without a test noticing — including the one that decides
+# whether a run is reported as keeping up at all.
+# --------------------------------------------------------------------------------------
+
+
+def stats(
+    *, audio: float, wall: float, remaining: int = 0, reap: ReapReport | None = None
+) -> StreamingStats:
+    return StreamingStats(
+        frames_read=1,
+        audio_seconds=audio,
+        wall_seconds=wall,
+        partials=0,
+        finals=0,
+        first_text_after_seconds=None,
+        final_reap=reap if reap is not None else ReapReport(),
+        entries_remaining=remaining,
+    )
+
+
+def test_exactly_real_time_is_not_keeping_up() -> None:
+    """`docs/PERFORMANCE_BUDGET.md` sets the target as "under 1.0x", and the boundary is
+    where that matters: at exactly real time there is no margin, so any jitter puts the run
+    behind with nothing held back to catch up from."""
+    assert not stats(audio=2.0, wall=2.0).keeps_up
+    assert stats(audio=2.0, wall=1.999).keeps_up
+
+
+def test_a_run_with_no_audio_reports_no_pace_rather_than_dividing_by_zero() -> None:
+    """Zero is the boundary of the guard, and a run that read no frames has no pace to
+    report. A number here would be one nobody measured."""
+    assert stats(audio=0.0, wall=1.0).real_time_factor == 0.0
+    assert stats(audio=0.0, wall=0.0).keeps_up, "no audio is not a run that fell behind"
+
+    # The guard is on zero, not on "less than a second". A clip shorter than one second
+    # still has a pace, and a run that fell behind on one must say so.
+    assert stats(audio=0.5, wall=1.0).real_time_factor == pytest.approx(2.0)
+
+
+def test_content_still_held_is_not_clean_even_when_nothing_failed_to_delete() -> None:
+    """Both clauses, and the one that can fail on its own.
+
+    A reap that reported no failures says nothing about what was never due. Content still
+    in the store at the end of a run is content retained past the point anyone needed it,
+    which is the claim the exit code is derived from.
+    """
+    assert not stats(audio=1.0, wall=1.0, remaining=1).retention_clean
+    assert stats(audio=1.0, wall=1.0, remaining=0).retention_clean
+
+
+def test_a_failed_deletion_is_not_clean_even_with_the_store_empty() -> None:
+    """The other clause on its own: the index is empty and a location refused to let go."""
+    failed = ReapReport(failed=("entry",))
+
+    assert not failed.ok
+    assert not stats(audio=1.0, wall=1.0, remaining=0, reap=failed).retention_clean
+
+
+def test_content_awaiting_a_retry_is_not_clean_either() -> None:
+    """`pending_retry` means a deletion has not happened yet, not that it will not."""
+    pending = ReapReport(pending_retry=("entry",))
+
+    assert not pending.ok
+    assert not stats(audio=1.0, wall=1.0, remaining=0, reap=pending).retention_clean
