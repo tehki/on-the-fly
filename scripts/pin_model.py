@@ -9,8 +9,10 @@ reviewed commit — never something the loader does for itself at runtime.
 python scripts/pin_model.py Systran/faster-whisper-tiny --revision <sha>
 ```
 
-It downloads the pinned revision to a temporary directory, digests the files, and prints a
-`ModelPin` to paste into `src/on_the_fly/infrastructure/asr/models.py`.
+It downloads the pinned revision to a scratch directory beside the model cache, digests the
+files, and prints a `ModelPin` to paste into `src/on_the_fly/infrastructure/asr/models.py`.
+Beside the cache and not in `/tmp`: that is a tmpfs on most current Linux systems, so staging
+a model there spends memory rather than disk. `--work-dir` overrides it.
 
 **This is trust on first use.** The digests describe what arrived on the machine that ran
 this script. That pins the model against later tampering, and against a publisher force-
@@ -38,6 +40,20 @@ from on_the_fly.infrastructure.model_store import (  # noqa: E402
 # What a faster-whisper (CTranslate2) model directory actually needs to load.
 DEFAULT_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.txt")
 
+# Where the download is staged before it is digested and thrown away.
+#
+# Not the system temporary directory, which is what `tempfile` picks by default. On
+# systemd distributions — including this project's reference machine — `/tmp` is a tmpfs,
+# so staging a model there spends RAM rather than disk: 3.7 GB of tmpfs on a 7.5 GB machine,
+# and this session has already watched unrelated processes get OOM-killed for filling it.
+# The four models pinned so far are all under 120 MB and would have been fine; a Whisper
+# `small` is 484 MB and a `medium` is 1.5 GB, and the first person to pin one should not
+# discover this.
+#
+# Beside the model cache, because that is the disk the model is going to live on anyway.
+# `--work-dir` overrides it, and TMPDIR still applies to anything else.
+DEFAULT_WORK_DIR = Path.home() / ".cache" / "on-the-fly" / "pinning"
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -55,6 +71,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="file to pin (repeatable; defaults to the CTranslate2 set)",
     )
+    parser.add_argument(
+        "--work-dir",
+        type=Path,
+        default=DEFAULT_WORK_DIR,
+        help="where to stage the download; not /tmp, which is RAM on many machines",
+    )
     return parser
 
 
@@ -69,7 +91,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("error: huggingface_hub is not installed", file=sys.stderr)
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="otf-pin-") as workdir:
+    args.work_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="otf-pin-", dir=args.work_dir) as workdir:
         target = Path(workdir)
         print(f"downloading {args.repo_id}@{args.revision[:12]} ...", file=sys.stderr)
         try:
