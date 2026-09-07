@@ -45,6 +45,28 @@ The pauses are two populations. Gaps *inside* speech cluster at 0.12–0.22 s, t
 jump to sentence boundaries from about 0.56 s. A threshold belongs in the space between
 them.
 
+> **Caution added 2026-09-07.** These durations came from a live microphone, and
+> [ADR 0013](0013-capture-rate-negotiation.md) records that both analog inputs on this
+> machine refuse 16 kHz — so the audio was resampled on the way in. The resampler was
+> emitting **1.19x** the audio it was given until it was fixed, the surplus being stale
+> samples from earlier blocks rather than silence.
+>
+> So the distribution above was derived from a stream that was 19% too long and had old audio
+> interleaved with new. **The direction of the error is not known**: extra length would
+> stretch a pause, while stale speech landing inside a gap would shorten one, and which
+> dominates is not something this record can say without re-running the measurement on a
+> microphone nobody here currently has.
+>
+> The decision is left standing rather than reopened, because it did not rest on this table
+> alone. `SILENCE_AFTER_SPEECH_SECONDS = 0.5` was confirmed against live speech afterwards —
+> ninety seconds producing sixteen utterances, fourteen ended by a pause, at a median of
+> about 5.3 s — and that confirmation is the load-bearing evidence. What is withdrawn is any
+> confidence in the specific percentiles, and in the claim that 0.5 sits in a measured gap
+> between two populations at those exact positions.
+>
+> `scripts/measure_pauses.py` is in the repository, so re-deriving this on a fixed capture
+> path is a matter of running it.
+
 ## Decision
 
 **`SILENCE_AFTER_SPEECH_SECONDS` = 0.5**, down from the publisher's 1.2.

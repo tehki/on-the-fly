@@ -572,6 +572,12 @@ in thirty seconds of measured conversational speech. It was effectively switched
 
 Real pauses are two populations: gaps inside speech at 0.12–0.22 s, then sentence boundaries
 from about 0.56 s. The threshold is now 0.5 s, in the space between them.
+
+Those percentiles now carry a caution ([ADR 0024](docs/adr/0024-trailing-silence.md)): they
+were measured through a microphone on a machine whose inputs refuse 16 kHz, so the audio was
+resampled — and the resampler was emitting 1.19x what it was given until 2026-09-07. The
+threshold stands because it was confirmed against live speech afterwards; the exact
+percentiles do not.
 `scripts/measure_pauses.py` derives those numbers from a live microphone and keeps no
 audio — durations only — which is what makes the parameter tunable without recording anyone.
 
