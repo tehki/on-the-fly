@@ -25,9 +25,17 @@ Seven, at two tiers ([ADR 0007](docs/adr/0007-supported-languages.md),
 text appears while you are still talking.
 
 **Batch — Spanish, Italian, Portuguese, German.** `transcribe` runs them through Whisper, an
-utterance at a time and several seconds behind. They cannot stream, and **nobody here has
-measured how well Whisper does on any of them**, so that is a statement about latency rather
-than about quality.
+utterance at a time and several seconds behind. That is a statement about latency, and
+[ADR 0035](docs/adr/0035-the-batch-tier-measured.md) is the one about quality: Whisper `tiny`
+scores **77.1% word error on clean read French**, where the pinned French streaming model
+scores 14.3% on the same clips. It does not return a flawed transcript — it returns a
+different sentence.
+
+None of those four has been measured directly, because no licence-clean test set with human
+references exists for them; French is the nearest evidence, and it is a high-resource language
+on clean recordings, which is close to the easiest case there is. **Treat the batch engine as
+a fallback rather than a substitute**, which is what the command line now says when it refuses
+to stream one of them.
 
 Those four were marked streaming until ADR 0034, on ADR 0007's evidence that a published
 streaming model existed for each — which is a fact about Hugging Face rather than about this

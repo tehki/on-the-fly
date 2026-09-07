@@ -1048,6 +1048,38 @@ and for the same reason — a ratio between two measurements on a contended mach
 support that precision. Neither engine's French numbers change any budget line: CTranslate2
 remains the default and remains the one the endpoint-to-caption figures are measured with.
 
+## Eighteenth measurement — 2026-09-07, the batch recogniser, finally measured
+
+`scripts/measure_recognition.py` grew a `--whisper` mode so both recognisers are scored by
+one word error implementation on the same files. Two claims that had stood unmeasured since
+ADR 0005 and ADR 0034 could then be checked.
+
+| test set | Whisper `tiny` | the streaming pin | words |
+| --- | --- | --- | --- |
+| English | 6.1% (about **1.5%** once orthography is discounted) | **0.0%** | 66 |
+| French | **77.1%** | **14.3%** | 35 |
+
+**English is better than the number.** Three of four errors in 66 words are `DISHONOURED`
+against `dishonored` and `FOR EVER` against `forever` — a spelling convention and a compound
+split. The metric deliberately does not normalise orthography, so read it as an upper bound.
+
+**French is the finding.** 77.1% is not a transcript with mistakes in it:
+
+```text
+reference   SON ACTIONNAIRE MAJORITAIRE EST LE CONSEIL TERRITORIAL DE SAINT PIERRE ET MIQUELON
+tiny        Sur une action est armée, je vais être à l'alcool, c'est à l'intérieur du sampeur
+            et mes culons.
+```
+
+**And it is not fast either.** 0.994x real time overall, 1.812x on that clip — so on this
+machine the batch path is not reliably ahead of the audio, which is the one advantage a batch
+recogniser normally has. It is not on the latency path this budget governs, but it means
+`transcribe` cannot be described as the quick option.
+
+ADR 0035 records what this does and does not establish. The four `BATCH` languages remain
+unmeasured — no licence-clean test set with references exists for them — and French is offered
+as the nearest evidence, being a high-resource language on clean audio.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.

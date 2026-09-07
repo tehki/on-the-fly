@@ -94,6 +94,14 @@ def normalise(text: str) -> list[str]:
     Accents are kept because they are part of the word in every language this would be run
     on; folding them away would score a model as correct for output a reader would call
     wrong. Punctuation is dropped because these models emit none.
+
+    **It does not normalise orthography, and that inflates small samples.** Measuring Whisper
+    against the English reference set, three of its four "errors" in 66 words were
+    `DISHONOURED` against `dishonored` and `FOR EVER` against `forever` — a spelling
+    convention and a compound split, not misrecognitions. On a 66-word sample that is the
+    difference between 6.1% and about 1.5%. Read a word error rate from this script as an
+    upper bound, and read the printed hypothesis before drawing a conclusion from a small
+    one.
     """
     kept = [
         character
@@ -142,6 +150,13 @@ def build_parser() -> argparse.ArgumentParser:
         description="Decode wav files with a streaming model and report speed and accuracy.",
     )
     parser.add_argument("--model-dir", type=Path, required=True)
+    parser.add_argument(
+        "--whisper",
+        action="store_true",
+        help="measure the batch recogniser instead of a streaming one, so the two can be "
+        "compared on the same audio with the same word error implementation",
+    )
+    parser.add_argument("--language", default=None, help="force a language for --whisper")
     parser.add_argument("--wavs", type=Path, required=True, help="directory of mono 16 kHz wavs")
     parser.add_argument(
         "--transcripts", type=Path, default=None, help="<id><whitespace><reference>"
@@ -155,6 +170,77 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def measure_whisper(args: argparse.Namespace) -> int:
+    """Decode with the batch recogniser, reported the same way as the streaming one.
+
+    Whisper does not stream: it is handed a whole utterance and answers when it has finished
+    (ADR 0005, ADR 0006). So there is no frame loop and no flush tail here — the reason the
+    streaming path needs one, that a transducer cannot emit a symbol it has no future frames
+    for, does not arise when the model already has the entire clip.
+
+    Everything else is deliberately identical, because the point of this mode is that the two
+    engines are comparable: same files, same references, same normalisation, same word error
+    implementation.
+    """
+    from on_the_fly.domain.audio import AudioFormat
+    from on_the_fly.infrastructure.asr.whisper_recognizer import FasterWhisperRecognizer
+
+    wavs = sorted(args.wavs.glob("*.wav"))
+    if not wavs:
+        raise SystemExit(f"error: no wav files in {args.wavs}")
+    references = load_transcripts(args.transcripts) if args.transcripts else {}
+
+    started = time.monotonic()
+    recognizer = FasterWhisperRecognizer(args.model_dir, language=args.language)
+    audio_format = AudioFormat(sample_rate_hz=REQUIRED_SAMPLE_RATE_HZ)
+
+    print(f"model         {args.model_dir}")
+    print(f"engine        whisper (batch), language {args.language or 'detected'}")
+    print(f"model load    {time.monotonic() - started:.2f}s\n")
+
+    total_audio = total_decode = 0.0
+    total_errors = total_words = 0
+
+    for path in wavs:
+        with wave.open(str(path)) as handle:
+            frames = handle.getnframes()
+            pcm = handle.readframes(frames)
+        seconds = frames / REQUIRED_SAMPLE_RATE_HZ
+
+        started = time.monotonic()
+        hypothesis = recognizer.transcribe(pcm, audio_format).strip()
+        decode_seconds = time.monotonic() - started
+
+        total_audio += seconds
+        total_decode += decode_seconds
+        line = f"  {path.stem[:28]:28s} {seconds:5.2f}s  rtf {decode_seconds / seconds:5.3f}"
+
+        reference = references.get(path.stem)
+        if reference is not None:
+            ref_words = normalise(reference)
+            errors = word_errors(ref_words, normalise(hypothesis))
+            total_errors += errors
+            total_words += len(ref_words)
+            line += f"  wer {errors / len(ref_words):6.1%} ({errors}/{len(ref_words)})"
+        print(line)
+        print(f"      {hypothesis}")
+        if reference is not None:
+            print(f"      ref: {reference}")
+
+    print(f"\naudio         {total_audio:.2f}s across {len(wavs)} file(s)")
+    overall = total_decode / total_audio
+    # No "keeps up" verdict: a batch recogniser is not trying to. It answers after the
+    # utterance ends, which is what the BATCH tier means (ADR 0034).
+    print(f"real-time     {overall:.3f}x  (batch; latency is one utterance behind by design)")
+    if total_words:
+        rate = total_errors / total_words
+        margin = "usable" if rate <= USABLE_WORD_ERROR_RATE else "above the 15% usable line"
+        print(f"word error    {rate:.1%}  ({total_errors}/{total_words} words, {margin})")
+    else:
+        print("word error    not measured - no --transcripts given")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.threads < 1:
@@ -165,6 +251,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ImportError as exc:
         print(f"error: sherpa-onnx is not installed: {exc}", file=sys.stderr)
         return 1
+
+    if args.whisper:
+        return measure_whisper(args)
 
     int8 = not args.full_precision
     encoder = find_one(args.model_dir, "encoder", int8=int8)

@@ -24,6 +24,14 @@ understate them at once: it promised live captions that do not exist, and it mad
 line answer a request for German with advice about pinning a model rather than with the
 working command. They are BATCH, and they carry a note saying why.
 
+**`BATCH` is a claim about latency and not about quality**, which ADR 0035 had to say out
+loud after measuring it: Whisper `tiny` scores 77% word error on clean read French against
+14% for the pinned French streaming model, and returns a different sentence rather than a
+flawed transcript. None of the four has been measured — no licence-clean test set with human
+references exists for them — but French is a high-resource language on clean audio, which is
+the easiest case, so the note those four carry says the batch engine is a fallback rather
+than a substitute.
+
 Tajik is why this module exists and is no longer in it. It had no streaming model, no
 licence-clean batch model this project could load, and — after ADR 0009 — no licence-clean
 translation model either, so ADR 0010 removed it rather than let three unverified stages

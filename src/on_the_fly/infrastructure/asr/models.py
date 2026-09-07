@@ -14,9 +14,16 @@ from __future__ import annotations
 from on_the_fly.infrastructure.asr.sherpa_streaming import ENGLISH_LAYOUT, StreamingLayout
 from on_the_fly.infrastructure.model_store import ModelPin
 
-# 78.2 MB. The smallest useful Whisper model: fast enough to prove the pipeline on a CPU,
-# and honestly not accurate enough to ship a translator on. Larger models are added by
-# running scripts/pin_model.py and committing the result.
+# 78.2 MB. The smallest useful Whisper model: fast enough to prove the pipeline on a CPU.
+#
+# "Not accurate enough to ship a translator on" is what this comment used to say, unmeasured
+# since ADR 0005. Measured in ADR 0035 it is wrong about English and right about everything
+# else: on clean read English it scores about 1.5% word error once orthography is discounted,
+# and on clean read French 77.1% — where the pinned French streaming model scores 14.3% on
+# the same clips. It does not return a flawed transcript in French; it returns a different
+# sentence.
+#
+# Larger models are added by running scripts/pin_model.py and committing the result.
 TINY = ModelPin(
     name="tiny",
     repo_id="Systran/faster-whisper-tiny",
