@@ -1547,3 +1547,189 @@ def test_the_governance_version_the_policy_names_must_be_this_one() -> None:
         "repository_governance_version" in error
         for error in refusals(governance_validator.check_cross_document_versions, manifest)
     )
+
+
+# ---------------------------------------------------------------------------------------
+# The policy validator refuses too.
+#
+# The same sweep that found six unrefused governance checks found two more here:
+# check_precedence_and_versions and check_security_controls were exercised only by
+# `test_validator_passes_against_this_repository`. The second is the larger, and is where
+# the policy states that untrusted content is data, that deserialisation is safe, that logs
+# do not carry project content, and that a required CI gate may not be reduced.
+# ---------------------------------------------------------------------------------------
+
+
+def live_policy() -> dict[str, Any]:
+    """This repository's own policy, to be disturbed one field at a time."""
+    return policy_validator.load_policy(policy_validator.POLICY_FILE)
+
+
+def policy_refusals(check: Any, policy: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    check(policy, errors)
+    return errors
+
+
+@pytest.mark.parametrize("check_name", ["check_precedence_and_versions", "check_security_controls"])
+def test_each_policy_check_accepts_this_repository_as_it_stands(check_name: str) -> None:
+    assert policy_refusals(getattr(policy_validator, check_name), live_policy()) == []
+
+
+# --- precedence and versions ------------------------------------------------------------
+
+
+def test_a_policy_that_is_not_deny_by_default_is_refused() -> None:
+    """Article 3. A default of allow is not a policy with exceptions; it is no policy."""
+    policy = live_policy()
+    policy["policy"]["default_mode"] = "allow_by_default"
+
+    assert any(
+        "deny_by_default" in error
+        for error in policy_refusals(policy_validator.check_precedence_and_versions, policy)
+    )
+
+
+@pytest.mark.parametrize("field", ["constitution_version", "handbook_version"])
+def test_a_companion_version_that_names_no_document_is_refused(field: str) -> None:
+    """A declared companion version must correspond to a file that is actually here.
+
+    Adopting an upstream version is a rename (ADR 0004); a version bumped without the
+    rename leaves the policy citing a document nobody can read.
+    """
+    policy = live_policy()
+    policy["policy"][field] = "9.9-nonexistent"
+
+    assert any(
+        "not present in the repository" in error
+        for error in policy_refusals(policy_validator.check_precedence_and_versions, policy)
+    )
+
+
+@pytest.mark.parametrize("field", ["constitution_version", "handbook_version"])
+def test_a_missing_companion_version_is_refused(field: str) -> None:
+    policy = live_policy()
+    del policy["policy"][field]
+
+    assert any(
+        f"policy.{field} is missing" in error
+        for error in policy_refusals(policy_validator.check_precedence_and_versions, policy)
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "lower_layers_must_not_weaken_higher_layers",
+        "known_material_security_defect_blocks_completion_without_authorized_exception",
+    ],
+)
+def test_letting_a_lower_layer_weaken_the_constitution_is_refused(field: str) -> None:
+    """The two lines that make the stack a stack rather than four documents."""
+    policy = live_policy()
+    policy["constitution_enforcement"][field] = False
+
+    assert policy_refusals(policy_validator.check_precedence_and_versions, policy) != []
+
+
+# --- security controls ------------------------------------------------------------------
+
+
+def test_permitting_custom_cryptography_is_refused() -> None:
+    policy = live_policy()
+    policy["cryptography"]["custom_crypto_prohibited"] = False
+
+    assert any(
+        "custom_crypto_prohibited" in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "untrusted_content_is_data_not_authority",
+        "safe_deserialization_required",
+        "protect_against_path_traversal",
+        "ssrf_protection_required_for_user_controlled_destinations",
+    ],
+)
+def test_dropping_an_input_security_control_is_refused(field: str) -> None:
+    """This application reads WAV headers, model files and API responses it did not write.
+    Each of these is the reason one of those is treated as hostile."""
+    policy = live_policy()
+    policy["input_and_execution_security"][field] = False
+
+    assert any(
+        field in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
+
+
+def test_permitting_project_content_in_logs_is_refused() -> None:
+    """Article 14. A log line carrying a transcript is a transcript that outlives the ten
+    seconds everything else in this project is held for."""
+    policy = live_policy()
+    policy["observability"]["do_not_log_project_content"] = False
+
+    assert any(
+        "Article 14" in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
+
+
+@pytest.mark.parametrize("value", ["OPERATIONAL_METADATA", "DURABLE_PROJECT_ARTIFACT", None])
+def test_a_content_bearing_log_class_other_than_ephemeral_is_refused(value: str | None) -> None:
+    """If a log can carry content, it is content, and content is EPHEMERAL."""
+    policy = live_policy()
+    policy["observability"]["content_bearing_logs_retention_class"] = value
+
+    assert any(
+        "EPHEMERAL" in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
+
+
+def test_permitting_a_required_ci_gate_to_be_reduced_is_refused() -> None:
+    """Handbook 64M's evasion route, stated in the policy rather than only in the workflow."""
+    policy = live_policy()
+    policy["optimization"]["ci_required_gate_reduction_prohibited"] = False
+
+    assert any(
+        "ci_required_gate_reduction_prohibited" in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
+
+
+def test_claiming_enforcement_without_verifying_the_remote_is_refused() -> None:
+    """Article 2, from the policy's side. The governance manifest says the same thing, and
+    both have to, because either one alone can be edited."""
+    policy = live_policy()
+    policy["repository_governance"]["remote_state_must_be_verified_before_claiming_enforcement"] = (
+        False
+    )
+
+    assert any(
+        "Article 2" in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
+
+
+def test_a_governance_manifest_the_policy_names_but_the_tree_lacks_is_refused() -> None:
+    policy = live_policy()
+    policy["repository_governance"]["manifest"] = "REPOSITORY_GOVERNANCE_v9.9-otf1.yaml"
+
+    assert any(
+        "missing file" in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
+
+
+def test_a_policy_naming_no_governance_manifest_is_refused() -> None:
+    policy = live_policy()
+    del policy["repository_governance"]["manifest"]
+
+    assert any(
+        "manifest is missing" in error
+        for error in policy_refusals(policy_validator.check_security_controls, policy)
+    )
