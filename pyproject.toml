@@ -44,11 +44,16 @@ ignore_missing_imports = true
 module = "sounddevice"
 ignore_missing_imports = true
 
-# faster_whisper, huggingface_hub and sherpa_onnx ship no py.typed marker. All are used only in
-# src/on_the_fly/infrastructure/asr/, behind the SpeechRecognizer port and ModelStore, so
-# the untyped surface is two files wide.
+# faster_whisper and sherpa_onnx ship no py.typed marker. Both are used only in
+# src/on_the_fly/infrastructure/asr/, behind the SpeechRecognizer port, so the untyped
+# surface is two files wide.
+#
+# huggingface_hub was listed here as a third. It ships py.typed at the 1.30.0 that ADR 0036
+# admitted, so the exemption suppressed nothing and stated something untrue about a package
+# on the path that fetches model weights. The one call behind it, `snapshot_download` in
+# ModelStore, was already being checked against the real signature and still is.
 [[tool.mypy.overrides]]
-module = ["faster_whisper", "huggingface_hub", "sherpa_onnx"]
+module = ["faster_whisper", "sherpa_onnx"]
 ignore_missing_imports = true
 
 # onnxruntime ships no py.typed marker. It is used only in
