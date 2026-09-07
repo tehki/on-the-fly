@@ -424,6 +424,76 @@ def test_the_read_block_covers_the_same_duration_at_the_negotiated_rate() -> Non
     assert backend.open_calls[-1]["blocksize"] == 960
 
 
+# --------------------------------------------------------------------------------------
+# What comes out of the resampled path, not just how it was opened.
+#
+# Every test above this point that touches resampling feeds silence and asserts the
+# blocksize that was requested. None looked at the audio, and a resampler that emitted
+# 1.19x its input — the surplus being stale samples from earlier blocks — passed all of
+# them. It reached the recogniser as `THE SQUALID QUARTER OF THE BROTHELS` becoming
+# `WHILE ITS WATER AT THE BOTTOM`, at 38.9% word error.
+#
+# The unit-level guard lives in `test_resampling.py`. These are here because this is the
+# layer the defect actually shipped in: a device that refuses 16 kHz, seen through the
+# adapter the application uses.
+# --------------------------------------------------------------------------------------
+
+
+def tone_at(frequency_hz: float, samples: int, rate_hz: int) -> bytes:
+    """A sine wave as mono int16, for asserting that audio survives a conversion."""
+    import math
+
+    values = array("h")
+    for index in range(samples):
+        values.append(int(8000 * math.sin(2 * math.pi * frequency_hz * index / rate_hz)))
+    return values.tobytes()
+
+
+def dominant_frequency_of(pcm: bytes, rate_hz: int) -> float:
+    import numpy as np
+
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float64)
+    spectrum = np.abs(np.fft.rfft(samples))
+    return float(np.fft.rfftfreq(len(samples), 1.0 / rate_hz)[int(np.argmax(spectrum))])
+
+
+def test_a_resampled_device_yields_the_duration_it_was_given() -> None:
+    """Fifty 20 ms blocks at 48 kHz are one second, and must not become 1.19 seconds.
+
+    This is the assertion whose absence let the resampler emit padding as audio. A frame
+    count is the cheapest possible check and nothing was making it.
+    """
+    blocks = 50
+    stream = FakeStream([tone_at(440.0, 960, 48000) for _ in range(blocks)])
+    backend = FakeBackend(stream, supported_rates={48000}, native_rate=48000)
+    source = MicrophoneSource(backend=backend, frame_ms=FRAME_MS)
+
+    frames = list(source.frames())
+
+    assert source.is_resampling is True
+    # Never more than went in: a surplus is invented audio. A little less is the
+    # resampler's own filter delay, still inside it when the stream ends.
+    assert len(frames) <= blocks
+    assert len(frames) >= blocks - 2
+    assert all(len(frame) == FRAME_BYTES for frame in frames)
+
+
+def test_audio_survives_the_resampled_capture_path() -> None:
+    """440 Hz into a 48 kHz device is 440 Hz out of the adapter.
+
+    Padding does not merely add duration — it interleaves stale audio with live audio. A
+    frame count alone would not notice that, so the content is checked too.
+    """
+    stream = FakeStream([tone_at(440.0, 960, 48000) for _ in range(100)])
+    backend = FakeBackend(stream, supported_rates={48000}, native_rate=48000)
+    source = MicrophoneSource(backend=backend, frame_ms=FRAME_MS)
+
+    captured = b"".join(source.frames())
+
+    assert captured
+    assert abs(dominant_frequency_of(captured, 16000) - 440.0) < 25.0
+
+
 def test_a_device_supporting_nothing_still_gets_exactly_one_open_attempt() -> None:
     """Probing may be unreliable, so one honest attempt is made. Only one: retrying a
     failed open is what corrupts PortAudio's heap (ADR 0013)."""
