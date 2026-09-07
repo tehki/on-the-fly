@@ -128,6 +128,16 @@ well enough to tell when it goes wrong. It comes back when a model does.
 > callback rather than blocking reads, which was aborting the process on one device
 > ([ADR 0015](docs/adr/0015-callback-capture.md)).
 >
+> **That resampler was broken until 2026-09-07 and it mattered.** It appended each output
+> block's whole allocated buffer rather than the samples in it, so it emitted 1.19x the audio
+> it was given — the surplus being stale samples from earlier blocks, not silence. Recognised
+> through it, `THE SQUALID QUARTER OF THE BROTHELS` came back as `WHILE ITS WATER AT THE
+> BOTTOM`: **38.9% word error on a clip that scores 0.0% through a file.** Invented words in a
+> fluent sentence, which is the one failure a user cannot catch themselves.
+>
+> It survived because the whole test suite reads files, and a file at 16 kHz never touches
+> the resampler. The bug was only ever on the microphone path.
+>
 > **Part of the "saturated hardware" turned out to be the capture path powering up**
 > ([ADR 0020](docs/adr/0020-capture-settling.md)). A cold session begins pinned at the
 > negative rail — DC −1.0, 100% of samples clipped, no signal at all — and takes about 1.8 s

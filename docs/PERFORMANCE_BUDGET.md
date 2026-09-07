@@ -1118,6 +1118,28 @@ Russian model on a clip with no human reference — Whisper returned two words t
 did not, which looked like a Whisper hallucination until the clip was checked and found to
 contain speech to 6.88 s of its 7.08 s. The reference model was the one that was wrong.
 
+## Twentieth measurement — 2026-09-07, what the resampler bug cost a transcript
+
+The nineteenth measurement fixed a resampler that emitted 1.19x its input. That is a
+statement about sample counts. This is what it did to the product.
+
+The English test clip, upsampled to 48 kHz to stand in for a device that refuses 16 kHz,
+pushed through `Resampler` in 20 ms blocks and recognised by the pinned English model:
+
+| | frames out | transcript | word error |
+| --- | --- | --- | --- |
+| with the bug | 397 (7.94 s from 6.62 s) | `...THE YELLOW LAMP WOULD LIGHT OUT HERE AND THERE WHILE ITS WATER AT THE BOTTOM` | **38.9%** |
+| fixed | 330 (6.60 s) | `...THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BROTHELS` | **0.0%** |
+
+**`THE SQUALID QUARTER OF THE BROTHELS` became `WHILE ITS WATER AT THE BOTTOM`.** Not a
+degraded transcript — invented words, in a fluent English sentence, which is the failure
+ADR 0021 exists to guard against and the one a user cannot detect for themselves.
+
+This is the same clip that scores 0.0% through a file source, because a file at 16 kHz never
+touches the resampler. Everything measured on files in this document was therefore measuring
+a path the bug could not reach, which is exactly why it survived: **the test suite reads
+files, and the bug was in the microphone.**
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
