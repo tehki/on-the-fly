@@ -742,3 +742,168 @@ def test_omitting_stop_conditions_is_rejected() -> None:
     errors: list[str] = []
     policy_validator.check_authorization_boundaries(policy, errors)
     assert any("stop_conditions" in error for error in errors)
+
+
+# ---------------------------------------------------------------------------------------
+# Every package this project imports is a package it admitted (Article 12).
+#
+# `requirements.txt` says so of every entry, and promoted three packages from transitive to
+# declared for the same written reason. Nothing checked the converse until these did, and
+# `huggingface_hub` — which fetches every model this project loads — had slipped through it.
+# ---------------------------------------------------------------------------------------
+
+
+def dependency_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    module: str,
+    requirements: str = "",
+    where: str = "infrastructure/thing.py",
+) -> None:
+    """A one-file source tree and a requirements file, standing in for the repository."""
+    path = tmp_path / "src" / "on_the_fly" / where
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(module, encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text(requirements, encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "SOURCE_ROOT", tmp_path / "src")
+
+
+def test_this_repository_declares_every_package_it_imports() -> None:
+    errors: list[str] = []
+    governance_validator.check_declared_dependencies(errors)
+
+    assert errors == []
+
+
+def test_an_undeclared_import_is_caught(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The real defect, reconstructed.
+
+    A package imported directly, present only because another package happened to ask for
+    it, and named in no requirements file — so unpinned, droppable by its host, and outside
+    the Article 12 review the file claims every entry passed.
+    """
+    dependency_tree(
+        monkeypatch,
+        tmp_path,
+        module="def download():\n    from huggingface_hub import snapshot_download\n",
+        requirements="faster-whisper==1.2.1\n",
+    )
+    errors: list[str] = []
+    governance_validator.check_declared_dependencies(errors)
+
+    assert any("huggingface_hub" in error and "Article 12" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("module_name", "declared"),
+    [
+        ("faster_whisper", "faster-whisper==1.2.1"),
+        ("sherpa_onnx", "sherpa-onnx==1.13.7"),
+        ("huggingface_hub", "huggingface_hub==1.30.0"),
+        ("PySide6", "PySide6-Essentials==6.11.2"),
+    ],
+)
+def test_an_import_name_that_differs_from_its_distribution_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, module_name: str, declared: str
+) -> None:
+    """A check that cried wolf on four of eight real entries would be turned off.
+
+    Three fold by pip's own rule — lowercase, underscores to hyphens. Only the GUI toolkit,
+    whose package is named differently from its distribution, needs to be written down.
+    """
+    dependency_tree(
+        monkeypatch,
+        tmp_path,
+        module=f"def go():\n    import {module_name}\n",
+        requirements=f"{declared}\n",
+    )
+    errors: list[str] = []
+    governance_validator.check_declared_dependencies(errors)
+
+    assert errors == []
+
+
+def test_the_optional_extra_counts_as_declared(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The GUI toolkit is deliberately not in requirements.txt, and is still admitted."""
+    path = tmp_path / "src" / "on_the_fly" / "ui" / "app.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("def build():\n    from PySide6 import QtCore\n", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text("numpy==2.5.2\n", encoding="utf-8")
+    (tmp_path / "requirements-ui.txt").write_text("PySide6-Essentials==6.11.2\n", encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "SOURCE_ROOT", tmp_path / "src")
+    errors: list[str] = []
+    governance_validator.check_declared_dependencies(errors)
+
+    assert errors == []
+
+
+def test_the_standard_library_and_relative_imports_are_not_dependencies(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Nothing to admit: one ships with Python, the other is this project's own code."""
+    dependency_tree(
+        monkeypatch,
+        tmp_path,
+        module="import wave\nimport hashlib\n\n\ndef go():\n    from . import sibling\n",
+        requirements="",
+    )
+    errors: list[str] = []
+    governance_validator.check_declared_dependencies(errors)
+
+    assert errors == []
+
+
+def test_this_repository_imports_every_package_lazily() -> None:
+    errors: list[str] = []
+    governance_validator.check_third_party_imports_are_lazy(errors)
+
+    assert errors == []
+
+
+def test_a_module_level_third_party_import_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One of these ends the claim for the whole package, in every direction it buys."""
+    dependency_tree(
+        monkeypatch,
+        tmp_path,
+        module="import numpy\n\n\ndef go():\n    return numpy\n",
+        requirements="numpy==2.5.2\n",
+    )
+    errors: list[str] = []
+    governance_validator.check_third_party_imports_are_lazy(errors)
+
+    assert any("module level" in error for error in errors)
+
+
+def test_this_repositorys_domain_imports_nothing_third_party() -> None:
+    errors: list[str] = []
+    governance_validator.check_the_domain_imports_nothing_third_party(errors)
+
+    assert errors == []
+
+
+def test_a_third_party_import_in_the_domain_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Declared, pinned, lazy — and still wrong, because of where it is.
+
+    The layering is what let a second translation engine land without anything above
+    `infrastructure/` noticing, and it is broken by convenience rather than by intent.
+    """
+    dependency_tree(
+        monkeypatch,
+        tmp_path,
+        module="def rms(frame):\n    import numpy\n    return numpy.sqrt(frame)\n",
+        requirements="numpy==2.5.2\n",
+        where="domain/audio/levels.py",
+    )
+    errors: list[str] = []
+    governance_validator.check_the_domain_imports_nothing_third_party(errors)
+
+    assert any("levels.py" in error and "numpy" in error for error in errors)
