@@ -163,6 +163,91 @@ def test_close_is_idempotent_and_repr_carries_no_audio(tmp_path: Path) -> None:
 
 
 # ======================================================================================
+# A truncated file
+#
+# A WAV header states its own payload length. Nothing used to check that claim against what
+# the file handed over, so a recording cut short — a recorder that crashed, a copy that
+# stopped, a download that ended early — read as a shorter recording. Every duration this
+# project prints is computed from the audio that arrived, so they all agree with each other
+# and not one of them can notice what is missing.
+# ======================================================================================
+
+
+def cut_short(path: Path, samples: list[int], *, keep: int) -> Path:
+    """Write `samples`, then lop the tail off the payload leaving the header untouched."""
+    write_wav(path, samples)
+    raw = path.read_bytes()
+    header_bytes = len(raw) - len(samples) * 2
+    path.write_bytes(raw[: header_bytes + keep * 2])
+    return path
+
+
+def test_an_intact_file_reports_no_loss(tmp_path: Path) -> None:
+    source = WavFileSource(write_wav(tmp_path / "whole.wav", samples_of(3.0, 1000)))
+    list(source.frames())
+
+    assert not source.is_truncated
+    assert source.truncated_seconds == 0.0
+    assert source.declared_seconds == pytest.approx(3.0)
+    assert source.delivered_seconds == pytest.approx(3.0)
+
+
+def test_half_a_recording_missing_is_reported(tmp_path: Path) -> None:
+    path = cut_short(tmp_path / "cut.wav", samples_of(3.0, 1000), keep=int(RATE * 1.5))
+    source = WavFileSource(path)
+    list(source.frames())
+
+    assert source.is_truncated
+    assert source.declared_seconds == pytest.approx(3.0)
+    assert source.delivered_seconds == pytest.approx(1.5)
+    assert source.truncated_seconds == pytest.approx(1.5)
+
+
+def test_a_trailing_partial_frame_is_not_truncation(tmp_path: Path) -> None:
+    """`frames()` discards a part-frame on purpose, and that decision is not a damaged file.
+
+    A 20ms frame is 320 samples at 16 kHz, so a file one sample short of a whole number of
+    frames delivers less than it declares and must still say nothing.
+    """
+    source = WavFileSource(write_wav(tmp_path / "odd.wav", samples_of(3.0, 1000)[:-1]))
+    list(source.frames())
+
+    assert source.delivered_seconds < source.declared_seconds
+    assert not source.is_truncated
+
+
+def test_one_whole_frame_missing_is_truncation(tmp_path: Path) -> None:
+    """The boundary the check turns on, asserted from the far side of it."""
+    samples = samples_of(3.0, 1000)
+    path = cut_short(tmp_path / "cut.wav", samples, keep=len(samples) - 320)
+    source = WavFileSource(path)
+    list(source.frames())
+
+    assert source.is_truncated
+    assert source.truncated_seconds == pytest.approx(0.02)
+
+
+def test_nothing_is_claimed_before_the_file_has_been_read(tmp_path: Path) -> None:
+    """Audio not yet read is not audio that went missing."""
+    path = cut_short(tmp_path / "cut.wav", samples_of(3.0, 1000), keep=int(RATE * 1.5))
+    source = WavFileSource(path)
+
+    assert not source.is_truncated
+    assert source.truncated_seconds == 0.0
+
+
+def test_stopping_early_does_not_look_like_truncation(tmp_path: Path) -> None:
+    """A caller that reads two frames and closes has lost nothing."""
+    source = WavFileSource(write_wav(tmp_path / "whole.wav", samples_of(3.0, 1000)))
+    frames = source.frames()
+    next(frames)
+    next(frames)
+    frames.close()
+
+    assert not source.is_truncated
+
+
+# ======================================================================================
 # Composition root
 # ======================================================================================
 

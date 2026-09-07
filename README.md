@@ -422,6 +422,11 @@ Mono 16-bit WAV; the file is not resampled. `--json` gives the same thing machin
 and `--allowed-root` confines the input path when it comes from somewhere less trustworthy
 than your own shell.
 
+A WAV header states how much audio the file holds, and a recorder that crashed or a copy
+that stopped leaves that claim overstated. Every duration above is measured from the audio
+that arrived, so none of them can notice — and half a recording transcribes into a perfectly
+well-formed sentence. When the file is short of what it declares, a `truncated` line says so.
+
 To stream English — text appears while the speaker is still talking:
 
 ```bash
