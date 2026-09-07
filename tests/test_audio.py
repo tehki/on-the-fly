@@ -16,6 +16,8 @@ from collections.abc import Iterator
 import pytest
 
 from on_the_fly.domain.audio import (
+    ABSOLUTE_MAX_UTTERANCE_MS,
+    DEFAULT_MAX_UTTERANCE_MS,
     AudioFormat,
     CaptureError,
     CaptureSession,
@@ -656,3 +658,272 @@ def test_session_gives_up_on_a_device_that_only_produces_garbage() -> None:
         list(session.utterances())
 
     assert source.closed == 1, "the device is still released on the failure path"
+
+
+# ======================================================================================
+# The boundaries of the endpointing decisions
+#
+# What counts as speech, and where an utterance ends, are decided by a handful of
+# comparisons. Mutation testing over `domain/audio/` found that most of them could be
+# flipped without a test noticing: 13 of 28 sites in vad.py and 22 of 33 in segmenter.py
+# survived. The guards were tested; the exact points they turn on were not.
+#
+# Each is an off-by-one in a decision a listener hears — a syllable clipped, a pause read as
+# the end of a turn — and one of them is a retention guard.
+# ======================================================================================
+
+
+# --- what counts as speech --------------------------------------------------------------
+
+
+def test_a_frame_exactly_at_the_threshold_is_not_speech() -> None:
+    """`rms > threshold`, not `>=`. A frame no louder than the threshold having been
+    declared speech is how a detector reports a whole quiet meeting as talking.
+
+    Seeded with silence first, because the very first frame defines the starting floor —
+    handing it the frame under test would make that frame its own threshold.
+    """
+    detector = EnergyVoiceActivityDetector(absolute_silence_rms=1000.0, speech_factor=3.0)
+    assert not detector.is_speech(SILENT_FRAME), "seeds the floor at zero"
+
+    assert not detector.is_speech(frame_of(1000)), "exactly at the absolute floor"
+    assert detector.is_speech(frame_of(1001)), "one step above it"
+
+
+def test_an_absolute_silence_floor_of_zero_is_allowed() -> None:
+    """Zero is the boundary of the guard, and a legitimate setting: it means "trust the
+    adaptive floor alone", which is what a test rig with no room tone wants."""
+    assert EnergyVoiceActivityDetector(absolute_silence_rms=0.0).noise_floor == 0.0
+
+
+def test_a_negative_absolute_silence_floor_is_refused() -> None:
+    with pytest.raises(ValueError, match="absolute_silence_rms"):
+        EnergyVoiceActivityDetector(absolute_silence_rms=-1.0)
+
+
+@pytest.mark.parametrize("factor", [1.0, 0.5])
+def test_a_speech_factor_that_does_not_exceed_one_is_refused(factor: float) -> None:
+    """At exactly 1.0 the threshold is the noise floor itself, so room tone is speech."""
+    with pytest.raises(ValueError, match="speech_factor"):
+        EnergyVoiceActivityDetector(speech_factor=factor)
+
+
+def test_a_speech_factor_just_above_one_is_allowed() -> None:
+    """The guard is exclusive, and the first value above it has to work."""
+    assert EnergyVoiceActivityDetector(speech_factor=1.001) is not None
+
+
+@pytest.mark.parametrize("rate", [0.0, 1.0, -0.1, 1.1])
+def test_an_adaptation_rate_outside_the_open_unit_interval_is_refused(rate: float) -> None:
+    """Zero never adapts; one adopts every frame as the floor, including a shout."""
+    with pytest.raises(ValueError, match="adaptation_rate"):
+        EnergyVoiceActivityDetector(adaptation_rate=rate, recovery_rate=1.0)
+
+
+def test_a_recovery_rate_of_exactly_one_is_allowed() -> None:
+    """Unlike adaptation, recovery may take a frame whole: a frame quieter than the floor
+    is evidence the floor is wrong, and acting on it immediately is the safe direction."""
+    assert EnergyVoiceActivityDetector(recovery_rate=1.0) is not None
+
+
+@pytest.mark.parametrize("rate", [0.0, 1.1])
+def test_a_recovery_rate_outside_its_range_is_refused(rate: float) -> None:
+    """Matched on this guard's own words. "recovery_rate" alone would also match the
+    asymmetry rule below it, so a zero rate would look refused for the wrong reason.
+    """
+    with pytest.raises(ValueError, match="above 0 and at most 1"):
+        EnergyVoiceActivityDetector(recovery_rate=rate, adaptation_rate=0.0001)
+
+
+def test_recovery_may_equal_adaptation_but_not_fall_below_it() -> None:
+    """ADR 0025's asymmetry, at the point it turns on.
+
+    Reversed, the detector deafens itself faster than it recovers — the defect that ADR
+    exists to fix. Equal is the boundary and is permitted: symmetric is not backwards.
+    """
+    assert EnergyVoiceActivityDetector(adaptation_rate=0.05, recovery_rate=0.05) is not None
+
+    with pytest.raises(ValueError, match="recovery_rate"):
+        EnergyVoiceActivityDetector(adaptation_rate=0.05, recovery_rate=0.049)
+
+
+# --- where an utterance ends --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["frame_ms", "pre_roll_ms", "hangover_ms", "min_utterance_ms"])
+def test_a_zero_timing_is_refused(field: str) -> None:
+    """Zero is the boundary of "must be positive", and every one of these divides or counts
+    frames, so zero is not a small value but a broken one."""
+    with pytest.raises(ValueError, match=field):
+        SegmenterConfig(**{field: 0})
+
+
+def test_a_maximum_equal_to_the_minimum_is_refused() -> None:
+    """Equal leaves no window at all: every utterance would be both too short and too long."""
+    with pytest.raises(ValueError, match="max_utterance_ms"):
+        SegmenterConfig(min_utterance_ms=500, max_utterance_ms=500)
+
+
+def test_a_maximum_exactly_at_the_ceiling_is_allowed() -> None:
+    """The ceiling is inclusive. Refusing here would make the documented limit unreachable."""
+    assert SegmenterConfig(max_utterance_ms=ABSOLUTE_MAX_UTTERANCE_MS).max_utterance_ms == (
+        ABSOLUTE_MAX_UTTERANCE_MS
+    )
+
+
+def test_a_maximum_one_millisecond_over_the_ceiling_is_refused() -> None:
+    with pytest.raises(ValueError, match="ceiling"):
+        SegmenterConfig(max_utterance_ms=ABSOLUTE_MAX_UTTERANCE_MS + 1)
+
+
+def test_a_hangover_of_exactly_one_frame_is_allowed() -> None:
+    """One frame is the smallest hangover that can exist; shorter is not a fast endpoint,
+    it is a hangover that never fires."""
+    assert SegmenterConfig(frame_ms=20, hangover_ms=20).hangover_frames == 1
+
+    with pytest.raises(ValueError, match="hangover_ms"):
+        SegmenterConfig(frame_ms=20, hangover_ms=19)
+
+
+@pytest.mark.parametrize(
+    "attribute", ["pre_roll_frames", "hangover_frames", "max_utterance_frames"]
+)
+def test_a_frame_count_never_rounds_down_to_nothing(attribute: str) -> None:
+    """Integer division would give zero for any duration under one frame. A pre-roll ring of
+    length zero keeps no audio, and a maximum of zero frames ends every utterance instantly.
+    """
+    config = SegmenterConfig(
+        frame_ms=100, pre_roll_ms=50, hangover_ms=100, min_utterance_ms=1, max_utterance_ms=50
+    )
+    assert config.pre_roll_ms < config.frame_ms, "the case the floor exists for"
+
+    assert getattr(config, attribute) == 1, "the floor is one frame, not more and not none"
+
+
+def test_the_utterance_ends_on_the_hangover_frame_and_not_before() -> None:
+    """The endpoint decision itself. One frame early clips the speaker mid-pause; one frame
+    late is a turn that hangs."""
+    hangover_frames = TEST_CONFIG.hangover_frames
+    segmenter, _ = make_segmenter([True] + [False] * hangover_frames)
+
+    assert segmenter.push(frame_of(9000)) is None
+    for index in range(hangover_frames - 1):
+        assert segmenter.push(SILENT_FRAME) is None, f"ended {hangover_frames - index} early"
+
+    assert segmenter.push(SILENT_FRAME) is not None, "did not end on the hangover frame"
+
+
+def emit_a_two_frame_utterance(min_utterance_ms: int) -> object | None:
+    """One speech frame plus the hangover frame that ends it: 40ms of audio."""
+    config = SegmenterConfig(
+        frame_ms=20,
+        pre_roll_ms=20,
+        hangover_ms=20,
+        min_utterance_ms=min_utterance_ms,
+        max_utterance_ms=200,
+    )
+    segmenter, _ = make_segmenter([True, False], config=config)
+    segmenter.push(frame_of(9000))
+    return segmenter.push(SILENT_FRAME)
+
+
+def test_an_utterance_exactly_at_the_minimum_length_is_kept() -> None:
+    """The minimum is inclusive. Exclusive, the shortest configurable utterance would be
+    one that can never be produced."""
+    assert emit_a_two_frame_utterance(min_utterance_ms=40) is not None
+
+
+def test_an_utterance_one_millisecond_under_the_minimum_is_dropped() -> None:
+    """Dropped without ever being stored, so there is nothing to expire."""
+    assert emit_a_two_frame_utterance(min_utterance_ms=41) is None
+
+
+def test_the_default_maximum_sits_under_the_absolute_ceiling() -> None:
+    """The ceiling is what a configuration may not exceed; the default is what it gets
+    without asking. A default above the ceiling would make the out-of-the-box segmenter
+    refuse to construct."""
+    assert DEFAULT_MAX_UTTERANCE_MS <= ABSOLUTE_MAX_UTTERANCE_MS
+    assert SegmenterConfig().max_utterance_ms == DEFAULT_MAX_UTTERANCE_MS
+
+
+def test_the_utterance_is_cut_on_the_frame_that_reaches_the_maximum() -> None:
+    """The other way an utterance ends. One frame late and the ceiling is not the ceiling.
+
+    Speech that never stops, so only the maximum can end it.
+    """
+    config = SegmenterConfig(
+        frame_ms=20, pre_roll_ms=20, hangover_ms=20, min_utterance_ms=20, max_utterance_ms=100
+    )
+    assert config.max_utterance_frames == 5
+    segmenter, _ = make_segmenter([True] * 5, config=config)
+
+    for index in range(4):
+        assert segmenter.push(frame_of(9000)) is None, f"cut at frame {index + 1} of 5"
+
+    utterance = segmenter.push(frame_of(9000))
+    assert utterance is not None, "did not cut on the frame that reached the maximum"
+    assert utterance.ended_because is EndReason.MAX_DURATION
+
+
+def test_the_maximum_also_cuts_an_utterance_during_its_trailing_silence() -> None:
+    """The same ceiling is checked on both paths, and they are two comparisons.
+
+    Trailing silence is kept as part of the utterance until the speaker is known to have
+    stopped, so it counts toward the maximum — and an utterance can reach the ceiling while
+    still inside its hangover. Ending it as SILENCE there would report the speaker as having
+    finished when what actually happened is that the buffer filled.
+    """
+    config = SegmenterConfig(
+        frame_ms=20, pre_roll_ms=20, hangover_ms=60, min_utterance_ms=20, max_utterance_ms=60
+    )
+    assert config.hangover_frames == 3 and config.max_utterance_frames == 3
+    segmenter, _ = make_segmenter([True, False, False], config=config)
+
+    assert segmenter.push(frame_of(9000)) is None
+    assert segmenter.push(SILENT_FRAME) is None, "cut before the maximum"
+
+    utterance = segmenter.push(SILENT_FRAME)
+    assert utterance is not None, "did not cut on the frame that reached the maximum"
+    assert utterance.ended_because is EndReason.MAX_DURATION, (
+        "the buffer filling is not the speaker stopping"
+    )
+
+
+def test_resetting_makes_the_next_frame_seed_the_floor_again() -> None:
+    """`reset()` is for a new capture session. A detector that kept the old room's floor
+    would carry one room's noise into another's."""
+    detector = EnergyVoiceActivityDetector(absolute_silence_rms=1.0)
+    detector.is_speech(frame_of(9000))
+    assert detector.noise_floor == pytest.approx(9000.0)
+
+    detector.reset()
+    assert detector.noise_floor == 0.0
+    detector.is_speech(frame_of(500))
+
+    assert detector.noise_floor == pytest.approx(500.0), "the next frame did not reseed"
+
+
+def test_a_pre_roll_as_long_as_the_retention_window_is_allowed() -> None:
+    """The ring is retention-by-construction only while it is the tighter bound, and equal
+    is still bounded. Refusing here would forbid the longest legitimate pre-roll."""
+    store = EphemeralStore("on-the-fly", clock=ManualClock())
+    config = SegmenterConfig(pre_roll_ms=int(store.retention_seconds * 1000))
+
+    assert (
+        UtteranceSegmenter(
+            store=store, detector=ScriptedDetector([]), audio_format=FORMAT, config=config
+        )
+        is not None
+    )
+
+
+def test_a_pre_roll_longer_than_the_retention_window_is_refused() -> None:
+    """One millisecond over and the ring becomes the longer-lived copy of captured audio,
+    which is content escaping the retention rule rather than a tuning mistake."""
+    store = EphemeralStore("on-the-fly", clock=ManualClock())
+    config = SegmenterConfig(pre_roll_ms=int(store.retention_seconds * 1000) + 20)
+
+    with pytest.raises(ValueError, match="retention window"):
+        UtteranceSegmenter(
+            store=store, detector=ScriptedDetector([]), audio_format=FORMAT, config=config
+        )
