@@ -18,8 +18,8 @@ import pytest
 
 from on_the_fly.app import PipelineResult, run_capture
 from on_the_fly.app.cli import main
-from on_the_fly.domain.audio import EndReason, SegmenterConfig
-from on_the_fly.domain.retention import EphemeralStore
+from on_the_fly.domain.audio import CaptureStats, EndReason, SegmenterConfig
+from on_the_fly.domain.retention import EphemeralStore, ReapReport
 from on_the_fly.infrastructure.audio import WavFileSource, WavSourceError
 
 RATE = 16_000
@@ -440,3 +440,53 @@ def test_cli_rejects_a_nonsensical_configuration(
 
     assert exit_code == 1
     assert "max_utterance_ms must exceed" in capsys.readouterr().err
+
+
+# ======================================================================================
+# The numbers a finished run reports
+#
+# `real_time_factor` and `retention_clean` are printed and, in the second case, decide the
+# exit code. Mutation testing found their comparisons could be flipped without a test
+# noticing, because every existing case had both clauses failing together.
+# ======================================================================================
+
+
+def result_with(
+    *, audio: float = 1.0, wall: float = 1.0, remaining: int = 0, reap: ReapReport | None = None
+) -> PipelineResult:
+    return PipelineResult(
+        utterances=(),
+        capture=CaptureStats(audio_seconds_seen=audio),
+        wall_seconds=wall,
+        final_reap=reap if reap is not None else ReapReport(),
+        entries_remaining=remaining,
+    )
+
+
+def test_a_run_that_saw_no_audio_reports_no_pace() -> None:
+    """Zero is the boundary of the guard. A run that read no frames has no pace, and a
+    number here would be one nobody measured."""
+    assert result_with(audio=0.0, wall=5.0).real_time_factor == 0.0
+    assert result_with(audio=2.0, wall=1.0).real_time_factor == pytest.approx(0.5)
+
+    # The guard is on zero, not on "less than a second". A clip shorter than one second
+    # still has a pace, and a run that fell behind on one must say so.
+    assert result_with(audio=0.5, wall=1.0).real_time_factor == pytest.approx(2.0)
+
+
+def test_content_left_in_the_store_is_not_clean_even_after_a_successful_reap() -> None:
+    """The clause that can fail on its own, which is the `keep_store` path.
+
+    A reap that reported no failures says nothing about what was never due for deletion.
+    Content still held at the end of a run is content retained past the point anyone
+    needed it — and this property is what the command line turns into an exit code.
+    """
+    assert result_with(remaining=1).final_reap.ok, "the reap itself was clean"
+    assert not result_with(remaining=1).retention_clean
+    assert result_with(remaining=0).retention_clean
+
+
+def test_a_failed_deletion_is_not_clean_even_with_nothing_left_in_the_index() -> None:
+    """And the other clause on its own: the store is empty and a location refused."""
+    assert not result_with(remaining=0, reap=ReapReport(failed=("entry",))).retention_clean
+    assert not result_with(remaining=0, reap=ReapReport(pending_retry=("entry",))).retention_clean
