@@ -18,7 +18,8 @@ decision, and the pipeline above is built for a stream anyway.
 
 A WAV file is untrusted input like any other (Article 4). Its header is attacker-controlled
 if the file came from anywhere but the user's own recorder, so the header is validated before
-a byte of audio is used.
+a byte of audio is used — and, since `truncated_seconds`, its claim about its own length is
+checked against what the file actually handed over rather than taken on trust.
 """
 
 from __future__ import annotations
@@ -59,6 +60,9 @@ class WavFileSource:
         self._reader: wave.Wave_read | None = None
         self._closed = False
         self._frames_yielded = 0
+        # Set only when `frames()` runs off the end of the file. Until then, audio not yet
+        # read is simply not yet read, and nothing can be concluded about what is missing.
+        self._reached_end = False
 
     @staticmethod
     def _resolve(path: Path | str, allowed_root: Path | str | None) -> Path:
@@ -91,6 +95,10 @@ class WavFileSource:
                 sample_width = reader.getsampwidth()
                 frame_rate = reader.getframerate()
                 declared_frames = reader.getnframes()
+                # `wave` counts single samples here; this module calls a 20ms block a frame.
+                # Kept under the name that says which, because the two differ by 320x and
+                # confusing them is how a truncation check ends up measuring nothing.
+                self._declared_samples = declared_frames
         except wave.Error as exc:
             raise WavSourceError(f"not a readable WAV file: {exc}") from exc
         except OSError as exc:
@@ -125,6 +133,51 @@ class WavFileSource:
     def frames_yielded(self) -> int:
         return self._frames_yielded
 
+    @property
+    def _samples_per_frame(self) -> int:
+        return self._frame_bytes // self._format.sample_width_bytes
+
+    @property
+    def declared_seconds(self) -> float:
+        """How much audio the header says this file carries."""
+        return self._declared_samples / self._format.sample_rate_hz
+
+    @property
+    def delivered_seconds(self) -> float:
+        """How much audio the file actually handed over."""
+        return self._frames_yielded * self._frame_bytes / self._format.bytes_per_second
+
+    @property
+    def truncated_seconds(self) -> float:
+        """Audio the header promised that the file did not carry.
+
+        A WAV header states its own payload length, and until this existed nothing compared
+        that statement against what arrived. A recording cut short — a recorder that
+        crashed, a copy that stopped, a download that ended early — reads as a shorter
+        recording, and every duration this project prints is computed from what arrived, so
+        every one of them agrees with itself and none of them notices. Half a meeting can
+        go missing and the transcript looks complete.
+
+        The microphone path has always said `dropped N overflow(s) - audio was lost`. This
+        is the same sentence for a file, and it was the one input the project called
+        untrusted (Article 4) while leaving its size claim unchecked.
+
+        Zero until `frames()` has reached the end of the file. Zero, too, for a shortfall
+        under one frame: `frames()` discards a trailing partial frame on purpose, so up to
+        one frame missing is that decision rather than a damaged file.
+        """
+        if not self._reached_end:
+            return 0.0
+        missing = self._declared_samples - self._frames_yielded * self._samples_per_frame
+        if missing < self._samples_per_frame:
+            return 0.0
+        return missing / self._format.sample_rate_hz
+
+    @property
+    def is_truncated(self) -> bool:
+        """True when the file carried materially less audio than its header declared."""
+        return self.truncated_seconds > 0.0
+
     def __repr__(self) -> str:
         # The file name is shown: the user chose this path, and without it a diagnostic
         # about which file failed is useless. The audio itself never appears.
@@ -155,7 +208,10 @@ class WavFileSource:
             while not self._closed:
                 chunk = reader.readframes(samples_per_frame)
                 if len(chunk) < self._frame_bytes:
-                    # End of file, or a partial trailing frame. Either way, stop.
+                    # End of file, or a partial trailing frame. Either way, stop — but note
+                    # that the end was reached, which is what makes the shortfall below
+                    # mean anything.
+                    self._reached_end = True
                     break
                 self._frames_yielded += 1
                 yield chunk

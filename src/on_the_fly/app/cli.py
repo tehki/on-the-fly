@@ -287,13 +287,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def truncation_line(source: WavFileSource) -> str | None:
+    """One line when the file carried less audio than its header declared, else nothing.
+
+    Printed next to the duration it contradicts, because every duration this project
+    reports is computed from the audio that arrived and so cannot reveal what did not.
+    Not an error: a half-copied recording is still worth transcribing. It just must not be
+    mistaken for a whole one.
+    """
+    if not source.is_truncated:
+        return None
+    # Two measured numbers and no third derived from them. The shortfall is their
+    # difference, and printing it alongside would invite a subtraction that rounding can
+    # fail: a file declaring 6.625s and carrying 3.300s has lost 3.325s, which at two
+    # decimals renders as 6.62, 3.30 and 3.33. A warning whose own arithmetic does not
+    # add up argues against itself. `truncated_seconds` carries the figure to callers.
+    return (
+        f"truncated     header declares {source.declared_seconds:.2f}s but the file "
+        f"carries only {source.delivered_seconds:.2f}s - audio was lost before it "
+        "reached us"
+    )
+
+
 def format_human(result: PipelineResult, source: WavFileSource) -> str:
     lines = [
         f"file          {source.path.name}",
         f"format        {source.audio_format.sample_rate_hz} Hz mono 16-bit",
         f"audio         {result.audio_seconds:.2f}s in {result.capture.frames_read} frames",
-        "",
     ]
+    truncated = truncation_line(source)
+    if truncated is not None:
+        lines.append(truncated)
+    lines.append("")
 
     if result.utterances:
         lines.append(f"{len(result.utterances)} utterance(s):")
@@ -328,6 +353,8 @@ def format_json(result: PipelineResult, source: WavFileSource) -> str:
             "file": source.path.name,
             "sample_rate_hz": source.audio_format.sample_rate_hz,
             "audio_seconds": round(result.audio_seconds, 4),
+            "declared_seconds": round(source.declared_seconds, 4),
+            "truncated_seconds": round(source.truncated_seconds, 4),
             "frames_read": result.capture.frames_read,
             "frames_invalid": result.capture.frames_invalid,
             "wall_seconds": round(result.wall_seconds, 4),
@@ -517,6 +544,8 @@ def format_transcript(
                 "file": source.path.name,
                 "model": model_name,
                 "audio_seconds": round(result.audio_seconds, 3),
+                "declared_seconds": round(source.declared_seconds, 3),
+                "truncated_seconds": round(source.truncated_seconds, 3),
                 "wall_seconds": round(result.wall_seconds, 3),
                 "real_time_factor": round(result.real_time_factor, 4),
                 "utterances": payload,
@@ -529,8 +558,11 @@ def format_transcript(
         f"file          {source.path.name}",
         f"model         {model_name} (local, verified)",
         f"audio         {result.audio_seconds:.2f}s",
-        "",
     ]
+    truncated = truncation_line(source)
+    if truncated is not None:
+        header.append(truncated)
+    header.append("")
     footer = [
         "",
         f"wall time     {result.wall_seconds:.2f}s",
@@ -661,6 +693,9 @@ def run_stream(args: argparse.Namespace) -> int:
 
     print()
     print(f"audio         {stats.audio_seconds:.2f}s in {stats.frames_read} frames")
+    truncated = truncation_line(source)
+    if truncated is not None:
+        print(truncated)
     print(f"wall time     {stats.wall_seconds:.2f}s")
     pace = "keeps up" if stats.keeps_up else "TOO SLOW"
     print(f"real-time     {stats.real_time_factor:.3f}x  ({pace})  excludes model load")
