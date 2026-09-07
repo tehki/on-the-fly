@@ -12,7 +12,12 @@ project's error type rather than a library-specific exception leaking upward.
 
 from __future__ import annotations
 
+import queue as _queue
+import sys
+import types
 from array import array
+from collections.abc import Callable
+from typing import ClassVar, cast
 
 import pytest
 
@@ -29,6 +34,7 @@ from on_the_fly.infrastructure.audio import (
     MicrophoneSource,
     SoundDeviceBackend,
 )
+from on_the_fly.infrastructure.audio.backend import InputStream, _SoundDeviceStream
 
 FORMAT = AudioFormat()
 FRAME_MS = 20
@@ -526,3 +532,380 @@ def test_the_negotiated_rate_is_reported_without_a_device_name() -> None:
 
     assert "capture_rate=48000" in rendered
     assert "fake" in rendered
+
+
+# ======================================================================================
+# The backend seam itself
+#
+# This file's own docstring says the port exists so "the adapter's real behaviour ... is all
+# testable without hardware". The adapter is. The `sounddevice` backend behind it was not:
+# mutation testing killed **none** of its thirty sites.
+#
+# It needs no hardware either. `_SoundDeviceStream` takes its stream and its queue as
+# arguments, and `SoundDeviceBackend` imports `sounddevice` lazily inside each method — so a
+# fake module in `sys.modules` is enough. What is under test is the code that decides "audio
+# was lost" and "the device is gone", which is what the command line prints.
+# ======================================================================================
+
+
+class RawStream:
+    """Stands in for a PortAudio stream. Optionally refuses to start, stop or close."""
+
+    def __init__(self, *, fail_start: bool = False, fail_close: bool = False) -> None:
+        self.started = 0
+        self.stopped = 0
+        self.closed = 0
+        self._fail_start = fail_start
+        self._fail_close = fail_close
+
+    def start(self) -> None:
+        if self._fail_start:
+            raise RuntimeError("device busy")
+        self.started += 1
+
+    def stop(self) -> None:
+        self.stopped += 1
+        if self._fail_close:
+            raise RuntimeError("stop failed")
+
+    def close(self) -> None:
+        self.closed += 1
+        if self._fail_close:
+            raise RuntimeError("close failed")
+
+
+def stream_over(blocks: list[bytes], **kwargs: object) -> tuple[_SoundDeviceStream, RawStream]:
+    queued: _queue.Queue[bytes] = _queue.Queue(maxsize=_SoundDeviceStream.MAX_BLOCKS)
+    for block in blocks:
+        queued.put(block)
+    raw = RawStream(**kwargs)  # type: ignore[arg-type]
+    return _SoundDeviceStream(raw, queued), raw
+
+
+# --- starting and stopping ----------------------------------------------------------------
+
+
+def test_starting_twice_starts_the_device_once() -> None:
+    stream, raw = stream_over([])
+    stream.start()
+    stream.start()
+
+    assert raw.started == 1
+
+
+def test_a_device_that_refuses_to_start_becomes_this_projects_error() -> None:
+    """A library exception leaking upward is what the port exists to prevent."""
+    stream, _ = stream_over([], fail_start=True)
+
+    with pytest.raises(AudioDeviceError, match="could not start"):
+        stream.start()
+
+
+def test_a_closed_stream_cannot_be_started_or_read() -> None:
+    stream, _ = stream_over([SILENT_FRAME])
+    stream.close()
+
+    with pytest.raises(AudioDeviceError, match="has been closed"):
+        stream.start()
+    with pytest.raises(AudioDeviceError, match="has been closed"):
+        stream.read(160)
+
+
+def test_closing_twice_stops_the_device_once() -> None:
+    stream, raw = stream_over([])
+    stream.close()
+    stream.close()
+
+    assert (raw.stopped, raw.closed) == (1, 1)
+
+
+def test_closing_does_not_raise_even_when_the_device_does() -> None:
+    """A failure here would mask whatever error caused the shutdown, and the caller can do
+    nothing useful about it either way."""
+    stream, raw = stream_over([SILENT_FRAME], fail_close=True)
+
+    stream.close()
+
+    assert raw.closed == 1
+
+
+def test_closing_releases_audio_still_queued() -> None:
+    """Captured audio is EPHEMERAL and has no reason to outlive the device that made it."""
+    stream, _ = stream_over([SILENT_FRAME] * 5)
+
+    stream.close()
+
+    assert stream._queue.empty(), "captured audio outlived the device"
+
+
+# --- what "audio was lost" means ------------------------------------------------------------
+
+
+def test_a_read_reports_no_overflow_when_nothing_was_dropped() -> None:
+    stream, _ = stream_over([LOUD_FRAME])
+
+    data, overflowed = stream.read(160)
+
+    assert data == LOUD_FRAME
+    assert not overflowed
+
+
+def test_a_dropped_block_is_reported_on_the_next_read() -> None:
+    """This is what the command line prints as "dropped N overflow(s) - audio was lost"."""
+    stream, _ = stream_over([LOUD_FRAME])
+    stream.note_drop()
+
+    assert stream.read(160)[1]
+
+
+def test_portaudio_reporting_its_own_overflow_counts_too() -> None:
+    """Two independent ways audio goes missing: our queue filling, and the driver saying so."""
+    stream, _ = stream_over([LOUD_FRAME])
+    stream.note_status_overflow()
+
+    assert stream.read(160)[1]
+
+
+def test_an_overflow_is_reported_once_and_not_again() -> None:
+    """The counters are cleared as they are read. Otherwise one drop early in a session
+    would mark every subsequent frame as lost audio, and the warning would stop meaning
+    anything."""
+    stream, _ = stream_over([LOUD_FRAME, LOUD_FRAME])
+    stream.note_drop()
+    stream.note_status_overflow()
+
+    assert stream.read(160)[1]
+    assert not stream.read(160)[1], "the overflow was reported twice"
+
+
+def test_a_device_that_stops_delivering_is_reported_as_disconnected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Five seconds of nothing from a device that claimed to be running is a failure, not a
+    quiet room: the callback delivers blocks whether or not anyone is speaking."""
+    stream, _ = stream_over([])
+
+    with pytest.raises(AudioDeviceError, match="may have been disconnected"):
+        monkeypatch.setattr(stream._queue, "get", _raise_empty)
+        stream.read(160)
+
+
+def _raise_empty(*args: object, **kwargs: object) -> bytes:
+    raise _queue.Empty
+
+
+def test_the_queue_is_bounded_so_a_stalled_consumer_loses_audio_rather_than_memory() -> None:
+    """Unbounded buffering would trade a drop-out for a memory leak, and hand the recogniser
+    audio that is seconds stale — worse, for a live translator, than losing it."""
+    assert _SoundDeviceStream.MAX_BLOCKS == 100, "two seconds at 20 ms blocks"
+
+
+# --- the lazy import, and what it says when it fails ------------------------------------------
+
+
+def fake_sounddevice(monkeypatch: pytest.MonkeyPatch, **attributes: object) -> types.ModuleType:
+    module = types.ModuleType("sounddevice")
+    for name, value in attributes.items():
+        setattr(module, name, value)
+    monkeypatch.setitem(sys.modules, "sounddevice", module)
+    return module
+
+
+def test_a_missing_sounddevice_package_says_to_install_the_requirements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A library-specific ImportError leaking upward is what the port exists to prevent.
+
+    The sibling branch, an OSError from a missing libportaudio2, is left to the one test in
+    this file that exercises the real backend: reaching it here would mean patching
+    `builtins.__import__`, which is a fragile way to assert a message.
+    """
+    monkeypatch.setitem(sys.modules, "sounddevice", None)
+
+    with pytest.raises(AudioDeviceError, match="not installed"):
+        SoundDeviceBackend()._import_sounddevice()
+
+
+def test_a_native_rate_that_cannot_be_read_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Not knowing the native rate is a reason to try the candidate list, not a reason to
+    fail before the device has been asked for anything."""
+
+    def refuse(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("no such device")
+
+    fake_sounddevice(monkeypatch, query_devices=refuse)
+
+    assert SoundDeviceBackend().default_sample_rate(device=3) is None
+
+
+def test_a_native_rate_of_zero_is_treated_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A device reporting zero is reporting nothing usable, and zero would be passed
+    straight into a division."""
+    fake_sounddevice(monkeypatch, query_devices=lambda device: {"default_samplerate": 0.0})
+
+    assert SoundDeviceBackend().default_sample_rate(device=3) is None
+
+
+def test_a_native_rate_is_returned_as_a_whole_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PortAudio reports it as a float; every rate in this project is an int."""
+    fake_sounddevice(monkeypatch, query_devices=lambda device: {"default_samplerate": 44100.0})
+
+    assert SoundDeviceBackend().default_sample_rate(device=3) == 44100
+
+
+def test_an_unsupported_rate_is_false_rather_than_an_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`supports_rate` is asked speculatively, once per candidate rate."""
+
+    def refuse(**kwargs: object) -> None:
+        raise ValueError("Invalid sample rate")
+
+    fake_sounddevice(monkeypatch, check_input_settings=refuse)
+
+    assert not SoundDeviceBackend().supports_rate(16_000, channels=1)
+
+
+def test_a_supported_rate_is_true(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_sounddevice(monkeypatch, check_input_settings=lambda **kwargs: None)
+
+    assert SoundDeviceBackend().supports_rate(48_000, channels=1)
+
+
+def test_only_devices_that_can_record_are_offered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A picker listing speakers as microphones would be a picker nobody trusts."""
+    fake_sounddevice(
+        monkeypatch,
+        query_devices=lambda: [
+            {"name": "Internal Mic", "max_input_channels": 2},
+            {"name": "Speakers", "max_input_channels": 0},
+            {"name": "USB Headset", "max_input_channels": 1},
+        ],
+    )
+
+    assert SoundDeviceBackend().input_device_names() == ("Internal Mic", "USB Headset")
+
+
+def test_a_device_with_no_name_is_still_listed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dropping it would leave the picker's indices disagreeing with the driver's."""
+    fake_sounddevice(monkeypatch, query_devices=lambda: [{"max_input_channels": 1}])
+
+    assert SoundDeviceBackend().input_device_names() == ("unknown",)
+
+
+def test_devices_that_cannot_be_enumerated_become_this_projects_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse() -> object:
+        raise RuntimeError("PortAudio not initialised")
+
+    fake_sounddevice(monkeypatch, query_devices=refuse)
+
+    with pytest.raises(AudioDeviceError, match="could not enumerate"):
+        SoundDeviceBackend().input_device_names()
+
+
+# --- the audio callback, which decides which audio is lost -------------------------------
+#
+# It runs on PortAudio's own thread, so it is written to do nothing but a copy and a put.
+# That makes it the one piece of this backend with a real decision in it — when the queue is
+# full, which block goes — and it is reachable without a device by capturing the callback
+# the backend hands to `RawInputStream`.
+
+
+class CapturingRawInputStream:
+    """Records the callback the backend registers, and does nothing else."""
+
+    registered: ClassVar[dict[str, object]] = {}
+
+    def __init__(self, **kwargs: object) -> None:
+        CapturingRawInputStream.registered = dict(kwargs)
+
+    def start(self) -> None:
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+AudioCallback = Callable[[bytes, int, object, object], None]
+
+
+def opened_stream(monkeypatch: pytest.MonkeyPatch) -> tuple[InputStream, AudioCallback]:
+    """`(stream, callback)` for a backend opened against a fake PortAudio."""
+    fake_sounddevice(monkeypatch, RawInputStream=CapturingRawInputStream)
+    stream = SoundDeviceBackend().open_input_stream(
+        sample_rate_hz=16_000, channels=1, blocksize=320
+    )
+    callback = CapturingRawInputStream.registered["callback"]
+    assert callable(callback)
+    return stream, cast("AudioCallback", callback)
+
+
+def test_a_delivered_block_reaches_the_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream, on_audio = opened_stream(monkeypatch)
+
+    on_audio(LOUD_FRAME, 320, None, None)
+
+    assert stream.read(320) == (LOUD_FRAME, False)
+
+
+def test_a_stream_that_cannot_be_opened_becomes_this_projects_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(**kwargs: object) -> object:
+        raise RuntimeError("Invalid number of channels")
+
+    fake_sounddevice(monkeypatch, RawInputStream=refuse)
+
+    with pytest.raises(AudioDeviceError, match="could not open an input stream"):
+        SoundDeviceBackend().open_input_stream(sample_rate_hz=16_000, channels=1, blocksize=320)
+
+
+def test_a_full_queue_loses_the_oldest_block_and_keeps_the_newest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """For a live translator the most recent speech is the useful part, so a consumer that
+    has fallen behind loses what it has already missed rather than what is being said now.
+    """
+    stream, on_audio = opened_stream(monkeypatch)
+    oldest = frame_of(1)
+    on_audio(oldest, 320, None, None)
+    for index in range(2, _SoundDeviceStream.MAX_BLOCKS + 1):
+        on_audio(frame_of(index), 320, None, None)
+
+    newest = frame_of(9999)
+    on_audio(newest, 320, None, None)
+
+    data, overflowed = stream.read(320)
+    assert data != oldest, "the oldest block survived a full queue"
+    assert overflowed, "audio was dropped and the reader was not told"
+
+    remaining = [stream.read(320)[0] for _ in range(_SoundDeviceStream.MAX_BLOCKS - 1)]
+    assert remaining[-1] == newest, "the newest block was the one thrown away"
+
+
+def test_portaudio_reporting_a_status_is_recorded_as_lost_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The driver's own overflow flag, which is separate from this queue filling up."""
+    stream, on_audio = opened_stream(monkeypatch)
+
+    on_audio(LOUD_FRAME, 320, None, "input overflow")
+
+    assert stream.read(320)[1]
+
+
+def test_a_falsy_status_is_not_an_overflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PortAudio passes a status object on every callback; only a truthy one means trouble,
+    and treating the ordinary case as a fault would mark every frame as lost audio."""
+    stream, on_audio = opened_stream(monkeypatch)
+
+    on_audio(LOUD_FRAME, 320, None, "")
+
+    assert not stream.read(320)[1]
