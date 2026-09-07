@@ -145,9 +145,13 @@ Stated plainly, because the failure mode of governance work is believing it is f
   Real ALSA open failures were mapped to `AudioDeviceError` with the device's own message,
   which had previously only been tested against a fake.
 
-  What is still unverified is capture of *usable* audio. That machine's input produced 64%
-  clipped samples with a −15838 DC offset, and raw `sounddevice` produced the same, so it
-  is the hardware and not the adapter. Recognition from a live microphone remains untested.
+  What was still unverified then was capture of *usable* audio. That machine's input produced
+  64% clipped samples with a −15838 DC offset, and raw `sounddevice` produced the same, so it
+  was the hardware and not the adapter. **Live speech was recognised on 2026-09-06** once
+  ADR 0020 found that most of the transient was the capture path powering up and the rest was
+  a mixer control. What remains untested is live capture *since the resampler was fixed on
+  2026-09-07* — that fix changed the audio the recogniser receives on any device that refuses
+  16 kHz, and nobody has run a microphone through it.
 
 - **Capture rate is now negotiated (ADR 0013).** The adapter asks for 16 kHz, and when the
   device refuses — both analog inputs here do — opens at a rate it accepts and resamples.
@@ -159,20 +163,27 @@ Stated plainly, because the failure mode of governance work is believing it is f
   `sounddevice.rec()` working and blocking reads crashing. All three input devices on the
   reference machine now capture cleanly. The underlying defect in the library's blocking
   path is routed around rather than repaired.
-- **No translation.** `Translator` is still a port with no implementation. Speech
-  recognition now exists (ADR 0005) with weights pinned by digest and verified on load.
-- **Recognition misses the performance budget by several times over** and the pipeline runs
-  slower than real time. The pipeline is now written against a streaming interface
-  (ADR 0006), but no engine that actually streams has been adopted. The language set is now
-  decided (ADR 0007) and reduced to seven (ADR 0010).
-- **Five of the six streaming languages are unmeasured.** Only English has a pinned
-  streaming model and a measurement behind it. The other five are named on the strength of
-  a published model existing, which is not the same as one having been adopted,
-  licence-checked or tested. Russian was demoted to batch on exactly that check (ADR 0011).
+
+> **Corrected 2026-09-07.** The four entries that used to follow here — no translation, no
+> streaming engine, only English pinned, and a budget covering stages that do not exist —
+> were all true when written and none of them had been true for days. This section is the one
+> the README sends a newcomer to first, so it had been telling them the project could not do
+> things it had been doing since ADR 0008. What follows is the state as of today.
+
+- **Four of the seven languages cannot be recognised live**, and it is not for want of
+  trying. English, Russian and French have pinned, measured streaming models
+  (ADR 0008, ADR 0012, ADR 0031). Spanish, Italian, Portuguese and German are `BATCH`
+  through Whisper (ADR 0034), and ADR 0035 measured what that is worth: 77% word error on
+  clean read French against 14% for the pinned French model. They are blocked on other
+  people — the family covering all four points at a `LICENSE` file that is zero bytes.
+- **Translation exists for two pairs in both directions**, on two engines (ADR 0009,
+  ADR 0018, ADR 0032, ADR 0033). `en↔ru` and `en↔fr`; nothing else, and a pair with no
+  pinned artefact is refused rather than approximated.
 - **No `Deleter` for a real spill location exists**, because nothing spills to disk yet.
-- **The performance budget is still PROVISIONAL.** Segmentation is now measured (median
-  0.018x real time over 9 runs), but the endpoint-to-caption targets cover stages that
-  do not exist, and the measurement used synthetic tones rather than speech.
+- **The performance budget is still PROVISIONAL**, but for narrower reasons than it once
+  was: read speech on the English side, no microphone, and no controlled load environment.
+  The stages it measures all exist now, and the numbers come from speech rather than
+  synthetic tones.
 - **Human review is not enforced** and cannot be at the current maintainer count
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.
