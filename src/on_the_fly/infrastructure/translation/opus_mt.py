@@ -44,6 +44,26 @@ publisher's own hypotheses at chrF2 95.3, and scores 66.56 against their referen
 they published 66.9 — so the metric and the setup are both sound before the question is
 asked.
 
+**Corrected 2026-09-07: the second half of that validation does not hold.** "66.56 against
+their references where they published 66.9" compares a 300-sentence measurement against a
+figure the publisher computed over their whole test set, and those are not comparable. On
+this very set the publisher's *own* output scores **65.58 over the first 300 sentences and
+66.95 over all 5000** — a 1.37 spread on identical text with no model involved. So the gap
+that reading treated as small and reassuring is smaller than the noise it was measured
+against.
+
+The absolute figures above also do not reproduce from the first 300 sentences: re-measured,
+beam 6 scores **65.89** and greedy **66.02**, both about 0.65 lower. Which 300 sentences the
+originals used is not recorded, and that is the point — the procedure as written does not
+determine the number.
+
+What does reproduce is everything the decision rests on. Our beam-6 output still matches the
+publisher's at **95.11** against the documented 95.3, so the model, the preprocessing and the
+decoding are the same ones that produced the original measurement. And greedy is still
+marginally ahead of beam 6 at this sample size, by 0.13 against the documented 0.06 — same
+direction, same order of magnitude. At 1000 sentences (ADR 0032) greedy costs 0.26 rather
+than gaining, which is the number to believe; the decision stands on latency either way.
+
 **"No detectable cost" was one direction at 300 sentences, and it does not generalise**
 (ADR 0032). Measured across all four directions at 1000 sentences, greedy costs between 0.26
 and 1.39 chrF2 — `fr->en` is the expensive one. The decision does not change, but its reason

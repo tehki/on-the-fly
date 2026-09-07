@@ -558,7 +558,11 @@ doing other things, so the loaded column is the one that matters.
 Decoding is greedy rather than the publisher's beam 6. Measured on Helsinki-NLP's own test
 sets against their human references, that costs nothing detectable in either direction —
 chrF2 66.62 against 66.56 for `en→ru`, 73.17 against 72.73 for `ru→en` — and runs 2.3–2.4x
-faster.
+faster. Those four figures come from a 300-sentence sample whose exact membership was not
+recorded and do not reproduce from the first 300; measured again at 1000 sentences, greedy
+costs 0.26 chrF2 for `en→ru` rather than gaining
+([ADR 0032](docs/adr/0032-french-translation.md)). The decision stands on latency: beam 6 is
+1.5x to 3.3x slower per sentence against a budget already at its target under load.
 
 Translation is also bounded to one thread. CTranslate2 defaults to using every core, which
 measures **6.9x slower under load** — 2899 ms against 421 ms with three of four cores busy —
