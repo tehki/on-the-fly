@@ -393,6 +393,28 @@ was asked:
 - our beam-6 output scores **66.56** against their references where they published **66.9**,
   so the metric implementation is sound.
 
+> **Corrected 2026-09-07.** The second bullet does not hold, and the `Published score` row of
+> the table above has the same fault: both compare a 300-sentence measurement against a
+> figure the publisher computed over their entire test set. The sixteenth measurement showed
+> what that is worth — on this very set the publisher's *own* output scores **65.58 over the
+> first 300 sentences and 66.95 over all 5000**, a 1.37 spread on identical text with no model
+> involved. The gap that bullet treated as reassuringly small is smaller than the noise it was
+> measured against.
+>
+> The first bullet stands, and was re-checked: beam-6 agreement with the publisher's output
+> re-measures at **95.11**. The setup is the same one.
+>
+> There *is* a sound validation of the metric, and it is like-for-like: scoring the
+> publisher's own hypotheses against their own references over the **full 5000 sentences**
+> gives **66.95** where they publish **66.9** (eighteenth measurement, and the reason
+> `measure_translation.py` has a `--validate` flag at all).
+>
+> The absolute figures in the table do not reproduce from the first 300 sentences either —
+> re-measured, beam 6 gives **65.89** and greedy **66.02**. Which 300 were originally used is
+> not recorded. What does reproduce is the finding: greedy stays fractionally ahead at this
+> sample size, by 0.13 against the recorded 0.06. ADR 0032 measured the same comparison at
+> 1000 sentences and found greedy costing 0.26, which is the number to believe.
+
 An earlier attempt at this misidentified which line of the test file was the human reference
 and produced a headline of "94.7 versus 89.4" — a number that looked like a strong result
 and was actually measuring both decodings against the publisher's own output. The
