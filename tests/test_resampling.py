@@ -245,3 +245,81 @@ def test_the_candidate_list_covers_what_hardware_actually_offers() -> None:
     """Measured on the reference machine: the analog inputs offer 44.1 and 48 kHz."""
     assert 48000 in CANDIDATE_RATES
     assert 44100 in CANDIDATE_RATES
+
+
+# --------------------------------------------------------------------------------------
+# The boundaries
+#
+# This module emitted 1.19x the audio it was given once, because a plane's padding was read
+# as samples. The count that goes out is decided by two guards and one comparison, and
+# mutation testing found none of them pinned at the point they turn on.
+# --------------------------------------------------------------------------------------
+
+
+def test_a_buffer_of_exactly_one_frame_is_drained() -> None:
+    """`>=`, not `>`. A whole frame held back because it is not more than a frame would
+    delay every frame by one, for the length of the stream."""
+    resampler = Resampler(source_rate_hz=16_000, target_rate_hz=16_000, frame_bytes=FRAME_BYTES)
+
+    frames = resampler.push(b"\x00" * FRAME_BYTES)
+
+    assert len(frames) == 1
+    assert resampler.pending_bytes == 0
+
+
+def test_a_buffer_one_sample_short_of_a_frame_is_held() -> None:
+    """And the other side of it: a partial frame is audio, not a frame."""
+    resampler = Resampler(source_rate_hz=16_000, target_rate_hz=16_000, frame_bytes=FRAME_BYTES)
+
+    assert resampler.push(b"\x00" * (FRAME_BYTES - 2)) == []
+    assert resampler.pending_bytes == FRAME_BYTES - 2
+
+
+def test_exactly_two_frames_come_out_as_two() -> None:
+    """The drain is a loop, and a loop that stopped after one would leave a frame behind
+    on every block — which is how a buffer grows without bound."""
+    resampler = Resampler(source_rate_hz=16_000, target_rate_hz=16_000, frame_bytes=FRAME_BYTES)
+
+    assert len(resampler.push(b"\x00" * (FRAME_BYTES * 2))) == 2
+    assert resampler.pending_bytes == 0
+
+
+def test_the_smallest_legal_frame_is_one_sample() -> None:
+    """Two bytes is one int16 sample. The guard is against zero, negative and odd counts,
+    and must not refuse the smallest whole one."""
+    assert Resampler(source_rate_hz=16_000, target_rate_hz=16_000, frame_bytes=2) is not None
+
+
+def test_a_rate_of_one_hertz_is_allowed() -> None:
+    """Absurd and legal, as it is for AudioFormat: the guard is against zero and below."""
+    assert Resampler(source_rate_hz=1, target_rate_hz=1, frame_bytes=FRAME_BYTES) is not None
+
+
+def test_a_zero_target_rate_is_refused() -> None:
+    """Both rates are guarded, not only the source: converting *to* nothing is not a
+    conversion, and the arithmetic downstream would divide by it."""
+    with pytest.raises(ValueError, match="positive"):
+        Resampler(source_rate_hz=48_000, target_rate_hz=0, frame_bytes=FRAME_BYTES)
+
+
+def test_the_resampler_is_built_once_and_reused() -> None:
+    """Rebuilding per block would restart the filter's state on every buffer and put a
+    discontinuity at each boundary — audible, and invisible to a frame count."""
+    resampler = Resampler(source_rate_hz=48_000, target_rate_hz=16_000, frame_bytes=FRAME_BYTES)
+    resampler.push(tone(440.0, 0.05, 48_000))
+    first = resampler._resampler
+
+    resampler.push(tone(440.0, 0.05, 48_000))
+
+    assert resampler._resampler is first, "the converter was rebuilt between blocks"
+
+
+def test_reset_releases_the_converter_so_a_new_stream_starts_clean() -> None:
+    """A device reopened at a different rate must not inherit the last one's filter."""
+    resampler = Resampler(source_rate_hz=48_000, target_rate_hz=16_000, frame_bytes=FRAME_BYTES)
+    resampler.push(tone(440.0, 0.05, 48_000))
+    assert resampler._resampler is not None
+
+    resampler.reset()
+
+    assert resampler._resampler is None
