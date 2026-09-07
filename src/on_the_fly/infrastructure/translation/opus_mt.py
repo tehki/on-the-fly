@@ -245,6 +245,13 @@ def load(
     the difference between meeting this project's latency budget and missing it fourfold. A
     live translator runs on a laptop while its user is doing other things, so the loaded
     column decides the default. Still a parameter for a caller with cores to spare.
+
+    Re-derived 2026-09-07 at a load average of 2.72 on 4 cpus — neither of the states above —
+    one thread measured **1.5x faster** (140 ms against 215 ms). So the crossover sits below
+    an ordinary working load rather than at the loaded extreme, which is a stronger argument
+    for this default than the original made. `open_translator` now takes `intra_threads` so
+    the question can be re-asked on another machine without editing this file; the
+    application never passes it.
     """
     try:
         import ctranslate2

@@ -96,6 +96,7 @@ def open_translator(
     *,
     allow_download: bool = False,
     beam_size: int | None = None,
+    intra_threads: int | None = None,
 ) -> Translator:
     """Fetch, verify and load the model `choice` names.
 
@@ -108,12 +109,25 @@ def open_translator(
     *is greedy as good as the publisher's beam 6* — per pair rather than inheriting the
     answer measured for `en<->ru`. The application never passes it, and the ONNX engine
     refuses it rather than accepting a setting it does not implement.
+
+    `intra_threads` is there for the same reason and a sharper one: ADR 0014's answer is a
+    property of a *machine*, not of this project. It found one thread about 10% slower idle
+    and seven times faster with three of four cores busy, on four cores. Somebody running
+    this on sixteen idle cores has a different answer, and had no way to check without
+    editing the source. The application never passes this either — `DEFAULT_INTRA_THREADS`
+    stays the shipped setting.
     """
     if choice.engine is TranslationEngine.ONNX:
         if beam_size is not None:
             raise ValueError(
                 "beam_size is not supported on the ONNX engine, which decodes greedily. "
                 "Measure beam width on CTranslate2, where it is implemented."
+            )
+        if intra_threads is not None:
+            raise ValueError(
+                "intra_threads is not supported on the ONNX engine, whose thread count is "
+                "set at session creation. Measure it on CTranslate2, where ADR 0014's "
+                "question was asked."
             )
         from on_the_fly.infrastructure.model_store import ModelStore
         from on_the_fly.infrastructure.translation.onnx_translator import load as load_onnx
@@ -133,7 +147,11 @@ def open_translator(
     converted, spm = TranslationModelStore(cache_dir, allow_download=allow_download).ensure(
         artefact
     )
-    extra = {} if beam_size is None else {"beam_size": beam_size}
+    extra: dict[str, int] = {}
+    if beam_size is not None:
+        extra["beam_size"] = beam_size
+    if intra_threads is not None:
+        extra["intra_threads"] = intra_threads
     return load_opus_mt(
         converted,
         spm,

@@ -152,6 +152,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="override the shipped decoding width, to re-ask ADR 0009's question per pair",
     )
     parser.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="override the shipped intra-op thread count, to re-ask ADR 0014's question on "
+        "this machine rather than the four-core one it was answered on",
+    )
+    parser.add_argument(
         "--validate",
         action="store_true",
         help="also score against the publisher's own hypotheses, which measures the setup "
@@ -168,12 +175,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     choice = resolve_engine((source_language, target_language), args.engine)
     print(f"pair          {source_language}->{target_language}")
     print(f"artefact      {choice}")
-    print(f"engine        {choice.engine}, beam {args.beam or 'shipped default'}")
+    threads = args.threads or "shipped default"
+    print(
+        f"engine        {choice.engine}, beam {args.beam or 'shipped default'}, threads {threads}"
+    )
     print(f"sentences     {len(records)} from {args.test_file.name}\n")
 
     started = time.monotonic()
     translator = open_translator(
-        choice, args.cache_dir, allow_download=args.allow_download, beam_size=args.beam
+        choice,
+        args.cache_dir,
+        allow_download=args.allow_download,
+        beam_size=args.beam,
+        intra_threads=args.threads,
     )
     print(f"model load    {time.monotonic() - started:.2f}s")
 
