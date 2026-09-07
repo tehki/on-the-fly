@@ -142,6 +142,10 @@ STREAMING_LAYOUTS: dict[str, StreamingLayout] = {
     ),
 }
 
+# Every streaming pin is named `streaming-<language code>`, and `app/catalogue.py` builds
+# the name from a language code with this. One naming rule, in one place.
+STREAMING_PIN_PREFIX = "streaming-"
+
 KNOWN_MODELS: dict[str, ModelPin] = {
     TINY.name: TINY,
     STREAMING_EN.name: STREAMING_EN,
@@ -150,6 +154,44 @@ KNOWN_MODELS: dict[str, ModelPin] = {
 }
 
 DEFAULT_MODEL = TINY
+
+
+def streaming_pins() -> dict[str, ModelPin]:
+    """The pins that stream, keyed by name.
+
+    Derived from the registry rather than listed, so a pin and the things that must agree
+    with it cannot fall out of step by one of them being edited.
+    """
+    return {
+        name: pin for name, pin in KNOWN_MODELS.items() if name.startswith(STREAMING_PIN_PREFIX)
+    }
+
+
+def layout_for(pin: ModelPin) -> StreamingLayout:
+    """Which file in `pin`'s directory plays which role, or refuse.
+
+    Two registries have to agree here, and only one of them was ever asked. A pin can be
+    added to `KNOWN_MODELS` — and a language moved to the streaming tier alongside it —
+    without anyone touching `STREAMING_LAYOUTS`, which is a separate dict further up the
+    same file with no cue to update it. `app/catalogue.py` would then report the language
+    as recognisable, an interface would offer it, and the three call sites that index the
+    layouts by pin name would raise a bare `KeyError` at the moment the user pressed
+    Listen.
+
+    That is the drift `catalogue.py` was written to refuse, on the one leg it did not know
+    about. Refusing here, in the shape `resolve()` already refuses an unknown model, gives
+    the catalogue something to ask and the user a sentence instead of a traceback.
+    """
+    try:
+        return STREAMING_LAYOUTS[pin.name]
+    except KeyError:
+        known = ", ".join(sorted(STREAMING_LAYOUTS))
+        raise KeyError(
+            f"model {pin.name!r} is pinned but no file layout is recorded for it; "
+            f"layouts exist for: {known}. Each publisher names the encoder, decoder and "
+            "joiner differently, so there is nothing to guess — add a StreamingLayout in "
+            "the same commit as the pin."
+        ) from None
 
 
 def resolve(name: str) -> ModelPin:

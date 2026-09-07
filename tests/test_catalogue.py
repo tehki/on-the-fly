@@ -13,6 +13,8 @@ makes them describe the new state instead of failing.
 
 from __future__ import annotations
 
+import pytest
+
 from on_the_fly.app.catalogue import (
     can_recognise,
     recognisable_languages,
@@ -20,8 +22,9 @@ from on_the_fly.app.catalogue import (
     streaming_pin_name,
     translation_targets,
 )
-from on_the_fly.domain.languages import SUPPORTED
+from on_the_fly.domain.languages import SUPPORTED, Language, RecognitionTier
 from on_the_fly.infrastructure.asr.models import KNOWN_MODELS
+from on_the_fly.infrastructure.model_store import ModelPin
 from on_the_fly.infrastructure.translation import KNOWN_ARTIFACTS, KNOWN_ONNX_MODELS
 from on_the_fly.infrastructure.translation.engines import TranslationEngine
 from on_the_fly.ui.app import streaming_languages, translation_options
@@ -52,6 +55,34 @@ def test_the_unadopted_languages_are_not_offered() -> None:
 
     assert offered == {"en", "ru", "fr"}
     assert not offered & {"es", "it", "pt", "de"}
+
+
+def test_a_pin_and_a_tier_without_a_layout_is_not_recognisable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third leg, and the one a contributor is likeliest to miss.
+
+    Which files in a pinned directory are the encoder, decoder and joiner lives in
+    `STREAMING_LAYOUTS`, a separate dict from the pins it keys. Adding a pin and moving the
+    language to the streaming tier — the two visible steps of adopting a language — left
+    this module reporting the language as recognisable, an interface offering it, and the
+    recogniser raising a bare `KeyError` at the moment it was chosen.
+    """
+    monkeypatch.setitem(
+        KNOWN_MODELS,
+        "streaming-de",
+        ModelPin(
+            name="streaming-de",
+            repo_id="example/de",
+            revision="0" * 40,
+            licence="Apache-2.0",
+            digests={"encoder.onnx": "a" * 64},
+        ),
+    )
+    monkeypatch.setitem(SUPPORTED, "de", Language("de", "German", RecognitionTier.STREAMING))
+
+    assert not can_recognise("de")
+    assert "de" not in {lang.code for lang in recognisable_languages()}
 
 
 def test_an_unknown_language_is_not_recognisable() -> None:

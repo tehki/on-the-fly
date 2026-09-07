@@ -42,11 +42,11 @@ from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure.asr import (
     DEFAULT_MODEL,
     KNOWN_MODELS,
-    STREAMING_LAYOUTS,
     FasterWhisperRecognizer,
     RecognitionError,
     SherpaStreamingRecognizer,
     StreamingRecognitionError,
+    layout_for,
     resolve,
 )
 from on_the_fly.infrastructure.audio.backend import AudioDeviceError
@@ -623,7 +623,7 @@ def run_stream(args: argparse.Namespace) -> int:
         num_threads=args.threads,
         # Which file is the encoder differs per model: the English pin names its files
         # after a training epoch, the Russian one after a chunk size (ADR 0012).
-        layout=STREAMING_LAYOUTS[pin.name],
+        layout=layout_for(pin),
     )
     recognizer.validate_format(source.audio_format)
 
@@ -749,7 +749,7 @@ def run_listen(args: argparse.Namespace) -> int:
     recognizer = SherpaStreamingRecognizer(
         model_dir,
         num_threads=args.threads,
-        layout=STREAMING_LAYOUTS[pin.name],
+        layout=layout_for(pin),
     )
 
     load_started = time.monotonic()

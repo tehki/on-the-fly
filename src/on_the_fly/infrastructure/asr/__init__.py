@@ -25,6 +25,7 @@ from on_the_fly.infrastructure.asr.models import (
     STREAMING_EN,
     STREAMING_LAYOUTS,
     TINY,
+    layout_for,
     resolve,
 )
 from on_the_fly.infrastructure.asr.sherpa_streaming import (
@@ -48,5 +49,6 @@ __all__ = [
     "RecognitionError",
     "SherpaStreamingRecognizer",
     "StreamingRecognitionError",
+    "layout_for",
     "resolve",
 ]
