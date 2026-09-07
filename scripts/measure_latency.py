@@ -64,9 +64,19 @@ DEFAULT_CACHE = Path.home() / ".cache" / "on-the-fly" / "models"
 # evidence (handbook 64N.1)."
 MINIMUM_UTTERANCES = 50
 
-# The lines this budget is written to defend.
+# The lines this budget is written to defend, copied from the Targets table in
+# `docs/PERFORMANCE_BUDGET.md`. `tests/test_measurement_metrics.py` reads that table and
+# asserts these still match it: a number duplicated out of a document drifts from it, and a
+# tool that measures against a stale threshold reports the wrong verdict confidently.
+#
+# p95 carries both. Its hard limit was missing here until 2026-09-07, which meant this
+# script could not report the breach the budget's own correction turned on — the fourth
+# measurement called 1476 ms "inside the p95 target, and only just", and the fifth found a
+# p95 of 2820 ms, "past the 2500 ms hard limit". The number that made that a failure rather
+# than a near miss was not in the tool that performs the method.
 TARGET_P50_MS = 700.0
 TARGET_P95_MS = 1500.0
+HARD_LIMIT_P95_MS = 2500.0
 HARD_LIMIT_P99_MS = 4000.0
 
 
@@ -134,6 +144,24 @@ def commit() -> str:
     except OSError:  # pragma: no cover
         return "unknown"
     return result.stdout.strip() or "unknown"
+
+
+def verdict(value: float, target: float | None, hard_limit: float | None) -> str:
+    """Say whether a figure met its budget, in the budget's own words.
+
+    The script printed each measurement beside its threshold and left the comparison to the
+    reader. A tool that states the verdict is one that cannot be misread in the easy
+    direction, which is the direction `docs/PERFORMANCE_BUDGET.md` has already been misread
+    in once.
+
+    "past the hard limit" outranks "missed": a figure over the hard limit has also missed
+    the target, and reporting the weaker of the two would understate it.
+    """
+    if hard_limit is not None and value > hard_limit:
+        return "  PAST THE HARD LIMIT"
+    if target is not None and value > target:
+        return "  missed"
+    return "  ok"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -235,15 +263,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"              BELOW the {MINIMUM_UTTERANCES} this budget requires — raise "
             "--repeat. A single fast run is not evidence."
         )
+    p50 = percentile(latencies, 0.50)
+    p95 = percentile(latencies, 0.95)
+    p99 = percentile(latencies, 0.99)
     print(
-        f"endpoint->caption p50 {percentile(latencies, 0.50):7.0f} ms   target {TARGET_P50_MS:.0f}"
+        f"endpoint->caption p50 {p50:7.0f} ms   target {TARGET_P50_MS:.0f}"
+        f"{verdict(p50, TARGET_P50_MS, None)}"
     )
     print(
-        f"                  p95 {percentile(latencies, 0.95):7.0f} ms   target {TARGET_P95_MS:.0f}"
+        f"                  p95 {p95:7.0f} ms   target {TARGET_P95_MS:.0f}"
+        f"   hard {HARD_LIMIT_P95_MS:.0f}{verdict(p95, TARGET_P95_MS, HARD_LIMIT_P95_MS)}"
     )
     print(
-        f"                  p99 {percentile(latencies, 0.99):7.0f} ms"
-        f"   hard   {HARD_LIMIT_P99_MS:.0f}"
+        f"                  p99 {p99:7.0f} ms"
+        f"   hard   {HARD_LIMIT_P99_MS:.0f}{verdict(p99, None, HARD_LIMIT_P99_MS)}"
     )
     print(f"                  max {max(latencies):7.0f} ms")
     # Last, and labelled: the budget's method says never the mean alone.
