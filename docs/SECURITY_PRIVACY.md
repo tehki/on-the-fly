@@ -16,7 +16,7 @@ the code is the exact failure Article 2 and handbook 52 exist to prevent.
 | --- | --- | --- |
 | Ten-second post-use expiry, driven by a scheduler | `app/pipeline.py` builds an `EphemeralStore` and runs a `ThreadedReaper` for every run | Captured audio frames (`domain/audio/segmenter.py`) and recognition transcripts (`app/pipeline.py`) are held *through* the store rather than beside it |
 | Deletion failure is reported, never swallowed | `app/cli.py` | Every command ends by stating whether the run finished holding nothing, and returns a distinct exit code when it could not delete what it held |
-| Model weights verified before use | `infrastructure/asr/model_store.py` | A model declaring no digests refuses to load; a file whose SHA-256 does not match its pin is refused and left in place for inspection; `allow_download` defaults to false |
+| Model weights verified before use | `infrastructure/model_store.py` | A model declaring no digests refuses to load; a file whose SHA-256 does not match its pin is refused and left in place for inspection; `allow_download` defaults to false |
 | The microphone is acquired late and released on every path | `infrastructure/audio/microphone.py` | Nothing is opened at construction, and device names are kept out of `repr` |
 
 **Not built, and therefore claimed by nothing:**

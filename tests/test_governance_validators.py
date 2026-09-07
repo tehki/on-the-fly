@@ -523,6 +523,87 @@ def test_a_register_with_no_parseable_records_is_refused(
 
 
 # ---------------------------------------------------------------------------------------
+# A file this repository points a reader at is a file that is there.
+# ---------------------------------------------------------------------------------------
+
+
+def test_this_repository_points_only_at_files_that_exist() -> None:
+    errors: list[str] = []
+    governance_validator.check_referenced_paths_exist(errors)
+
+    assert errors == []
+
+
+def test_a_path_that_moved_is_caught(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The real defect: a security document naming a source file three changes after it
+    moved, in the row describing the control that file implements."""
+    (tmp_path / "src" / "on_the_fly" / "infrastructure").mkdir(parents=True)
+    (tmp_path / "src" / "on_the_fly" / "infrastructure" / "model_store.py").touch()
+    (tmp_path / "docs").mkdir()
+    moved_from = "infrastructure/asr/model_store.py"
+    (tmp_path / "docs" / "SECURITY_PRIVACY.md").write_text(
+        f"| Model weights verified | `{moved_from}` |\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "SOURCE_ROOT", tmp_path / "src")
+    errors: list[str] = []
+
+    governance_validator.check_referenced_paths_exist(errors)
+
+    assert len(errors) == 1
+    assert "docs/SECURITY_PRIVACY.md:1" in errors[0]
+    assert moved_from in errors[0]
+
+
+def test_both_path_shapes_are_understood(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Documents write paths from the repository root and from the package root, and a
+    reader following either deserves to arrive somewhere."""
+    (tmp_path / "src" / "on_the_fly" / "app").mkdir(parents=True)
+    (tmp_path / "src" / "on_the_fly" / "app" / "cli.py").touch()
+    (tmp_path / "scripts").mkdir()
+    # Backticks are applied at runtime: this file is itself scanned, so a literal
+    # backticked path that does not exist would make it fail its own subject.
+    present, absent_package = "app/cli.py", "app/gone.py"
+    absent_repo = "scripts/absent.py"
+    (tmp_path / "notes.md").write_text(
+        f"`{present}` exists, `{absent_package}` does not; `{absent_repo}` does not either.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "SOURCE_ROOT", tmp_path / "src")
+    errors: list[str] = []
+
+    governance_validator.check_referenced_paths_exist(errors)
+
+    assert len(errors) == 2
+    assert any(absent_package in error for error in errors)
+    assert any(absent_repo in error for error in errors)
+
+
+def test_an_illustrative_path_is_not_treated_as_a_repository_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`recording.wav` and `~/.cache/...` are examples in prose, not pointers into the tree.
+
+    Only a backticked path beginning with one of this repository's own top-level directories
+    is matched — a check that flagged every filename in a README would be turned off.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "notes.md").write_text(
+        "Run `python -m on_the_fly stream recording.wav`, cached under "
+        "`~/.cache/on-the-fly/models`, see `somewhere/else/wherever.py`.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "SOURCE_ROOT", tmp_path / "src")
+    errors: list[str] = []
+
+    governance_validator.check_referenced_paths_exist(errors)
+
+    assert errors == []
+
+
+# ---------------------------------------------------------------------------------------
 # Article 15 authorization boundaries, added upstream in Constitution 1.3.
 #
 # All three controls are ways of not asking for approval again, so each one is only safe
