@@ -69,7 +69,8 @@ is usually good for.
 
 ## Decision
 
-**Keep the tier. Stop letting it imply a quality it has not got.**
+**Keep the tier. Stop letting it imply a quality it has not got — and do not replace that
+with an implication in the other direction.**
 
 `BATCH` is a statement about latency and remains correct: those four languages are recognised
 an utterance at a time rather than live. What ADR 0034 left implicit — that "served" means
@@ -83,8 +84,24 @@ it were an equivalent.
   references was found for them in a licence-clean sherpa-onnx repository, which is the same
   wall ADR 0031 hit. French is offered as the nearest evidence available: a high-resource
   European language, read speech, clean recordings, published by the model's own author —
-  close to the easiest case there is. The four are unlikely to do better, and that is an
-  inference, labelled as one.
+  close to the easiest case there is. ~~The four are unlikely to do better, and that is an
+  inference, labelled as one.~~
+
+  > **Withdrawn 2026-09-07, the same day.** Russian was measured hours later and does not
+  > behave like French at all. Against the pinned Russian model's own output on its published
+  > clip, Whisper `tiny` differs by **2 words in 12 — 16.7%** — and both differences are
+  > spelling rather than misrecognition: `РОДИОН`/`РАДИОН` and `ВЫСЧИТЫВАЛ`/`ВЫЩИТЫВАЛ`. That
+  > is a legible transcript. French was 77.1% and a different sentence.
+  >
+  > So `tiny`'s quality varies enormously between two languages that are both high-resource
+  > and both read speech, and one measurement does not predict the next. **The inference is
+  > not supported and is withdrawn.** Spanish, Italian, Portuguese and German remain genuinely
+  > unmeasured — which is what ADR 0034 said before this ADR tried to improve on it.
+  >
+  > The Russian figure is weaker evidence than the French one and is offered as such: one
+  > clip, no human reference, scored against another model's output rather than a person's.
+  > It is enough to refute "unlikely to do better"; it is not enough to assert a word error
+  > rate for Russian.
 - **It does not condemn Whisper.** It measures `tiny`, the 78 MB model this project pins to
   prove the pipeline on a CPU. A larger Whisper would very likely score far better and would
   be a different pin, a different download and a different latency decision.
@@ -102,6 +119,17 @@ it were an equivalent.
   about the case that matters, which is any other language.
 - `scripts/measure_recognition.py` measures both engines, so this comparison can be repeated
   rather than believed.
+
+## A note on how this ADR was wrong
+
+It was written to correct ADR 0034 for being silent about quality, and in doing so asserted
+more than one language's worth of evidence could carry. The measurement was sound; the
+sentence built on top of it was not, and it survived about four hours.
+
+The lesson is the one this project keeps relearning and which its own handbook states as
+rule 52: the gap between "measured on French" and "true of European languages" is exactly the
+kind of step that reads as reasonable and is not evidence. Two languages now disagree by a
+factor of four.
 
 ## Review trigger
 
