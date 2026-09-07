@@ -550,11 +550,15 @@ def resolve_streaming(args: argparse.Namespace) -> tuple[Any, Any, Any, Translat
     """
     language = resolve_language(args.language)
     if language.tier is not RecognitionTier.STREAMING:
-        # Refused rather than silently downgraded. A user who asked to stream and got
-        # batch latency would reasonably conclude the tool was broken.
+        # Refused rather than silently downgraded. A user who asked to stream and got batch
+        # latency would reasonably conclude the tool was broken — and since ADR 0035 measured
+        # what the batch engine actually returns for a non-English language, they would be
+        # right about more than the latency.
         raise ValueError(
             f"{language.name} is not a streaming language: {language.note}. "
-            f"Use 'transcribe' instead, which runs it through the batch engine."
+            "'transcribe' will attempt it through the batch engine, which is a fallback "
+            "rather than a substitute: Whisper tiny measured 77% word error on clean read "
+            "French, the nearest language anyone here has measured (ADR 0035)."
         )
 
     pin_name = f"streaming-{language.code}"

@@ -288,6 +288,10 @@ def test_a_batch_language_is_refused_with_the_command_that_would_work(
     assert "is not a streaming language" in captured.err
     assert "transcribe" in captured.err
     assert "pin_model.py" not in captured.err, "that is advice for a maintainer, not a user"
+    # And it must not read as an equivalent. ADR 0035 measured what the batch engine returns
+    # for a non-English language, and recommending it without that caveat would be the
+    # over-claim this project keeps having to correct.
+    assert "fallback rather than a substitute" in captured.err
 
 
 def test_an_unknown_language_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
