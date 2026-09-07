@@ -1080,6 +1080,38 @@ ADR 0035 records what this does and does not establish. The four `BATCH` languag
 unmeasured — no licence-clean test set with references exists for them — and French is offered
 as the nearest evidence, being a high-resource language on clean audio.
 
+## Nineteenth measurement — 2026-09-07, the flush tail was too short for Russian
+
+The fifteenth measurement established that a transducer drops the last word of a stream
+without trailing frames, and set the tail at 500 ms — "300 ms plus margin for a model neither
+of these measured". **The model neither of them measured needed 1000 ms.**
+
+| model | file | at 0 ms | recovered at |
+| --- | --- | --- | --- |
+| english | `0.wav` | `...OF THE BROTHEL` | 300 ms |
+| english | `1.wav` | `...A BLESSED SOUL IN HE` | 100 ms |
+| french | `19738183` | `...DE L'HISTOIRE RO` | 100 ms |
+| **russian** | `test.wav` | `...И ДАВНО ОПРЕДЕЛИЛ` | **1000 ms** |
+
+So every Russian utterance ending a stream lost its tail, silently, from the fifteenth
+measurement until this one. The constant is now **1.5 s** — 50% clear of the largest
+requirement measured, rather than 67% clear of a guess.
+
+Verified across all three pinned models at 500, 1000 and 1500 ms: English and French are
+unchanged at every length (they were already past their thresholds), Russian recovers at
+1000 ms, and three seconds of digital zeros still decodes to the empty string at 1500 ms on
+all three — so the longer tail does not invent words.
+
+**Cost.** Paid once, when a stream ends: 0.2 s to 1.3 s of decoding at these models' measured
+real-time factors. **No budget line moves.** Mid-stream finals are produced by endpointing,
+which always has future frames, so the endpoint-to-caption path this document governs never
+touches the tail.
+
+How it was found is worth recording. It surfaced while comparing Whisper against the pinned
+Russian model on a clip with no human reference — Whisper returned two words the pinned model
+did not, which looked like a Whisper hallucination until the clip was checked and found to
+contain speech to 6.88 s of its 7.08 s. The reference model was the one that was wrong.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
