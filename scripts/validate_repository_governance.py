@@ -15,6 +15,7 @@ Exit code 0 = manifest is internally consistent and true of this tree. 1 = it is
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from datetime import date
@@ -393,6 +394,142 @@ def check_referenced_paths_exist(errors: list[str]) -> None:
                         )
 
 
+# The requirements files, and the one package whose import name is not its distribution
+# name. `PySide6-Essentials` ships the `PySide6` package; every other entry normalises by
+# lowercasing and folding underscores to hyphens, which is what pip itself does.
+REQUIREMENTS_FILES = ("requirements.txt", "requirements-ui.txt")
+DISTRIBUTION_FOR_IMPORT = {"pyside6": "pyside6-essentials"}
+
+# Requirement lines are `name==version`; markers and extras are not used in this repository
+# and would need handling here if they ever were.
+REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*==")
+
+
+def normalise_distribution(name: str) -> str:
+    """Fold a distribution or import name the way pip compares them."""
+    folded = name.strip().lower().replace("_", "-")
+    return DISTRIBUTION_FOR_IMPORT.get(folded, folded)
+
+
+def declared_dependencies() -> set[str]:
+    """Every distribution this repository declares, from all its requirements files."""
+    declared: set[str] = set()
+    for filename in REQUIREMENTS_FILES:
+        path = REPO_ROOT / filename
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = REQUIREMENT_NAME.match(line)
+            if match is not None:
+                declared.add(normalise_distribution(match.group(1)))
+    return declared
+
+
+def third_party_imports() -> list[tuple[Path, str, int, bool]]:
+    """Every non-stdlib, non-first-party import under `src/`.
+
+    Yields `(file, root module, line, at module level)`. The root module is what decides
+    which distribution supplies it, and whether the import sits at module level is what
+    decides whether it is paid for on start-up.
+    """
+    found: list[tuple[Path, str, int, bool]] = []
+    package_root = SOURCE_ROOT / "on_the_fly"
+    for path in sorted(package_root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):  # pragma: no cover - the linters catch these first
+            continue
+        module_level = {
+            node.lineno for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))
+        }
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                # A relative import has no module of its own to admit.
+                roots = [] if node.level else [(node.module or "").split(".")[0]]
+            else:
+                continue
+            for root in roots:
+                if not root or root == "on_the_fly" or root in sys.stdlib_module_names:
+                    continue
+                found.append((path, root, node.lineno, node.lineno in module_level))
+    return found
+
+
+def check_declared_dependencies(errors: list[str]) -> None:
+    """Every package this project imports is a package it admitted (Article 12).
+
+    `requirements.txt` opens by saying that every entry passed an Article 12 admission
+    review, and three of its entries were promoted from transitive to declared for the same
+    stated reason: a package that arrives under another package is that package's choice,
+    and this project now imports it directly. Nothing checked the converse — that everything
+    imported directly is declared at all — and one package had slipped through it.
+
+    `huggingface_hub` fetches every model this project loads. It was imported directly by
+    the model store, declared in no requirements file, and present only because
+    `faster-whisper` asks for `huggingface-hub>=0.21`. So the most trust-sensitive network
+    call in the codebase ran at whatever version that range resolved to, in a file whose
+    header says versions are pinned for reproducibility, and the error it raises when the
+    import fails told the reader to install requirements that never contained it.
+
+    Import roots are matched against distribution names the way pip compares them. That
+    covers `faster_whisper`, `sherpa_onnx` and `huggingface_hub` without a table; only
+    `PySide6-Essentials`, whose package is named differently from its distribution, needs
+    an entry.
+    """
+    declared = declared_dependencies()
+    for path, root, line, _ in third_party_imports():
+        if normalise_distribution(root) not in declared:
+            relative_name = path.relative_to(REPO_ROOT).as_posix()
+            errors.append(
+                f"{relative_name}:{line} imports {root!r}, which no requirements file "
+                "declares. A package this project imports directly is a package it depends "
+                "on, whoever else happens to install it; admit it under Article 12, pin it, "
+                "and record the review."
+            )
+
+
+def check_third_party_imports_are_lazy(errors: list[str]) -> None:
+    """No third-party package is imported at module level.
+
+    Every entry in `requirements.txt` claims its package is imported "lazily", and the
+    claim carries weight in three directions: the domain and its tests run without any of
+    the heavy engines installed, `--help` does not pay to load ONNX Runtime, and an optional
+    extra like the GUI toolkit stays genuinely optional. All of that is a property of where
+    the `import` statement sits, and a module-level import in one file would quietly end it
+    for the whole package.
+    """
+    for path, root, line, at_module_level in third_party_imports():
+        if at_module_level:
+            relative_name = path.relative_to(REPO_ROOT).as_posix()
+            errors.append(
+                f"{relative_name}:{line} imports {root!r} at module level. Every "
+                "requirements.txt entry claims its package is imported lazily; move it "
+                "inside the function that needs it, so importing this module does not."
+            )
+
+
+def check_the_domain_imports_nothing_third_party(errors: list[str]) -> None:
+    """`domain/` depends on no package at all — the layering ADR 0002 is built on.
+
+    `requirements.txt` says of each engine that it is imported "never in domain/", and the
+    port that let a whole second translation engine land without touching anything above
+    `infrastructure/` (ADR 0018) only works while that stays true. It is the kind of rule
+    that is never broken deliberately and is broken easily: one convenience import of numpy
+    in a domain module, and the layer that is supposed to be pure Python is not.
+    """
+    domain_root = SOURCE_ROOT / "on_the_fly" / "domain"
+    for path, root, line, _ in third_party_imports():
+        if path.is_relative_to(domain_root):
+            relative_name = path.relative_to(REPO_ROOT).as_posix()
+            errors.append(
+                f"{relative_name}:{line} imports {root!r}. The domain layer imports no "
+                "third-party package: it is what lets the engines be swapped, and the "
+                "tests run, without it noticing."
+            )
+
+
 def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
     ci = governance.get("ci", {})
 
@@ -598,6 +735,9 @@ def main() -> int:
     check_source_classification(governance, errors)
     check_exception_records(governance, errors)
     check_referenced_paths_exist(errors)
+    check_declared_dependencies(errors)
+    check_third_party_imports_are_lazy(errors)
+    check_the_domain_imports_nothing_third_party(errors)
     check_ci_wiring(governance, errors)
     check_truthfulness(governance, errors)
     check_cross_document_versions(governance, errors)

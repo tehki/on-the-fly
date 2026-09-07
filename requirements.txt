@@ -72,3 +72,20 @@ onnxruntime==1.29.0
 #                     exposure - it is already installed - but now explicit.
 #                     Imported only in src/on_the_fly/infrastructure/audio/, and lazily.
 av==18.1.0
+
+# huggingface_hub  Apache-2.0  - fetching pinned model revisions from the model hub. See
+#                     ADR 0036. Promoted from transitive to declared for the fourth time in
+#                     this file and for a sharper version of the same reason: it arrives
+#                     with faster-whisper, which asks for `huggingface-hub>=0.21`, and this
+#                     project imports it directly in
+#                     src/on_the_fly/infrastructure/model_store.py to download weights.
+#                     Every other entry here is `==`-pinned so a build is reproducible; this
+#                     one was resolving to whatever that range allowed, which made the file
+#                     header's pinning claim false for the single package that reaches the
+#                     network for model weights. Its integrity story does not rest on this
+#                     pin — every downloaded file is checked against a SHA-256 recorded in
+#                     the source tree, and a mismatch is refused and left in place — but the
+#                     fetcher itself is trust, and trust is admitted deliberately or not at
+#                     all. Adds no bytes: it is already installed. Imported only in
+#                     src/on_the_fly/infrastructure/model_store.py, and lazily.
+huggingface_hub==1.30.0
