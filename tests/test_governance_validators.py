@@ -1183,3 +1183,367 @@ def test_a_relaxed_demand_stops_requiring_its_rule() -> None:
     ]
 
     assert protection_errors(manifest) == []
+
+
+# ---------------------------------------------------------------------------------------
+# Every governance check is exercised in refusal, not only in passing.
+#
+# `test_validator_passes_against_this_repository` runs the whole script and proves it says
+# yes to a tree that is in order. Six checks had nothing else: nothing drove them to say no.
+# A gate whose refusals are exercised by nothing goes on printing PASS after it stops
+# working, which is what the untested provenance control was doing until it was driven to
+# refuse.
+# ---------------------------------------------------------------------------------------
+
+
+def live_manifest() -> dict[str, Any]:
+    """This repository's own manifest, to be disturbed one field at a time."""
+    return governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE)
+
+
+def refusals(check: Any, manifest: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    check(manifest, errors)
+    return errors
+
+
+@pytest.mark.parametrize(
+    "check_name",
+    [
+        "check_development_flow",
+        "check_validation_lanes",
+        "check_sensitive_paths",
+        "check_ci_wiring",
+        "check_truthfulness",
+        "check_cross_document_versions",
+    ],
+)
+def test_each_check_accepts_this_repository_as_it_stands(check_name: str) -> None:
+    """The baseline every case below is a departure from."""
+    assert refusals(getattr(governance_validator, check_name), live_manifest()) == []
+
+
+# --- development flow (Article 15) ------------------------------------------------------
+
+
+def test_a_manifest_with_no_development_flow_position_is_refused() -> None:
+    manifest = live_manifest()
+    del manifest["development_flow"]
+
+    assert any(
+        "stated position" in error
+        for error in refusals(governance_validator.check_development_flow, manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("mixed_risk_batch_uses_highest_risk", False),
+        ("separate_pull_request_required_for_unrelated_objectives", False),
+        (
+            "separate_pull_request_required_for_independent_privileged_or_destructive"
+            "_authorization_boundary",
+            False,
+        ),
+        ("cross_project_batching_default_allowed", True),
+    ],
+)
+def test_relaxing_a_batching_rule_is_refused(field: str, value: bool) -> None:
+    """Batching commits into one work-unit PR is allowed; these are what stop it becoming a
+    way to slip work past review."""
+    manifest = live_manifest()
+    manifest["development_flow"][field] = value
+
+    assert refusals(governance_validator.check_development_flow, manifest) != []
+
+
+# --- validation lanes -------------------------------------------------------------------
+
+
+def test_a_manifest_with_no_validation_lanes_is_refused() -> None:
+    manifest = live_manifest()
+    del manifest["ci"]["validation_lanes"]
+
+    assert any(
+        "which lanes exist" in error
+        for error in refusals(governance_validator.check_validation_lanes, manifest)
+    )
+
+
+def test_a_repository_without_a_full_lane_has_no_acceptance_gate() -> None:
+    manifest = live_manifest()
+    manifest["ci"]["validation_lanes"]["FULL"]["implemented"] = False
+
+    assert any(
+        "no acceptance gate" in error
+        for error in refusals(governance_validator.check_validation_lanes, manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "required_for_security_sensitive_paths",
+        "required_for_dependency_or_lockfile_changes",
+        "required_for_ci_or_governance_changes",
+        "required_for_high_or_critical_risk",
+        "required_when_change_impact_is_ambiguous",
+    ],
+)
+def test_narrowing_when_the_full_lane_is_required_is_refused(field: str) -> None:
+    manifest = live_manifest()
+    manifest["ci"]["validation_lanes"]["FULL"][field] = False
+
+    assert any(
+        field in error for error in refusals(governance_validator.check_validation_lanes, manifest)
+    )
+
+
+@pytest.mark.parametrize("lane", ["FAST", "RELEASE"])
+def test_a_lane_declared_without_being_built_or_explained_is_refused(lane: str) -> None:
+    """An unimplemented lane reads as a control that exists. It says why, or it goes."""
+    manifest = live_manifest()
+    del manifest["ci"]["validation_lanes"][lane]["not_implemented_reason"]
+
+    assert any(
+        "reads as a control that exists" in error
+        for error in refusals(governance_validator.check_validation_lanes, manifest)
+    )
+
+
+def test_a_fast_lane_that_does_not_fall_back_on_unknown_relevance_is_refused() -> None:
+    """The FAST lane may omit work only when it knows the work is irrelevant."""
+    manifest = live_manifest()
+    manifest["ci"]["validation_lanes"]["FAST"]["unknown_relevance_falls_back_to_full"] = False
+
+    assert refusals(governance_validator.check_validation_lanes, manifest) != []
+
+
+def test_reusing_validation_without_binding_it_to_the_same_inputs_is_refused() -> None:
+    """Reused evidence is evidence about a tree. It has to be bound to which one."""
+    manifest = live_manifest()
+    manifest["ci"]["acceleration"]["same_source_validation_reuse_allowed"] = True
+    manifest["ci"]["acceleration"][
+        "same_source_validation_reuse_requires_input_and_artifact_integrity_binding"
+    ] = False
+
+    assert any(
+        "integrity binding" in error
+        for error in refusals(governance_validator.check_validation_lanes, manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    ("section", "field"),
+    [
+        ("acceleration", "full_gate_semantics_must_not_be_reduced"),
+        ("merge_queue", "full_gate_required_on_merge_group"),
+    ],
+)
+def test_weakening_the_full_gate_for_speed_is_refused(section: str, field: str) -> None:
+    """Every acceleration in this manifest is permitted on the condition that it does not
+    reduce what the gate means."""
+    manifest = live_manifest()
+    manifest["ci"][section][field] = False
+
+    assert any(
+        field in error for error in refusals(governance_validator.check_validation_lanes, manifest)
+    )
+
+
+# --- sensitive paths --------------------------------------------------------------------
+
+
+def test_declaring_no_sensitive_paths_at_all_is_refused() -> None:
+    manifest = live_manifest()
+    manifest["security_sensitive_paths"]["paths"] = []
+
+    assert refusals(governance_validator.check_sensitive_paths, manifest) != []
+
+
+def test_a_protected_path_that_does_not_exist_is_refused() -> None:
+    """A protected path that is not there protects nothing."""
+    manifest = live_manifest()
+    manifest["security_sensitive_paths"]["paths"].append("/src/on_the_fly/nowhere.py")
+
+    assert any(
+        "does not exist" in error
+        for error in refusals(governance_validator.check_sensitive_paths, manifest)
+    )
+
+
+def test_a_protected_directory_that_does_not_exist_yet_is_visible_as_pending() -> None:
+    """A rule may precede the code it will govern, but not silently."""
+    manifest = live_manifest()
+    manifest["security_sensitive_paths"]["paths"].append("/src/on_the_fly/planned/")
+
+    assert any(
+        "does not exist yet" in error
+        for error in refusals(governance_validator.check_sensitive_paths, manifest)
+    )
+
+
+def test_a_protected_path_with_no_code_owner_is_refused() -> None:
+    """A path protected in the manifest and absent from CODEOWNERS is a claim with no
+    mechanism behind it — which is the failure this check exists for."""
+    manifest = live_manifest()
+    manifest["security_sensitive_paths"]["paths"].append("/README.md")
+
+    assert any(
+        "no CODEOWNERS rule" in error
+        for error in refusals(governance_validator.check_sensitive_paths, manifest)
+    )
+
+
+def test_declaring_sensitive_paths_with_no_codeowners_file_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(governance_validator, "CODEOWNERS_FILE", tmp_path / "CODEOWNERS")
+
+    assert any(
+        "CODEOWNERS does not exist" in error
+        for error in refusals(governance_validator.check_sensitive_paths, live_manifest())
+    )
+
+
+# --- CI wiring --------------------------------------------------------------------------
+
+
+def test_a_manifest_naming_no_workflow_is_refused() -> None:
+    manifest = live_manifest()
+    del manifest["ci"]["workflow"]
+
+    assert any(
+        "ci.workflow is missing" in error
+        for error in refusals(governance_validator.check_ci_wiring, manifest)
+    )
+
+
+def test_a_workflow_path_that_does_not_exist_is_refused() -> None:
+    manifest = live_manifest()
+    manifest["ci"]["workflow"] = ".github/workflows/absent.yml"
+
+    assert any(
+        "missing file" in error
+        for error in refusals(governance_validator.check_ci_wiring, manifest)
+    )
+
+
+def test_a_required_job_that_the_workflow_does_not_define_is_refused() -> None:
+    """The remote status check is matched by job name. Rename the job and the required
+    check silently stops being satisfied, which is the evasion route handbook 64M prohibits.
+    """
+    manifest = live_manifest()
+    manifest["ci"]["required_job"] = "quality-fast"
+
+    assert any(
+        "is not defined as a job" in error
+        for error in refusals(governance_validator.check_ci_wiring, manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    "field", ["policy_validator", "governance_validator", "main_push_provenance_script"]
+)
+def test_a_validator_script_that_is_not_there_is_refused(field: str) -> None:
+    manifest = live_manifest()
+    manifest["ci"][field] = "scripts/gone.py"
+
+    assert any(
+        "missing file" in error
+        for error in refusals(governance_validator.check_ci_wiring, manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    "field", ["policy_validator", "governance_validator", "main_push_provenance_script"]
+)
+def test_a_validator_the_manifest_does_not_name_is_refused(field: str) -> None:
+    manifest = live_manifest()
+    del manifest["ci"][field]
+
+    assert any(
+        f"ci.{field} is missing" in error
+        for error in refusals(governance_validator.check_ci_wiring, manifest)
+    )
+
+
+# --- truthfulness (Article 2) -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "never_claim_remote_branch_protection_without_verification",
+        "local_ci_manifest_does_not_equal_remote_enforcement",
+    ],
+)
+def test_dropping_a_truthfulness_invariant_is_refused(field: str) -> None:
+    """These are the two lines that stop a local manifest being described as enforcement."""
+    manifest = live_manifest()
+    manifest["truthfulness"][field] = False
+
+    assert any(
+        field in error for error in refusals(governance_validator.check_truthfulness, manifest)
+    )
+
+
+def test_not_requiring_branch_protection_at_all_is_refused() -> None:
+    manifest = live_manifest()
+    manifest["external_control_plane"]["branch_protection_or_ruleset_required"] = False
+
+    assert any(
+        "branch_protection_or_ruleset_required" in error
+        for error in refusals(governance_validator.check_truthfulness, manifest)
+    )
+
+
+@pytest.mark.parametrize(
+    ("section", "field"),
+    [
+        (
+            "external_control_plane",
+            "compensating_main_push_detection_required_while_unprotected",
+        ),
+        ("ci", "main_push_provenance_detection_required"),
+    ],
+)
+def test_unprotected_main_without_the_compensating_detection_is_refused(
+    section: str, field: str
+) -> None:
+    """The one state this repository must never be in quietly: no remote protection and no
+    detection either."""
+    manifest = live_manifest()
+    manifest["truthfulness"]["last_verified_remote_state"]["branch_protection_present"] = False
+    manifest[section][field] = False
+
+    assert any(
+        field in error for error in refusals(governance_validator.check_truthfulness, manifest)
+    )
+
+
+# --- cross-document versions (ADR 0004) -------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["policy_version", "constitution_version", "handbook_version"])
+def test_a_governance_version_drifting_from_the_policy_is_refused(field: str) -> None:
+    """Adopting a new upstream version is a rename across the whole stack. Half a rename
+    leaves two documents claiming different things are in force."""
+    manifest = live_manifest()
+    manifest["governance"][field] = "0.0-drifted"
+
+    assert any(
+        "version drift" in error
+        for error in refusals(governance_validator.check_cross_document_versions, manifest)
+    )
+
+
+def test_the_governance_version_the_policy_names_must_be_this_one() -> None:
+    manifest = live_manifest()
+    manifest["governance"]["version"] = "0.0-drifted"
+
+    assert any(
+        "repository_governance_version" in error
+        for error in refusals(governance_validator.check_cross_document_versions, manifest)
+    )
