@@ -202,3 +202,139 @@ def test_an_empty_test_file_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="no records"):
         read_test_file(path, limit=None)
+
+
+# ---------------------------------------------------------------------------------------
+# The budget's table governs the script that measures against it.
+#
+# `measure_latency.py` copies its thresholds out of the Targets table in
+# `docs/PERFORMANCE_BUDGET.md`. A number duplicated out of a document drifts from it, and a
+# tool measuring against a stale threshold reports the wrong verdict confidently.
+# ---------------------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BUDGET = REPO_ROOT / "docs" / "PERFORMANCE_BUDGET.md"
+
+
+def millis(cell: str) -> float | None:
+    """`"700 ms"` to `700.0`; anything else — an em dash, seconds, megabytes — to None."""
+    if not cell.endswith(" ms"):
+        return None
+    try:
+        return float(cell.removesuffix(" ms"))
+    except ValueError:
+        return None
+
+
+def budget_targets() -> dict[str, tuple[float | None, float | None]]:
+    """The `## Targets` table, as `metric -> (target ms, hard limit ms)`.
+
+    Scoped to that one section. The document carries several other tables — the measurement
+    history, the corrections — whose columns mean different things and whose cells happen to
+    end in "ms" too, and reading those as targets is how a check ends up asserting against
+    a number nobody set as a threshold.
+
+    Rows not measured in milliseconds are skipped: the table also states seconds, megabytes
+    and a percentage, and this script is about latency.
+    """
+    rows: dict[str, tuple[float | None, float | None]] = {}
+    inside = False
+    for line in BUDGET.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            inside = line.strip() == "## Targets"
+            continue
+        if not inside or not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 3 or cells[0] in ("Metric", "---"):
+            continue
+        target, hard = millis(cells[1]), millis(cells[2])
+        if target is not None or hard is not None:
+            rows[cells[0]] = (target, hard)
+    return rows
+
+
+def test_the_targets_table_is_read_and_carries_the_latency_rows() -> None:
+    """Without this, a parser returning nothing would make every check below vacuous."""
+    rows = budget_targets()
+
+    assert "Endpoint → caption, p50" in rows
+    assert "Endpoint → caption, p95" in rows
+    assert "Endpoint → caption, p99" in rows
+
+
+@pytest.mark.parametrize(
+    ("metric", "constant"),
+    [
+        ("Endpoint → caption, p50", "TARGET_P50_MS"),
+        ("Endpoint → caption, p95", "TARGET_P95_MS"),
+    ],
+)
+def test_the_script_targets_match_the_document(metric: str, constant: str) -> None:
+    import measure_latency
+
+    assert getattr(measure_latency, constant) == budget_targets()[metric][0]
+
+
+@pytest.mark.parametrize(
+    ("metric", "constant"),
+    [
+        ("Endpoint → caption, p95", "HARD_LIMIT_P95_MS"),
+        ("Endpoint → caption, p99", "HARD_LIMIT_P99_MS"),
+    ],
+)
+def test_the_script_hard_limits_match_the_document(metric: str, constant: str) -> None:
+    """p95's hard limit is the one that was missing.
+
+    The budget's fourth measurement called 1476 ms "inside the p95 target, and only just";
+    the fifth found a p95 of 2820 ms and recorded it as "past the 2500 ms hard limit". The
+    number that made that a failure rather than a near miss was not in the tool that
+    performs the method.
+    """
+    import measure_latency
+
+    assert getattr(measure_latency, constant) == budget_targets()[metric][1]
+
+
+def test_every_latency_threshold_in_the_table_is_one_the_script_knows() -> None:
+    """The direction that catches a threshold being added to the document and nowhere else."""
+    import measure_latency
+
+    known = {
+        measure_latency.TARGET_P50_MS,
+        measure_latency.TARGET_P95_MS,
+        measure_latency.HARD_LIMIT_P95_MS,
+        measure_latency.HARD_LIMIT_P99_MS,
+    }
+    for metric, (target, hard) in budget_targets().items():
+        if not metric.startswith("Endpoint → caption"):
+            continue
+        for value in (target, hard):
+            assert value is None or value in known, (
+                f"{metric} declares {value} ms, which measure_latency.py does not carry, "
+                "so a run cannot report against it"
+            )
+
+
+@pytest.mark.parametrize(
+    ("value", "target", "hard", "expected"),
+    [
+        (600.0, 700.0, None, "ok"),
+        (700.0, 700.0, None, "ok"),
+        (900.0, 700.0, None, "missed"),
+        (1400.0, 1500.0, 2500.0, "ok"),
+        (2000.0, 1500.0, 2500.0, "missed"),
+        (2820.0, 1500.0, 2500.0, "PAST THE HARD LIMIT"),
+        (3735.0, None, 4000.0, "ok"),
+        (4200.0, None, 4000.0, "PAST THE HARD LIMIT"),
+    ],
+)
+def test_the_verdict_says_which_threshold_was_crossed(
+    value: float, target: float | None, hard: float | None, expected: str
+) -> None:
+    """ "Past the hard limit" outranks "missed": over the hard limit is also over the target,
+    and reporting the weaker of the two would understate it. 2820 and 3735 are the figures
+    the budget actually recorded."""
+    import measure_latency
+
+    assert measure_latency.verdict(value, target, hard).strip() == expected
