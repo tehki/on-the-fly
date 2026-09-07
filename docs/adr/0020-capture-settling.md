@@ -101,6 +101,16 @@ Adaptive rather than a fixed delay, because the transient is only there on a col
 Measured against the real device: **1780 ms discarded cold, 240 ms warm** — 240 ms being one
 window, the price of looking before deciding.
 
+> **Caution added 2026-09-07.** Those two durations are derived from `_dropped_bytes` counted
+> at `SettlingSource`, which sits *above* `MicrophoneSource` and therefore above its
+> resampler. That resampler was emitting 1.19x the audio it was given until it was fixed, so
+> both figures are inflated by roughly that much: the real transient is nearer 1500 ms cold,
+> and the warm case is one window by construction rather than by measurement.
+>
+> No constant depends on them. The three-second cap keeps its margin either way, and the
+> 240 ms window is a chosen size rather than a measured one. What changes is only the
+> accuracy of two numbers this record and the README quote as facts about the hardware.
+
 The wait is capped at three seconds. An input that never settles is passed through with
 `gave_up` set, because a microphone this project refuses to pass through is
 indistinguishable, to the person holding it, from a broken one.

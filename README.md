@@ -133,7 +133,9 @@ well enough to tell when it goes wrong. It comes back when a model does.
 > negative rail — DC −1.0, 100% of samples clipped, no signal at all — and takes about 1.8 s
 > to centre; `arecord` shows the same, and a session opened moments later shows none of it.
 > That transient is now measured and discarded before it reaches the recogniser, adaptively:
-> **1780 ms dropped cold, 240 ms warm**. The remaining +30 dB was found in `Internal Mic
+> **1780 ms dropped cold, 240 ms warm** — both inflated by about 19%, because they were
+> counted above a resampler that was emitting 1.19x its input until 2026-09-07
+> ([ADR 0020](docs/adr/0020-capture-settling.md)); no constant depends on them. The remaining +30 dB was found in `Internal Mic
 > Boost` rather than the `Capture` control ADR 0019 names, and has been turned off on that
 > machine. **Live speech was recognised for the first time on 2026-09-06**: thirty seconds
 > read aloud, transcribed substantially correctly and translated, with nothing dropped and
