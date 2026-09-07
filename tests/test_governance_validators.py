@@ -8,6 +8,7 @@ green suite that proves nothing is exactly what handbook 64S calls theatre.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from datetime import date, timedelta
@@ -601,6 +602,109 @@ def test_an_illustrative_path_is_not_treated_as_a_repository_path(
     governance_validator.check_referenced_paths_exist(errors)
 
     assert errors == []
+
+
+# ---------------------------------------------------------------------------------------
+# Every policy-stack document this repository names is one that exists.
+#
+# ADR 0004 makes each adoption a rename and states the consequence as settled: a missed
+# rename "cannot pass silently". It could, and did — in a workflow comment, which is not a
+# protected path and so failed nothing.
+# ---------------------------------------------------------------------------------------
+
+
+def renamed(existing: str, version: str) -> str:
+    """A policy-document name that is deliberately not one of this repository's.
+
+    Built by substitution rather than written out. `tests/` is in scope for the check, so a
+    literal here would make this file the very thing it refuses — and keeping tests in scope
+    is deliberate, because a genuinely stale reference in a test is still a stale reference.
+    """
+    return re.sub(r"v\d+\.\d+-otf\d+", version, existing)
+
+
+def test_this_repository_has_no_dangling_policy_document_references() -> None:
+    errors: list[str] = []
+    governance_validator.check_policy_document_references(errors)
+
+    assert errors == []
+
+
+def test_a_reference_to_a_renamed_document_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The real defect: a comment citing the previous manifest, long after the rename."""
+    previous = renamed(governance_validator.GOVERNANCE_FILE.name, "v1.1-otf1")
+    workflow = tmp_path / ".github" / "workflows"
+    workflow.mkdir(parents=True)
+    (workflow / "ci.yml").write_text(
+        f"# The required check named by {previous}.\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    errors: list[str] = []
+
+    governance_validator.check_policy_document_references(errors)
+
+    assert len(errors) == 1
+    assert ".github/workflows/ci.yml:1" in errors[0]
+    assert previous in errors[0]
+
+
+def test_a_reference_to_a_document_that_exists_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    present = renamed(governance_validator.GOVERNANCE_FILE.name, "v9.9-otf1")
+    (tmp_path / present).write_text("governance:\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text(f"See {present} for the controls.\n", encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    errors: list[str] = []
+
+    governance_validator.check_policy_document_references(errors)
+
+    assert errors == []
+
+
+def test_a_supersedes_field_may_name_a_deleted_document(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ADR 0004 step 6 deletes the superseded document in the same pull request, so naming a
+    file that is gone is exactly what `supersedes:` is for — the one correct dangling
+    reference, and the check has to know it or the manifest cannot describe its own lineage.
+    """
+    previous = renamed(governance_validator.GOVERNANCE_FILE.name, "v1.1-otf1")
+    (tmp_path / "manifest.yaml").write_text(
+        f"governance:\n  supersedes: {previous}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    errors: list[str] = []
+
+    governance_validator.check_policy_document_references(errors)
+
+    assert errors == []
+
+
+def test_every_document_in_the_policy_stack_is_covered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """All four stems, so renaming any one of them cannot slip through the pattern."""
+    stack = [
+        "CODING_AGENT_CONSTITUTION_v1.3-otf1.md",
+        "CODING_AGENT_POLICY_v1.3-otf1.yaml",
+        "CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.6-otf1.md",
+        governance_validator.GOVERNANCE_FILE.name,
+    ]
+    for name in stack:
+        assert (REPO_ROOT / name).is_file(), f"{name} is the real document; keep this current"
+    absent = [renamed(name, "v0.1-otf1") for name in stack]
+    (tmp_path / "notes.md").write_text(
+        "\n".join(f"refers to {name}" for name in absent), encoding="utf-8"
+    )
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    errors: list[str] = []
+
+    governance_validator.check_policy_document_references(errors)
+
+    assert len(errors) == len(stack)
 
 
 # ---------------------------------------------------------------------------------------
@@ -1716,8 +1820,13 @@ def test_claiming_enforcement_without_verifying_the_remote_is_refused() -> None:
 
 
 def test_a_governance_manifest_the_policy_names_but_the_tree_lacks_is_refused() -> None:
+    """The name is built rather than written out, for the reason `renamed` records: `tests/`
+    is in scope for `check_policy_document_references`, so a literal here would make this
+    file carry the dangling reference it is describing."""
     policy = live_policy()
-    policy["repository_governance"]["manifest"] = "REPOSITORY_GOVERNANCE_v9.9-otf1.yaml"
+    policy["repository_governance"]["manifest"] = renamed(
+        governance_validator.GOVERNANCE_FILE.name, "v9.9-otf1"
+    )
 
     assert any(
         "missing file" in error

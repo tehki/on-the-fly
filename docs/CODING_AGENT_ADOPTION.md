@@ -195,6 +195,13 @@ Stated plainly, because the failure mode of governance work is believing it is f
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.
 - **Dependencies are version-pinned but not hash-pinned.**
+- **A policy-stack rename is a human task; only its completeness is enforced.** Since
+  2026-09-07 `check_policy_document_references` fails the build when any file names a
+  constitution, policy, handbook or governance document that does not exist. It found two live
+  ones in `.github/workflows/ci.yml` on the day it was written. It cannot tell you whether a
+  reference *should* have been updated to the new version or removed — only that it currently
+  points at nothing.
+
 - **A pointer into the tree is checked for existence, not for accuracy.** Since 2026-09-07
   `check_referenced_paths_exist` fails the build when any file names a repository path — in a
   table, a comment or a docstring — that is not there. It found `docs/SECURITY_PRIVACY.md`
