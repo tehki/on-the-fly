@@ -1162,6 +1162,42 @@ touches the resampler. Everything measured on files in this document was therefo
 a path the bug could not reach, which is exactly why it survived: **the test suite reads
 files, and the bug was in the microphone.**
 
+## Twenty-first measurement — 2026-09-07, what a 300-sentence chrF2 can support
+
+The correction above found that the sixth measurement's absolute figures do not reproduce
+from the first 300 sentences. This is why, and it changes how every chrF2 number in this
+document should be read.
+
+Scoring the publisher's **own** output against their **own** references — no model, no
+decoding, nothing but the choice of sentences — on twenty random 300-sentence draws:
+
+| test set | full 5000 | first 300 | last 300 | random 300: min / median / max |
+| --- | --- | --- | --- | --- |
+| `en-ru` | 66.95 | 65.58 | 66.83 | **63.84 / 66.10 / 70.01** |
+| `ru-en` | 73.56 | 73.42 | 71.59 | **71.36 / 74.41 / 76.18** |
+
+**A 300-sentence sample of this test set carries a spread of five to six chrF2 points.** Every
+absolute figure this document quotes at that sample size — 66.56, 66.62, 73.17, 72.73 — is
+quoted to two decimal places and supported to about ±3. The unrecorded choice of *which* 300
+is more than enough to explain the 0.6 offset the correction above found, twice.
+
+**Paired comparisons survive, and that is what saves the decisions.** Greedy against beam 6,
+or CTranslate2 against ONNX, run the *same* sentences under two conditions, so the sampling
+noise is common to both halves and largely cancels in the difference. That is why re-measuring
+reproduced the *comparisons* — greedy ahead by 0.13 against a recorded 0.06 for `en→ru`, and
+0.35 against 0.44 for `ru→en` — while missing the absolutes by 0.6.
+
+So the reading rule for this document:
+
+- **A difference between two conditions on the same sentences is meaningful** at 300, down to
+  a few tenths.
+- **An absolute level is not**, and should not be compared against a figure computed on any
+  other sample. The publisher's own `.eval.txt` for this release reports
+  `chrF2 … numchars.6 … space.False = 0.669` over their whole test set; the like-for-like
+  check against it is the full-set one in the eighteenth measurement, which gives 66.95.
+- **At 1000 sentences** — what ADR 0032 and the sixteenth measurement use — the spread is
+  roughly halved, and the four-pair table there is the one to quote.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.

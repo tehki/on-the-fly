@@ -54,8 +54,10 @@ against.
 
 The absolute figures above also do not reproduce from the first 300 sentences: re-measured,
 beam 6 scores **65.89** and greedy **66.02**, both about 0.65 lower. Which 300 sentences the
-originals used is not recorded, and that is the point — the procedure as written does not
-determine the number.
+originals used is not recorded, and at this sample size that decides the answer: twenty random
+300-sentence draws of this test set score the publisher's own unchanged output anywhere from
+**63.84 to 70.01** (twenty-first measurement). An absolute chrF2 from 300 sentences is
+supported to about ±3, and these are quoted to two decimals.
 
 What does reproduce is everything the decision rests on. Our beam-6 output still matches the
 publisher's at **95.11** against the documented 95.3, so the model, the preprocessing and the
