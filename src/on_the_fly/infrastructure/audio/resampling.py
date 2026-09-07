@@ -102,7 +102,14 @@ class Resampler:
             frame = av.AudioFrame.from_ndarray(samples, format="s16", layout="mono")
             frame.sample_rate = self._source_rate
             for converted in resampler.resample(frame):
-                self._buffer.extend(bytes(converted.planes[0]))
+                # `to_ndarray()`, not `bytes(converted.planes[0])`. A plane is an allocated
+                # buffer, not a view of the samples in it: PyAV pads it for alignment and
+                # reuses it at the largest size it has needed, so its length is
+                # `buffer_size` rather than `samples * 2`. Taking the whole plane appended
+                # between 96 and 1022 bytes of padding per block — stale audio from earlier
+                # blocks once the buffer had been reused — and emitted **1.19x** the audio
+                # that was captured.
+                self._buffer.extend(converted.to_ndarray().tobytes())
         except AudioDeviceError:
             raise
         except Exception as exc:
