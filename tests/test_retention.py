@@ -12,6 +12,7 @@ one tick after, which is the behaviour that actually matters.
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -748,3 +749,171 @@ def test_stopping_actually_ends_the_thread_rather_than_forgetting_it() -> None:
 
     assert not thread.is_alive(), "stop() returned while the reaper thread was still running"
     assert not reaper.running
+
+
+# ---------------------------------------------------------------------------------------
+# The boundaries of the Article 13 override
+#
+# A `RetentionOverride` is what permits EPHEMERAL content to live past ten seconds. Its
+# fields, its missing-field refusals and an already-expired record were covered; every
+# *boundary* was not, and mutation testing found each one — the comparisons in this file
+# could be flipped and the suite stayed green.
+#
+# Each one is an off-by-one that either grants more retention than was authorised or refuses
+# a configuration that was. Article 6 does not have a tolerance for the first.
+# ---------------------------------------------------------------------------------------
+
+AT = datetime(2026, 9, 2, tzinfo=UTC)
+
+
+def override_with(**changes: Any) -> RetentionOverride:
+    """The valid override from `active_override`, with individual fields replaced."""
+    issued = datetime(2026, 9, 1, tzinfo=UTC)
+    fields: dict[str, Any] = {
+        "record_id": "EXC-2026-09-01-003",
+        "owner": "@tehki",
+        "reason": "session transcript review for a specific accessibility trial",
+        "scope": "transcripts in the accessibility trial build only",
+        "risk": "MODERATE",
+        "approved_by": "@tehki",
+        "compensating_controls": ("opt-in per session", "local storage only"),
+        "issued_at": issued,
+        "expires_at": issued + timedelta(days=30),
+        "removal_condition": "the trial ends",
+        "max_retention_seconds": 3600.0,
+    }
+    fields.update(changes)
+    return RetentionOverride(**fields)
+
+
+def test_the_reference_override_is_valid_so_the_refusals_below_are_about_one_field() -> None:
+    assert override_with().max_retention_seconds == 3600.0
+
+
+# --- when the authorisation runs ---------------------------------------------------------
+
+
+def test_an_override_that_expires_the_moment_it_is_issued_is_refused() -> None:
+    """Zero-length authorisation. It would satisfy every field check and permit nothing,
+    which is a record that reads as an exception without being one."""
+    issued = datetime(2026, 9, 1, tzinfo=UTC)
+
+    with pytest.raises(RetentionConfigurationError, match="expires at or before"):
+        override_with(issued_at=issued, expires_at=issued)
+
+
+def test_an_override_is_active_at_the_instant_it_was_issued() -> None:
+    """The window is closed at the start: authorisation begins when it says it begins."""
+    issued = datetime(2026, 9, 1, tzinfo=UTC)
+
+    assert override_with().is_active(issued)
+
+
+def test_an_override_is_not_active_at_the_instant_it_expires() -> None:
+    """And open at the end. An exception that lasts one moment longer than it says is an
+    exception nobody approved for that moment (Article 13)."""
+    override = override_with()
+
+    assert not override.is_active(override.expires_at)
+    assert override.is_active(override.expires_at - timedelta(microseconds=1))
+
+
+def test_activity_cannot_be_judged_against_a_naive_datetime() -> None:
+    """Otherwise whether the exception is still in force depends on where the reader is."""
+    with pytest.raises(RetentionConfigurationError, match="aware datetime"):
+        override_with().is_active(datetime(2026, 9, 2))
+
+
+@pytest.mark.parametrize("field", ["issued_at", "expires_at"])
+def test_one_naive_timestamp_is_enough_to_refuse_the_record(field: str) -> None:
+    """Both being naive was covered. Either being naive is the actual rule, and one of each
+    is the shape a careless edit to an exception record produces.
+
+    This is the case that used to raise `TypeError` instead: Python refuses to compare an
+    aware datetime with a naive one, and the ordering check ran first, so the crash came out
+    of that comparison and past every caller catching `RetentionConfigurationError`.
+    """
+    issued = datetime(2026, 9, 1, tzinfo=UTC)
+    fields = {"issued_at": issued, "expires_at": issued + timedelta(days=30)}
+    fields[field] = fields[field].replace(tzinfo=None)
+
+    with pytest.raises(RetentionConfigurationError, match="timezone-aware"):
+        override_with(**fields)
+
+
+# --- how much it authorises --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seconds", [0.0, -1.0])
+def test_an_override_permitting_nothing_is_refused(seconds: float) -> None:
+    """Zero is the boundary. An override that authorises no retention at all is a record
+    that satisfies every field check and grants nothing."""
+    with pytest.raises(RetentionConfigurationError, match="positive finite"):
+        override_with(max_retention_seconds=seconds)
+
+
+@pytest.mark.parametrize("seconds", [float("inf"), float("nan")])
+def test_an_override_permitting_unbounded_retention_is_refused(seconds: float) -> None:
+    """ "Forever" is not a retention window, and Article 13 requires an expiry on the
+    authorisation rather than on the content alone."""
+    with pytest.raises(RetentionConfigurationError, match="positive finite"):
+        override_with(max_retention_seconds=seconds)
+
+
+def test_a_window_exactly_as_long_as_the_override_permits_is_allowed() -> None:
+    """The limit is inclusive. Refusing here would make the number in the record mean one
+    less than it says."""
+    policy = TransientRetentionPolicy.with_override(3600.0, override_with(), at=AT)
+
+    assert policy.seconds == 3600.0
+
+
+def test_a_window_one_moment_longer_than_the_override_permits_is_refused() -> None:
+    with pytest.raises(RetentionConfigurationError, match="permits at most"):
+        TransientRetentionPolicy.with_override(3600.001, override_with(), at=AT)
+
+
+# --- when an override is needed at all ---------------------------------------------------
+
+
+def test_the_default_window_itself_needs_no_override() -> None:
+    """Exactly ten seconds is the default, not an exception to it. Requiring a record here
+    would mean the ordinary case could not be configured without one."""
+    TransientRetentionPolicy(seconds=DEFAULT_TRANSIENT_RETENTION_SECONDS).validate(at=AT)
+
+
+def test_a_window_one_moment_over_the_default_needs_an_override() -> None:
+    """And the first moment past it does. This is the line Article 6 draws."""
+    with pytest.raises(RetentionConfigurationError, match="no override"):
+        TransientRetentionPolicy(seconds=DEFAULT_TRANSIENT_RETENTION_SECONDS + 0.001).validate(
+            at=AT
+        )
+
+
+def test_the_smallest_useful_override_is_accepted() -> None:
+    """One second is a real authorisation. The refusal is for zero and below, and a bound
+    that crept up by one would reject a record somebody had properly approved."""
+    assert override_with(max_retention_seconds=1.0).max_retention_seconds == 1.0
+
+
+def test_an_authorisation_record_cannot_be_edited_after_it_is_validated() -> None:
+    """Every check on a `RetentionOverride` happens at construction.
+
+    If the record were mutable, a valid one could be built and its expiry pushed out
+    afterwards — which would put the whole of Article 13's validation behind a door that
+    does not lock. Immutability is what makes construction the only way in.
+    """
+    override = override_with()
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        override.expires_at = override.expires_at + timedelta(days=365)  # type: ignore[misc]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        override.max_retention_seconds = 1e9  # type: ignore[misc]
+
+
+def test_a_validated_window_cannot_be_widened_afterwards() -> None:
+    """The same argument for the policy: `validate` is checked once, at construction."""
+    policy = TransientRetentionPolicy.with_override(3600.0, override_with(), at=AT)
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        policy.seconds = 99999.0  # type: ignore[misc]

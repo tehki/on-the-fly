@@ -63,15 +63,22 @@ class RetentionOverride:
                 "retention override declares no compensating controls; an exception with "
                 "nothing holding the risk down is not an exception"
             )
-        if self.expires_at <= self.issued_at:
-            raise RetentionConfigurationError(
-                "retention override expires at or before it was issued"
-            )
         if self.issued_at.tzinfo is None or self.expires_at.tzinfo is None:
             # A naive datetime means the expiry depends on the reader's timezone, which is
             # not a property an authorisation record may have.
+            #
+            # Checked before the ordering below, and not after it as it once was. Python
+            # refuses to compare an aware datetime with a naive one, so a record carrying
+            # one of each raised TypeError out of that comparison — an unhandled crash
+            # rather than this typed refusal, past every caller that catches
+            # RetentionConfigurationError. One of each is exactly what a careless edit to
+            # an exception record produces, which is what this check is here for.
             raise RetentionConfigurationError(
                 "retention override timestamps must be timezone-aware"
+            )
+        if self.expires_at <= self.issued_at:
+            raise RetentionConfigurationError(
+                "retention override expires at or before it was issued"
             )
         if not math.isfinite(self.max_retention_seconds) or self.max_retention_seconds <= 0:
             raise RetentionConfigurationError(
