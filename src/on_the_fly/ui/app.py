@@ -19,10 +19,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from on_the_fly.app.catalogue import recognisable_languages, translation_targets
+from on_the_fly.domain.audio.levels import LevelWatchingSource
+from on_the_fly.domain.audio.settling import SettlingSource
 from on_the_fly.ui.caption import NO_TRANSLATION, NO_TRANSLATION_LABEL, CaptionModel
 
 if TYPE_CHECKING:  # pragma: no cover - import shape only
     from collections.abc import Sequence
+
+    from on_the_fly.domain.audio.ports import AudioSource
 
 DEFAULT_CACHE = Path.home() / ".cache" / "on-the-fly" / "models"
 
@@ -47,6 +51,22 @@ def translation_options(source_language: str) -> list[tuple[str, str]]:
     options = [(NO_TRANSLATION, NO_TRANSLATION_LABEL)]
     options.extend((lang.code, lang.name) for lang in translation_targets(source_language))
     return options
+
+
+def build_capture_stack(source: AudioSource) -> LevelWatchingSource:
+    """Wrap a capture source in the two observers the window depends on, in that order.
+
+    **The order is load-bearing.** Settling sits *under* the level monitor, so the verdict
+    the window shows describes the microphone rather than the analog path powering up: a cold
+    capture starts pinned at the rail, which reads as clipping and is not (ADR 0020).
+    Reversed, the window would tell a user their microphone is broken for the first two
+    seconds of every session — and the level monitor judges a recording on the worst window
+    it contains, so that verdict would stand for the rest of the session too.
+
+    Extracted from the Qt worker so the invariant can be asserted without a display. It was
+    a comment, and this project has just spent a day finding out what comments guarantee.
+    """
+    return LevelWatchingSource(SettlingSource(source))
 
 
 def build_worker() -> Any:
@@ -88,8 +108,7 @@ def build_worker() -> Any:
 
         def _run(self) -> None:
             from on_the_fly.app.pipeline import StreamingRun, translate_finals
-            from on_the_fly.domain.audio.levels import InputQuality, LevelWatchingSource
-            from on_the_fly.domain.audio.settling import SettlingSource
+            from on_the_fly.domain.audio.levels import InputQuality
             from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS, resolve
             from on_the_fly.infrastructure.asr.sherpa_streaming import SherpaStreamingRecognizer
             from on_the_fly.infrastructure.audio import MicrophoneSource
@@ -121,12 +140,8 @@ def build_worker() -> Any:
             # A microphone with its gain pinned produces fluent nonsense rather than
             # silence, and nothing downstream can tell (ADR 0019).
             source = MicrophoneSource()
-            # Settling sits under the level monitor, so the verdict the window shows is
-            # about the microphone rather than about the analog path powering up. A cold
-            # capture starts pinned at the rail, which reads as clipping and is not
-            # (ADR 0020).
-            settling = SettlingSource(source)
-            watched = LevelWatchingSource(settling)
+            # Order is load-bearing and lives in `build_capture_stack`, where it is tested.
+            watched = build_capture_stack(source)
             recognizer.validate_format(source.audio_format)
             recognizer.warm_up()
             self.started.emit(
