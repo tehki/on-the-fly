@@ -559,6 +559,129 @@ def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"ci.{field} points at missing file {script_name!r}")
 
 
+MAKEFILE = REPO_ROOT / "Makefile"
+
+# A Makefile target line, and the recipe lines under it. Recipes are tab-indented by
+# definition, which is what separates them from the next target without needing a parser.
+MAKE_TARGET = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$")
+
+
+def make_targets() -> dict[str, tuple[list[str], list[str]]]:
+    """Every Makefile target, as `name -> (prerequisites, commands)`.
+
+    `$(PYTHON)` is expanded to `python`, which is what the variable defaults to and what CI
+    writes literally. Without that the two sides could never be compared.
+    """
+    targets: dict[str, tuple[list[str], list[str]]] = {}
+    current: str | None = None
+    if not MAKEFILE.is_file():
+        return targets
+    for line in MAKEFILE.read_text(encoding="utf-8").splitlines():
+        matched = MAKE_TARGET.match(line)
+        if matched is not None:
+            current = matched.group(1)
+            targets[current] = (matched.group(2).split(), [])
+        elif line.startswith("\t") and current is not None:
+            targets[current][1].append(line.strip().lstrip("@").replace("$(PYTHON)", "python"))
+    return targets
+
+
+def local_gate_commands(targets: dict[str, tuple[list[str], list[str]]]) -> list[str]:
+    """What `make check` actually runs, in order, flattened across its prerequisites."""
+    if "check" not in targets:
+        return []
+    commands: list[str] = []
+    for name in targets["check"][0]:
+        if name in targets:
+            commands.extend(targets[name][1])
+    return commands
+
+
+def required_job_commands(governance: dict[str, Any]) -> list[str] | None:
+    """The `run:` commands of the CI job the branch rules require, in order.
+
+    `None` when the workflow or the job cannot be read; `check_ci_wiring` reports that, and
+    this check stays quiet rather than adding a second error for one cause.
+    """
+    ci = governance.get("ci", {})
+    workflow_path = REPO_ROOT / str(ci.get("workflow") or "")
+    if not workflow_path.is_file():
+        return None
+    try:
+        workflow = load_yaml(workflow_path)
+    except Exception:  # pragma: no cover - malformed YAML is the linter's business
+        return None
+    job = (workflow.get("jobs") or {}).get(str(ci.get("required_job") or REQUIRED_STATUS_CHECK))
+    if not isinstance(job, dict):
+        return None
+    return [str(step["run"]).strip() for step in (job.get("steps") or []) if "run" in step]
+
+
+def check_local_gate_mirrors_ci(governance: dict[str, Any], errors: list[str]) -> None:
+    """`make check` runs what CI runs, in the same order.
+
+    The Makefile opens by saying so — "Running `make check` before pushing should give the
+    same answer CI does; that is the whole point of it existing (handbook 34)" — and the
+    governance manifest lists the targets that make it up under `ci.required_local_targets`.
+    That list was read by nothing at all, and neither claim was checked.
+
+    Both directions fail quietly and in opposite ways. A gate added to CI and not to the
+    Makefile makes `make check` a green light that does not mean anything, and the first
+    anyone hears of it is a failed run on a pushed branch. A gate in the Makefile that CI
+    does not run is worse: it is enforced only on the machines of people who choose to run
+    it, which is not enforcement.
+
+    Setup steps are not classified, because they do not have to be. CI installs its
+    toolchain first and runs the gates last, so the requirement is that the job's commands
+    *end with* exactly the sequence `make check` runs. Anything before that is preparation;
+    anything different is a divergence.
+    """
+    targets = make_targets()
+    if not targets:
+        errors.append("Makefile is missing or unreadable, so the local gate cannot be checked")
+        return
+
+    ci = governance.get("ci", {})
+    declared = [str(name) for name in (ci.get("required_local_targets") or [])]
+    if not declared:
+        errors.append("ci.required_local_targets is empty; the local gate is undeclared")
+        return
+
+    missing = [name for name in declared if name not in targets]
+    if missing:
+        errors.append(
+            f"ci.required_local_targets names Makefile target(s) that do not exist: "
+            f"{', '.join(missing)}"
+        )
+        return
+
+    if "check" not in targets:
+        errors.append("the Makefile has no `check` target, so there is no local gate to run")
+        return
+
+    prerequisites = targets["check"][0]
+    if prerequisites != declared:
+        errors.append(
+            f"`make check` runs {prerequisites} but ci.required_local_targets declares "
+            f"{declared}. A target left out of `check` is a gate nobody runs locally; one "
+            "left out of the manifest is a gate the manifest does not know about."
+        )
+        return
+
+    gate = local_gate_commands(targets)
+    job_commands = required_job_commands(governance)
+    if job_commands is None:
+        return
+
+    if job_commands[-len(gate) :] != gate:
+        errors.append(
+            "the CI job does not end with the commands `make check` runs, in order. "
+            f"make check: {gate}. CI: {job_commands}. The Makefile says running it should "
+            "give the same answer CI does; a gate on one side only is a gate that can be "
+            "skipped, or a local green light that means nothing."
+        )
+
+
 def check_development_flow(governance: dict[str, Any], errors: list[str]) -> None:
     """Constitution Article 15, as this repository applies it.
 
@@ -739,6 +862,7 @@ def main() -> int:
     check_third_party_imports_are_lazy(errors)
     check_the_domain_imports_nothing_third_party(errors)
     check_ci_wiring(governance, errors)
+    check_local_gate_mirrors_ci(governance, errors)
     check_truthfulness(governance, errors)
     check_cross_document_versions(governance, errors)
 

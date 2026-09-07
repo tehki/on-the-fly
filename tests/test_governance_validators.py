@@ -907,3 +907,175 @@ def test_a_third_party_import_in_the_domain_is_caught(
     governance_validator.check_the_domain_imports_nothing_third_party(errors)
 
     assert any("levels.py" in error and "numpy" in error for error in errors)
+
+
+# ---------------------------------------------------------------------------------------
+# `make check` runs what CI runs, in the same order.
+#
+# The Makefile opens by saying so, and the governance manifest lists the targets that make
+# it up under `ci.required_local_targets` — a key that was read by nothing at all.
+# ---------------------------------------------------------------------------------------
+
+CI_WORKFLOW = """
+jobs:
+  quality:
+    steps:
+      - name: Install
+        run: python -m pip install -r requirements.txt
+      - name: Lint
+        run: python -m ruff check .
+      - name: Tests
+        run: python -m pytest -q
+"""
+
+MAKEFILE = """PYTHON ?= python
+
+lint:
+\t$(PYTHON) -m ruff check .
+
+test:
+\t$(PYTHON) -m pytest -q
+
+check: lint test
+"""
+
+
+def gate_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    makefile: str = MAKEFILE,
+    workflow: str = CI_WORKFLOW,
+) -> dict[str, Any]:
+    """A Makefile and a workflow standing in for the repository, plus a matching manifest."""
+    (tmp_path / "Makefile").write_text(makefile, encoding="utf-8")
+    workflow_path = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow_path.parent.mkdir(parents=True, exist_ok=True)
+    workflow_path.write_text(workflow, encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "MAKEFILE", tmp_path / "Makefile")
+    return {
+        "ci": {
+            "workflow": ".github/workflows/ci.yml",
+            "required_job": "quality",
+            "required_local_targets": ["lint", "test"],
+        }
+    }
+
+
+def test_this_repositorys_local_gate_mirrors_its_ci() -> None:
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(
+        governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE), errors
+    )
+
+    assert errors == []
+
+
+def test_the_makefile_parser_reads_this_repositorys_own_gate() -> None:
+    """Without this, a parser returning nothing would make every case below vacuous."""
+    targets = governance_validator.make_targets()
+
+    assert targets["check"][0] == ["policy", "governance", "lint", "typecheck", "test"]
+    assert governance_validator.local_gate_commands(targets) == [
+        "python scripts/validate_coding_agent_policy.py",
+        "python scripts/validate_repository_governance.py",
+        "python -m ruff check .",
+        "python -m ruff format --check .",
+        "python -m mypy src scripts tests",
+        "python -m pytest -q",
+    ]
+
+
+def test_a_matching_pair_is_accepted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Setup steps before the gates are not a divergence: CI has to install its toolchain."""
+    manifest = gate_tree(monkeypatch, tmp_path)
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(manifest, errors)
+
+    assert errors == []
+
+
+def test_a_gate_ci_runs_and_the_makefile_does_not_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`make check` becomes a green light that does not mean anything."""
+    manifest = gate_tree(
+        monkeypatch,
+        tmp_path,
+        workflow=CI_WORKFLOW + "      - name: Secrets\n        run: python -m secret_scan\n",
+    )
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(manifest, errors)
+
+    assert any("does not end with the commands" in error for error in errors)
+
+
+def test_a_gate_the_makefile_runs_and_ci_does_not_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The worse direction: enforced only on the machines of people who choose to run it."""
+    manifest = gate_tree(
+        monkeypatch,
+        tmp_path,
+        makefile=MAKEFILE.replace(
+            "check: lint test", "audit:\n\t$(PYTHON) -m audit\n\ncheck: lint test audit"
+        ),
+    )
+    manifest["ci"]["required_local_targets"] = ["lint", "test", "audit"]
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(manifest, errors)
+
+    assert any("does not end with the commands" in error for error in errors)
+
+
+def test_the_gates_running_in_a_different_order_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ "In the same order" is the Makefile's own word, and a cheap thing to keep true."""
+    manifest = gate_tree(
+        monkeypatch,
+        tmp_path,
+        makefile=MAKEFILE.replace("check: lint test", "check: test lint"),
+    )
+    manifest["ci"]["required_local_targets"] = ["test", "lint"]
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(manifest, errors)
+
+    assert any("does not end with the commands" in error for error in errors)
+
+
+def test_a_target_left_out_of_check_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Declared as part of the gate, and not actually part of it."""
+    manifest = gate_tree(
+        monkeypatch, tmp_path, makefile=MAKEFILE.replace("check: lint test", "check: lint")
+    )
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(manifest, errors)
+
+    assert any("nobody runs locally" in error for error in errors)
+
+
+def test_a_declared_target_with_no_makefile_rule_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest = gate_tree(monkeypatch, tmp_path)
+    manifest["ci"]["required_local_targets"] = ["lint", "test", "audit"]
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(manifest, errors)
+
+    assert any("do not exist: audit" in error for error in errors)
+
+
+def test_an_undeclared_local_gate_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An empty list would otherwise let every comparison below pass by having nothing."""
+    manifest = gate_tree(monkeypatch, tmp_path)
+    manifest["ci"]["required_local_targets"] = []
+    errors: list[str] = []
+    governance_validator.check_local_gate_mirrors_ci(manifest, errors)
+
+    assert any("undeclared" in error for error in errors)
