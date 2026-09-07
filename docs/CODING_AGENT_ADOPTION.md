@@ -33,8 +33,15 @@ Upstream added two Articles and a set of CI concepts. What changed here:
 | **Validation reuse and change-aware selection** | Permitted by policy, not used. Both are ways of not running something, so the validator enforces their preconditions — conservative default of `full`, no security-sensitive-path bypass, and reuse bound to the same tree, lockfile, toolchain and policy version. |
 
 The FAST lane is deliberately **not** implemented. A change-aware lane may omit work only
-against a versioned, tested impact map; no such map exists, the suite runs in seconds, so
-there is nothing to gain and a real control to lose.
+against a versioned, tested impact map, and no such map exists.
+
+This paragraph used to end "the suite runs in seconds, so there is nothing to gain and a real
+control to lose". That stopped being true once real speech models entered the tests, and it
+was still being offered as half the justification. Measured on 2026-09-08 the suite takes
+about three minutes, **73% of it in one file** — `tests/test_sherpa_streaming.py`, which
+loads three streaming models and decodes real audio. There is now time to gain, which is an
+argument for building the impact map, not for skipping it. Until it exists, FULL runs on
+every push.
 
 ## The v1.6 adoption (2026-09-04)
 
