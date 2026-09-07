@@ -804,6 +804,111 @@ def check_truthfulness(governance: dict[str, Any], errors: list[str]) -> None:
             )
 
 
+# Each protection `main_branch` demands, and the GitHub ruleset rule that delivers it. The
+# names on the right are the ones the API returns and the ones `last_verified_remote_state`
+# records, which is what makes the two halves of the manifest comparable at all.
+#
+# `(key, expected value, rule)`: a demand is only in force when the key holds that value, so
+# `force_push_allowed: false` demands `non_fast_forward` and `force_push_allowed: true`
+# demands nothing.
+PROTECTION_RULES: tuple[tuple[str, bool, str], ...] = (
+    ("pull_request_required", True, "pull_request"),
+    ("direct_push_allowed", False, "pull_request"),
+    ("force_push_allowed", False, "non_fast_forward"),
+    ("branch_deletion_allowed", False, "deletion"),
+    ("require_linear_history", True, "required_linear_history"),
+)
+
+
+def check_declared_protection_matches_verification(
+    governance: dict[str, Any], errors: list[str]
+) -> None:
+    """What `main_branch` demands is what the recorded verification actually found.
+
+    The manifest keeps these in two places on purpose. `main_branch` is the policy — the
+    protections this repository requires of itself. `truthfulness.last_verified_remote_state`
+    is evidence — what was read back from the GitHub API on a particular day, under a note
+    saying it is "evidence of a point in time, not a standing claim". Keeping them apart is
+    right, and it is exactly why they can drift: raising a demand in one is a different edit
+    from re-verifying in the other, and nothing compared them.
+
+    A mismatch means one of the two is stale, and the document is wrong either way. Either a
+    protection is required and was not there when anybody last looked — in which case main is
+    not protected the way this file says — or the evidence was recorded for a rule the policy
+    no longer demands, which is how a control quietly stops being required while the record
+    still shows it green.
+
+    **This verifies nothing about the remote**, and must not be read as doing so. It compares
+    two statements inside one file. `never_claim_remote_branch_protection_without_verification`
+    is the rule that forbids anything stronger, and the fix for a failure here is to go and
+    re-verify, not to edit the evidence until it agrees.
+
+    Skipped entirely when protection is recorded as absent: `check_truthfulness` already
+    requires the compensating detection in that case, and demanding that the evidence list
+    the rules would be demanding evidence of something the same file says is not there.
+    """
+    last_verified = governance.get("truthfulness", {}).get("last_verified_remote_state", {})
+    if not last_verified:
+        errors.append(
+            "truthfulness.last_verified_remote_state is missing; there is no record of what "
+            "was ever checked, and Article 2 forbids describing main as protected without one"
+        )
+        return
+    if last_verified.get("branch_protection_present") is not True:
+        return
+
+    main_branch = governance.get("main_branch", {})
+    present = {str(rule) for rule in (last_verified.get("rules_present") or [])}
+
+    for key, demanded_when, rule in PROTECTION_RULES:
+        if main_branch.get(key) is not demanded_when:
+            continue
+        if rule not in present:
+            errors.append(
+                f"main_branch.{key} is {demanded_when} and needs the {rule!r} rule, "
+                "which last_verified_remote_state.rules_present does not list. Re-verify the "
+                "remote and record what is actually there; do not relax the demand to match."
+            )
+
+    required_checks = [str(name) for name in (main_branch.get("required_status_checks") or [])]
+    verified_checks = {
+        str(name) for name in (last_verified.get("required_status_checks_verified") or [])
+    }
+    if required_checks and "required_status_checks" not in present:
+        errors.append(
+            f"main_branch.required_status_checks demands {required_checks} but "
+            "last_verified_remote_state.rules_present does not list 'required_status_checks'"
+        )
+    for name in required_checks:
+        if name not in verified_checks:
+            errors.append(
+                f"main_branch.required_status_checks requires {name!r}, which "
+                "last_verified_remote_state.required_status_checks_verified does not record. "
+                "A check that is required locally and not remotely is not required."
+            )
+
+    if main_branch.get("require_up_to_date_before_merge") is True:
+        if last_verified.get("strict_required_status_checks_policy") is not True:
+            errors.append(
+                "main_branch.require_up_to_date_before_merge is true, which is the strict "
+                "required-status-checks policy, but last_verified_remote_state records it as "
+                "not strict — so a stale branch could merge on a check that never saw main"
+            )
+
+    # The exception that permits zero approvals rests on the maintainer being unable to
+    # bypass the rules they are the sole reviewer of. A bypass actor makes that false.
+    if governance.get("approval_limitation", {}).get("exception_record"):
+        bypass_count = last_verified.get("bypass_actors_count")
+        if bypass_count not in (0, None) or last_verified.get("current_user_can_bypass") != "never":
+            errors.append(
+                "zero required approvals is compensated by nobody being able to bypass the "
+                f"rules, but last_verified_remote_state records {bypass_count} bypass "
+                f"actor(s) and current_user_can_bypass="
+                f"{last_verified.get('current_user_can_bypass')!r}. The compensating control "
+                "the exception rests on is not in place."
+            )
+
+
 def check_cross_document_versions(governance: dict[str, Any], errors: list[str]) -> None:
     """The governance manifest and the policy must agree about which documents are active."""
     if not POLICY_FILE.exists():
@@ -864,6 +969,7 @@ def main() -> int:
     check_ci_wiring(governance, errors)
     check_local_gate_mirrors_ci(governance, errors)
     check_truthfulness(governance, errors)
+    check_declared_protection_matches_verification(governance, errors)
     check_cross_document_versions(governance, errors)
 
     if errors:

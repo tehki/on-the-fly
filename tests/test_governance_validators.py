@@ -1079,3 +1079,107 @@ def test_an_undeclared_local_gate_is_caught(
     governance_validator.check_local_gate_mirrors_ci(manifest, errors)
 
     assert any("undeclared" in error for error in errors)
+
+
+# What main_branch demands is what the recorded verification actually found.
+#
+# The manifest keeps the two apart on purpose — one is policy, the other is evidence read
+# back from the API on a particular day — which is exactly why they can drift. Raising a
+# demand is a different edit from re-verifying, and nothing compared them.
+# ---------------------------------------------------------------------------------------
+
+
+def protection_manifest(**overrides: Any) -> dict[str, Any]:
+    """This repository's own manifest, with the recorded evidence optionally disturbed."""
+    manifest = governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE)
+    manifest["truthfulness"]["last_verified_remote_state"].update(overrides)
+    return manifest
+
+
+def protection_errors(manifest: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    governance_validator.check_declared_protection_matches_verification(manifest, errors)
+    return errors
+
+
+def test_this_repositorys_demands_match_what_was_verified() -> None:
+    assert protection_errors(protection_manifest()) == []
+
+
+def test_the_rule_table_covers_what_this_repository_actually_demands() -> None:
+    """Without this, a table that had lost its entries would pass everything silently."""
+    covered = {key for key, _, _ in governance_validator.PROTECTION_RULES}
+
+    assert {"force_push_allowed", "branch_deletion_allowed", "require_linear_history"} <= covered
+
+
+def test_a_demanded_rule_missing_from_the_evidence_is_caught() -> None:
+    """Either main is not protected the way this file says, or the record is stale."""
+    manifest = protection_manifest()
+    manifest["truthfulness"]["last_verified_remote_state"]["rules_present"] = [
+        rule
+        for rule in manifest["truthfulness"]["last_verified_remote_state"]["rules_present"]
+        if rule != "non_fast_forward"
+    ]
+
+    assert any("non_fast_forward" in error for error in protection_errors(manifest))
+
+
+def test_a_required_check_that_was_never_verified_remotely_is_caught() -> None:
+    """A check required locally and not remotely is not required."""
+    manifest = protection_manifest(required_status_checks_verified=[])
+
+    assert any("'quality'" in error for error in protection_errors(manifest))
+
+
+def test_demanding_an_up_to_date_branch_without_the_strict_policy_is_caught() -> None:
+    """Otherwise a stale branch merges on a check that never saw the current main."""
+    manifest = protection_manifest(strict_required_status_checks_policy=False)
+
+    assert any("not strict" in error for error in protection_errors(manifest))
+
+
+def test_a_bypass_actor_under_the_zero_approval_exception_is_caught() -> None:
+    """Zero approvals is compensated by nobody being able to bypass the rules."""
+    manifest = protection_manifest(bypass_actors_count=1, current_user_can_bypass="always")
+
+    assert any("bypass" in error for error in protection_errors(manifest))
+
+
+def test_nothing_is_demanded_of_the_evidence_while_protection_is_recorded_as_absent() -> None:
+    """`check_truthfulness` owns that case, and requires the compensating detection instead.
+
+    Demanding that the evidence list the rules would be demanding evidence of something the
+    same file says is not there.
+    """
+    manifest = protection_manifest(branch_protection_present=False, rules_present=[])
+
+    assert protection_errors(manifest) == []
+
+
+def test_a_manifest_with_no_verification_record_at_all_is_refused() -> None:
+    """Article 2 forbids describing main as protected without one."""
+    manifest = governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE)
+    manifest["truthfulness"]["last_verified_remote_state"] = {}
+
+    errors = protection_errors(manifest)
+
+    assert any("no record of what was ever checked" in error for error in errors)
+
+
+def test_a_relaxed_demand_stops_requiring_its_rule() -> None:
+    """The check follows the policy rather than insisting on a fixed set of rules.
+
+    A repository that permitted force pushes would be wrong for other reasons, and this
+    check is not the place that says so — it compares what is demanded against what was
+    found, and demands nothing on behalf of a policy that has been relaxed.
+    """
+    manifest = protection_manifest()
+    manifest["main_branch"]["force_push_allowed"] = True
+    manifest["truthfulness"]["last_verified_remote_state"]["rules_present"] = [
+        rule
+        for rule in manifest["truthfulness"]["last_verified_remote_state"]["rules_present"]
+        if rule != "non_fast_forward"
+    ]
+
+    assert protection_errors(manifest) == []
