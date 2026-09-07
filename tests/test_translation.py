@@ -494,3 +494,111 @@ def test_the_cache_is_keyed_by_digest(tmp_path: Path) -> None:
 
 def test_store_repr_states_whether_downloading_is_enabled(tmp_path: Path) -> None:
     assert "allow_download=False" in repr(TranslationModelStore(tmp_path))
+
+
+# --------------------------------------------------------------------------------------
+# A cache that is only half there
+#
+# `ensure` short-circuits when the converted model *and* the extracted sources are both
+# present. Mutation testing found that `and` could be `or` without a test noticing, and the
+# same for the `is_dir() and all(members)` behind it. Either flip turns a half-finished
+# cache into a cache hit.
+#
+# This is not hypothetical for these artefacts. They arrive as a 285 MB zip over a slow
+# link; an extraction interrupted part way, or a conversion that did not finish, leaves
+# exactly this state. Reported as ready, it becomes a translator failing to load with an
+# error about a missing file rather than a store that notices and redoes the work.
+# --------------------------------------------------------------------------------------
+
+
+def prepared_store(tmp_path: Path) -> tuple[TranslationModelStore, MarianArtifact, Path]:
+    """A store with a verified archive in place, ready for `ensure` to extract."""
+    staging = tmp_path / "staging.zip"
+    digest = write_archive(staging)
+    artefact = fake_artifact(tmp_path, digest)
+    store = TranslationModelStore(tmp_path, allow_download=False)
+    archive = store.archive_path(artefact)
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    staging.replace(archive)
+    return store, artefact, archive
+
+
+def test_an_extracted_source_alone_is_not_a_finished_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Extraction finished, conversion did not. The converted model is what gets loaded."""
+    store, artefact, _ = prepared_store(tmp_path)
+    store._extract(artefact, store.archive_path(artefact), store.source_dir(artefact))
+    assert not (store.converted_dir(artefact) / "model.bin").exists()
+
+    converted: list[Path] = []
+    monkeypatch.setattr(
+        TranslationModelStore,
+        "_convert",
+        lambda self, source, target: converted.append(target),
+    )
+    store.ensure(artefact)
+
+    assert converted, "a missing converted model was reported as a cache hit"
+
+
+def test_a_converted_model_alone_is_not_a_finished_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Conversion finished, the sources are gone. They are not spare: the sentencepiece
+    tokenisers live there, and the conversion does not produce them."""
+    store, artefact, _ = prepared_store(tmp_path)
+    converted_dir = store.converted_dir(artefact)
+    converted_dir.mkdir(parents=True, exist_ok=True)
+    (converted_dir / "model.bin").write_bytes(b"converted")
+
+    monkeypatch.setattr(TranslationModelStore, "_convert", lambda self, source, target: None)
+    _, source = store.ensure(artefact)
+
+    for member in artefact.members:
+        assert (source / member).is_file(), f"{member} was never extracted"
+
+
+def test_a_source_directory_missing_one_member_is_not_extracted(tmp_path: Path) -> None:
+    """`is_dir() and all(members)`. A directory that exists is not a directory that is
+    complete, and an interrupted extraction leaves the first case looking like the second.
+    """
+    store, artefact, _ = prepared_store(tmp_path)
+    source = store.source_dir(artefact)
+    store._extract(artefact, store.archive_path(artefact), source)
+    assert store._is_extracted(artefact, source)
+
+    (source / artefact.members[-1]).unlink()
+
+    assert not store._is_extracted(artefact, source), "a missing member passed as extracted"
+
+
+def test_an_empty_source_directory_is_not_extracted(tmp_path: Path) -> None:
+    """The state an extraction that failed on its first member leaves behind."""
+    store, artefact, _ = prepared_store(tmp_path)
+    store.source_dir(artefact).mkdir(parents=True, exist_ok=True)
+
+    assert not store._is_extracted(artefact, store.source_dir(artefact))
+
+
+def test_a_complete_cache_is_used_without_touching_the_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the rule: when both are there, nothing is redone.
+
+    Asserted by deleting the archive first — a store that re-extracts would have to raise.
+    """
+    store, artefact, archive = prepared_store(tmp_path)
+    store._extract(artefact, archive, store.source_dir(artefact))
+    converted_dir = store.converted_dir(artefact)
+    converted_dir.mkdir(parents=True, exist_ok=True)
+    (converted_dir / "model.bin").write_bytes(b"converted")
+    archive.unlink()
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a complete cache was rebuilt")
+
+    monkeypatch.setattr(TranslationModelStore, "_extract", refuse)
+    monkeypatch.setattr(TranslationModelStore, "_convert", refuse)
+
+    assert store.ensure(artefact) == (converted_dir, store.source_dir(artefact))
