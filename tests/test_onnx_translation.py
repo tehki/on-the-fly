@@ -621,6 +621,16 @@ def test_the_two_french_exports_are_not_the_same_weights() -> None:
         assert ONNX_OPUS_MT_EN_FR.pin.digests[name] != ONNX_OPUS_MT_FR_EN.pin.digests[name]
 
 
+def test_the_onnx_engine_refuses_a_thread_count_it_cannot_apply(tmp_path: Path) -> None:
+    """`intra_threads` exists so ADR 0014's question can be re-asked on another machine, and
+    ONNX Runtime fixes its thread count at session creation. Accepting and ignoring it would
+    make a measurement labelled "4 threads" report whatever the session already had."""
+    choice = resolve_engine(("en", "ru"), TranslationEngine.ONNX)
+
+    with pytest.raises(ValueError, match="intra_threads is not supported"):
+        open_translator(choice, tmp_path, intra_threads=4)
+
+
 def test_the_onnx_engine_refuses_a_beam_width_it_does_not_implement(tmp_path: Path) -> None:
     """`beam_size` exists for `scripts/measure_translation.py` and only CTranslate2 has it.
 

@@ -1258,6 +1258,37 @@ between a final being decoded and a caller holding it. So essentially the whole
 endpoint-to-caption window is the translation, which is what the eighth and ninth
 measurements concluded by subtraction and this measures directly.
 
+## Twenty-third measurement — 2026-09-07, ADR 0014 on a differently loaded machine
+
+ADR 0014 chose `intra_threads=1` on evidence from one machine in two states. Until now that
+answer could not be re-checked without editing the source: `open_translator` had no way to
+say otherwise. It does now, for the same reason `beam_size` does — **the right thread count
+is a property of the machine, not of this project**, and somebody running this on sixteen
+idle cores has a different answer.
+
+120 sentences, `en→ru`, greedy, at a load average of **2.72 on 4 cpus** — a working laptop
+rather than either of the states ADR 0014 measured:
+
+| | idle (ADR 0014) | **load 2.72 (here)** | 3 of 4 busy (ADR 0014) |
+| --- | --- | --- | --- |
+| all cores | p50 176 ms | **p50 215 ms** | p50 2899 ms |
+| `intra_threads=1` | p50 193 ms | **p50 140 ms** | p50 421 ms |
+| one thread is | 10% slower | **1.5x faster** | 6.9x faster |
+
+**The crossover is below a load of 2.72**, not up at three-of-four-cores-busy. One thread is
+already the better setting on a laptop doing ordinary background work, which is a stronger
+result for the shipped default than ADR 0014 claimed — it argued from the loaded extreme, and
+the moderate case goes the same way.
+
+**The loaded column was not re-derived**, deliberately. Reproducing it means occupying three
+of four cores on a machine someone else is using, and a measurement is not worth degrading
+somebody's afternoon for. The direction and mechanism reproduce without it.
+
+Absolute latencies differ from ADR 0014's throughout — 140 ms here against 193 ms there for
+the same configuration — which is what the twenty-first measurement would predict of any
+absolute taken on a different machine at a different moment. The comparison is the part that
+transfers.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
