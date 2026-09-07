@@ -220,7 +220,7 @@ class LevelMonitor:
         # the one-second window the other verdicts use.
         self._floor_window = floor_window_frames
         self._floor_frames: deque[float] = deque(maxlen=floor_window_frames)
-        self._worst_floor = 0.0
+        self._worst_floor: float | None = None
         # Running totals as well as the window. The window is what a live caption needs —
         # "is the microphone bad *now*" — and totals are what a finished recording needs,
         # because the last second of a file is usually its silent tail and a verdict taken
@@ -237,7 +237,7 @@ class LevelMonitor:
     def reset(self) -> None:
         self._frames.clear()
         self._floor_frames.clear()
-        self._worst_floor = 0.0
+        self._worst_floor = None
         self._total_peak = 0.0
         self._total_squares = 0.0
         self._total_clipped = 0
@@ -255,7 +255,9 @@ class LevelMonitor:
                 # The worst window seen, not the latest: a recording is judged on the
                 # loudest stretch of room it contains, the same reasoning that gave
                 # `overall` its running totals rather than a rolling verdict.
-                self._worst_floor = max(self._worst_floor, floor)
+                self._worst_floor = (
+                    floor if self._worst_floor is None else max(self._worst_floor, floor)
+                )
         self._total_peak = max(self._total_peak, peak)
         self._total_squares += squares
         self._total_clipped += clipped
@@ -301,8 +303,15 @@ class LevelMonitor:
             return LevelReading(0.0, 0.0, 0.0, InputQuality.OK)
         rms = math.sqrt(self._total_squares / self._total_samples) / FULL_SCALE
         clipped = self._total_clipped / self._total_samples
-        # The worst window rather than the last one, for the same reason the totals exist.
-        floor = self._worst_floor if self._floor_frames else None
+        # The worst window rather than the last one, for the same reason the totals exist,
+        # and `None` when no window was ever long enough to compute one. It used to be
+        # `self._worst_floor if self._floor_frames else None`, which returned the initial
+        # 0.0 for any recording shorter than the floor window — printing `floor 0.000` for
+        # a number nobody had measured, in the line that tells a user whether their
+        # microphone is usable. It never misclassified, because 0.0 is below every
+        # threshold; it stated a measurement that had not been taken, which this project
+        # treats as the worse fault (ADR 0026).
+        floor = self._worst_floor
         return LevelReading(
             self._total_peak,
             rms,

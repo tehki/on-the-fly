@@ -380,6 +380,42 @@ def test_the_floor_is_a_number_and_the_reading_still_holds_no_audio() -> None:
     assert "floor" in str(reading)
 
 
+def test_a_recording_too_short_to_have_a_floor_reports_none_rather_than_zero() -> None:
+    """`overall` used to return the initial 0.0 for any recording shorter than the floor
+    window, so a 3.8-second clip printed `floor 0.000` — a number nobody had measured, in
+    the line that tells a user whether their microphone is usable.
+
+    It never misclassified, because 0.0 is below every threshold. It stated a measurement
+    that had not been taken, which is the fault this project treats as the worse one
+    (ADR 0026 declines to give a verdict at all rather than give one it cannot support).
+    """
+    monitor = LevelMonitor()
+    observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES - 1))
+
+    assert monitor.overall.floor is None
+    assert "floor" not in str(monitor.overall)
+
+
+def test_one_more_frame_is_enough_to_have_a_floor() -> None:
+    """The boundary the previous test sits just below, so neither can pass by accident."""
+    monitor = LevelMonitor()
+    observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES))
+
+    assert monitor.overall.floor is not None
+    assert "floor" in str(monitor.overall)
+
+
+def test_resetting_forgets_the_floor_from_the_overall_reading_too() -> None:
+    """`reset` restores "not measured", not "measured as zero"."""
+    monitor = LevelMonitor()
+    observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES))
+    assert monitor.overall.floor is not None
+
+    monitor.reset()
+
+    assert monitor.overall.floor is None
+
+
 def test_resetting_forgets_the_floor() -> None:
     monitor = LevelMonitor()
     observe_all(monitor, steady(0.5, FLOOR_WINDOW_FRAMES))
