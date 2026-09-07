@@ -32,6 +32,34 @@ be rejected.
 This table is a record of a point in time, not a claim about now. Re-run the verification
 below after any administrative change and update it.
 
+### Re-verified 2026-09-07 — unchanged
+
+Six days on, every row above was read back from the API again. **Nothing had drifted.**
+
+| Checked | Read from | Result |
+| --- | --- | --- |
+| Ruleset | `GET /repos/tehki/on-the-fly/rulesets` | one ruleset: `main-protection`, id `22044161`, `active` |
+| Enforcement | `GET …/rulesets/22044161` | `enforcement: active`, `bypass_actors: []`, `current_user_can_bypass: never` |
+| Conditions | same | `ref_name.include: ["~DEFAULT_BRANCH"]`, no exclusions |
+| Rules present | same | `deletion`, `non_fast_forward`, `required_linear_history`, `pull_request`, `required_status_checks` |
+| Required check | same | `['quality']`, `strict_required_status_checks_policy: true` |
+| Pull request rule | same | `required_approving_review_count: 0` (`EXC-2026-09-01-001`), `require_code_owner_review: false`, `required_review_thread_resolution: true`, `dismiss_stale_reviews_on_push: true` |
+| Dependabot alerts | `GET …/vulnerability-alerts` | HTTP 204 — enabled |
+| Write access | `GET …/collaborators` | 1 (`tehki`) |
+| Visibility | `GET …/repos/tehki/on-the-fly` | public, default branch `main` |
+| Both jobs reporting | `gh run view` on the latest push to `main` | `quality: success`, `main push provenance: success` |
+
+`require_code_owner_review: false` is the setting `EXC-2026-09-01-001` scopes and expects; it
+is recorded here because reading it back and *not* writing it down is how a documented
+limitation turns into an undocumented one.
+
+Two rows of the original table were not re-checked the same way. The behavioural confirmation
+— a direct push to `main` being rejected — was not repeated, because doing so deliberately
+would be an unauthorised push at a protected branch; the ruleset read is the evidence offered
+instead. And this re-verification says nothing about whether the ruleset *could* be disabled
+by whoever holds the repository, which is the failure a table cannot detect and which the
+provenance job exists to make visible.
+
 `EXC-2026-09-01-002` is closed. Its compensating provenance check was kept rather than
 removed: it now guards against the ruleset being disabled as much as against a direct
 push, which is the failure mode a table like this one cannot detect on its own.
