@@ -109,7 +109,7 @@ def build_worker() -> Any:
         def _run(self) -> None:
             from on_the_fly.app.pipeline import StreamingRun, translate_finals
             from on_the_fly.domain.audio.levels import InputQuality
-            from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS, resolve
+            from on_the_fly.infrastructure.asr.models import layout_for, resolve
             from on_the_fly.infrastructure.asr.sherpa_streaming import SherpaStreamingRecognizer
             from on_the_fly.infrastructure.audio import MicrophoneSource
             from on_the_fly.infrastructure.model_store import ModelStore
@@ -128,7 +128,7 @@ def build_worker() -> Any:
 
             self.started.emit("loading recognition model")
             model_dir = ModelStore(self._cache_dir, allow_download=True).ensure(pin)
-            recognizer = SherpaStreamingRecognizer(model_dir, layout=STREAMING_LAYOUTS[pin.name])
+            recognizer = SherpaStreamingRecognizer(model_dir, layout=layout_for(pin))
 
             translator = None
             if choice is not None:

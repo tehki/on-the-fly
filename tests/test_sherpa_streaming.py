@@ -20,7 +20,11 @@ from on_the_fly.infrastructure.asr import (
     StreamingRecognitionError,
     resolve,
 )
-from on_the_fly.infrastructure.asr.models import STREAMING_LAYOUTS
+from on_the_fly.infrastructure.asr.models import (
+    STREAMING_LAYOUTS,
+    layout_for,
+    streaming_pins,
+)
 from on_the_fly.infrastructure.asr.sherpa_streaming import (
     FLUSH_TAIL_SECONDS,
     MAX_UTTERANCE_SECONDS,
@@ -31,8 +35,22 @@ from on_the_fly.infrastructure.model_store import ModelStore, ModelStoreError
 
 RATE = 16_000
 
+# Asked of the registry rather than written out. A hand-written list is a fourth thing that
+# has to be kept in step with the pins, and it silently stops covering the pin it was not
+# updated for — which is the whole failure this section is about.
+STREAMING_PIN_NAMES = sorted(streaming_pins())
 
-@pytest.mark.parametrize("name", ["streaming-en", "streaming-ru", "streaming-fr"])
+
+def test_the_registry_is_what_these_tests_are_asking_about() -> None:
+    """The derived list is not empty and holds what this project actually streams.
+
+    Without this, a `streaming_pins()` that returned nothing would make every parametrised
+    test below vacuously pass.
+    """
+    assert STREAMING_PIN_NAMES == ["streaming-en", "streaming-fr", "streaming-ru"]
+
+
+@pytest.mark.parametrize("name", STREAMING_PIN_NAMES)
 def test_every_streaming_pin_is_complete_and_permissively_licensed(name: str) -> None:
     """Three languages, three publishers, one rule: pinned, and licensed so this can ship."""
     pin = resolve(name)
@@ -43,7 +61,7 @@ def test_every_streaming_pin_is_complete_and_permissively_licensed(name: str) ->
     assert any(entry.endswith("tokens.txt") for entry in pin.digests)
 
 
-@pytest.mark.parametrize("name", ["streaming-en", "streaming-ru", "streaming-fr"])
+@pytest.mark.parametrize("name", STREAMING_PIN_NAMES)
 def test_every_streaming_pin_has_a_layout_naming_files_it_pins(name: str) -> None:
     """A layout that names a file the pin does not cover would load unverified weights.
 
@@ -52,10 +70,30 @@ def test_every_streaming_pin_has_a_layout_naming_files_it_pins(name: str) -> Non
     against the pin rather than trusted to match it.
     """
     pin = resolve(name)
-    layout = STREAMING_LAYOUTS[name]
+    layout = layout_for(pin)
 
     for role in (layout.encoder, layout.decoder, layout.joiner, layout.tokens):
         assert role in pin.digests, f"{name} layout names {role!r}, which is not pinned"
+
+
+def test_no_layout_is_recorded_for_a_pin_that_does_not_exist() -> None:
+    """The other direction: an orphan layout is a rename nobody finished."""
+    for name in STREAMING_LAYOUTS:
+        assert name in streaming_pins(), f"{name} has a layout but is not a streaming pin"
+
+
+def test_a_pin_without_a_layout_is_refused_with_something_to_act_on() -> None:
+    """The failure this whole seam exists for, in the shape `resolve()` already refuses.
+
+    `STREAMING_LAYOUTS` is a separate dict from the pins it keys, so a pin can be added —
+    and a language moved to the streaming tier alongside it — with nothing to prompt a
+    layout. Indexing the dict directly gave a bare `KeyError` at the moment the recogniser
+    was built. The whisper pin stands in for such a pin here: it is real, it is in the
+    registry, and it has no layout, which is correct for it and is exactly the shape of the
+    mistake.
+    """
+    with pytest.raises(KeyError, match="no file layout is recorded"):
+        layout_for(resolve("tiny"))
 
 
 def test_it_promises_partials() -> None:
