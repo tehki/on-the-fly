@@ -31,11 +31,15 @@ scores **77.1% word error on clean read French**, where the pinned French stream
 scores 14.3% on the same clips. It does not return a flawed transcript — it returns a
 different sentence.
 
-None of those four has been measured directly, because no licence-clean test set with human
-references exists for them; French is the nearest evidence, and it is a high-resource language
-on clean recordings, which is close to the easiest case there is. **Treat the batch engine as
-a fallback rather than a substitute**, which is what the command line now says when it refuses
-to stream one of them.
+Russian, measured the same day, does the opposite: `tiny` differs from the pinned Russian
+model by **2 words in 12**, and both are spellings rather than misrecognitions. Two
+high-resource languages on clean read speech, a factor of four apart.
+
+So none of those four has been measured, and **French does not predict them** — an inference
+that it did was made in ADR 0035 and withdrawn there the same day. What is known is that the
+batch engine's quality varies enormously by language and can be catastrophic, which is why
+the command line calls it **a fallback rather than a substitute** when it refuses to stream
+one of them.
 
 Those four were marked streaming until ADR 0034, on ADR 0007's evidence that a published
 streaming model existed for each — which is a fact about Hugging Face rather than about this

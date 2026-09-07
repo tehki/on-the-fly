@@ -1077,8 +1077,14 @@ recogniser normally has. It is not on the latency path this budget governs, but 
 `transcribe` cannot be described as the quick option.
 
 ADR 0035 records what this does and does not establish. The four `BATCH` languages remain
-unmeasured — no licence-clean test set with references exists for them — and French is offered
-as the nearest evidence, being a high-resource language on clean audio.
+unmeasured — no licence-clean test set with references exists for them.
+
+**And French does not stand in for them.** Russian, measured hours later against the pinned
+Russian model's own output, puts `tiny` at 2 differing words in 12 — `РОДИОН`/`РАДИОН` and
+`ВЫСЧИТЫВАЛ`/`ВЫЩИТЫВАЛ`, spellings rather than misrecognitions. A legible transcript, where
+French was a different sentence. Two high-resource languages on clean read speech, a factor
+of four apart, so one measurement does not predict the next. ADR 0035 briefly said otherwise
+and withdrew it the same day.
 
 ## Nineteenth measurement — 2026-09-07, the flush tail was too short for Russian
 
