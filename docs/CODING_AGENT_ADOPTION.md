@@ -177,6 +177,15 @@ Stated plainly, because the failure mode of governance work is believing it is f
   (`EXC-2026-09-01-001`). Every other branch control is enforced; this one is not, and
   the exception says so rather than the manifest pretending otherwise.
 - **Dependencies are version-pinned but not hash-pinned.**
+- **A pointer into the tree is checked for existence, not for accuracy.** Since 2026-09-07
+  `check_referenced_paths_exist` fails the build when any file names a repository path — in a
+  table, a comment or a docstring — that is not there. It found `docs/SECURITY_PRIVACY.md`
+  pointing at the old location of `infrastructure/model_store.py`, in the row describing how
+  model weights are verified, three changes after that file moved. What it cannot tell you is
+  whether a reference that resolves points at the *right* file, or whether the sentence around
+  it is still true. Both have been wrong in this repository within the last day, and neither
+  is mechanically detectable.
+
 - **Renewing an exception is a human decision; only the deadline is enforced.** Since
   2026-09-07 `check_exception_records` fails the build when an `ACTIVE` record in
   `docs/EXCEPTIONS.md` has passed its expiry, when a record is missing one of Article 13's

@@ -325,6 +325,74 @@ def check_source_classification(governance: dict[str, Any], errors: list[str]) -
             )
 
 
+# Where a reference to a file could plausibly live. Binary and vendored trees are skipped
+# rather than decoded; nothing outside these carries prose about this repository's layout.
+REFERENCE_SUFFIXES = (".md", ".yaml", ".yml", ".py", ".toml", ".txt", ".cfg")
+REFERENCE_EXTRA_FILES = (".github/CODEOWNERS", "Makefile")
+REFERENCE_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+}
+
+
+def referencing_files() -> list[Path]:
+    """Every text file in the repository that could name another file in it."""
+    found = [
+        path
+        for path in sorted(REPO_ROOT.rglob("*"))
+        if path.is_file()
+        and path.suffix in REFERENCE_SUFFIXES
+        and not REFERENCE_SKIP_DIRS.intersection(path.parts)
+    ]
+    found.extend(REPO_ROOT / name for name in REFERENCE_EXTRA_FILES if (REPO_ROOT / name).is_file())
+    return found
+
+
+# A path this repository names in prose. Two shapes, because the documents use both: from the
+# repository root, and from the package root the way the source files refer to each other.
+REPO_PATH_REFERENCE = re.compile(r"`((?:src|scripts|docs|tests)/[A-Za-z0-9_./-]+)`")
+PACKAGE_PATH_REFERENCE = re.compile(r"`((?:app|domain|infrastructure|ui)/[A-Za-z0-9_./-]+)`")
+
+
+def check_referenced_paths_exist(errors: list[str]) -> None:
+    """A file this repository points a reader at must be a file that is there.
+
+    It was written after `docs/SECURITY_PRIVACY.md` was found pointing at the old location of
+    `infrastructure/model_store.py`, in the row describing how model weights are verified,
+    three changes after that file moved to the package root. Nothing failed, because a path in
+    a table cell is not a protected path, and a reader following the pointer would have found
+    nothing at all. (The stale path is described rather than written out, because writing it
+    out would make this docstring the very thing the check refuses.)
+
+    Only unambiguous repository paths are matched: a backticked path beginning with one of
+    this repository's own top-level directories. Illustrative paths like `recording.wav` are
+    not, and are not meant to be.
+    """
+    package_root = SOURCE_ROOT / "on_the_fly"
+    for path in referencing_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        relative_name = path.relative_to(REPO_ROOT).as_posix()
+        for number, line in enumerate(text.splitlines(), start=1):
+            for reference, base in (
+                (REPO_PATH_REFERENCE, REPO_ROOT),
+                (PACKAGE_PATH_REFERENCE, package_root),
+            ):
+                for named in reference.findall(line):
+                    if not (base / named.rstrip("/")).exists():
+                        errors.append(
+                            f"{relative_name}:{number} points at {named}, which does not "
+                            "exist. Update the reference or remove it; a pointer to a file "
+                            "that moved is worse than none, because it reads as current."
+                        )
+
+
 def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
     ci = governance.get("ci", {})
 
@@ -529,6 +597,7 @@ def main() -> int:
     check_sensitive_paths(governance, errors)
     check_source_classification(governance, errors)
     check_exception_records(governance, errors)
+    check_referenced_paths_exist(errors)
     check_ci_wiring(governance, errors)
     check_truthfulness(governance, errors)
     check_cross_document_versions(governance, errors)
