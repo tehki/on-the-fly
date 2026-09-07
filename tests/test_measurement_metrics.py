@@ -1,8 +1,9 @@
 """Tests for the metrics the measurement scripts compute.
 
-These four functions produce numbers this project quotes as evidence: word error rates in
-ADR 0031 and ADR 0035, chrF2 in ADR 0032 and ADR 0033, and every row of the sixteenth,
-seventeenth and eighteenth measurements. They had no tests at all.
+These functions produce numbers this project quotes as evidence: word error rates in
+ADR 0031 and ADR 0035, chrF2 in ADR 0032 and ADR 0033, the room acoustics behind ADR 0030,
+and every row of the sixteenth, seventeenth and eighteenth measurements. They had no tests
+at all.
 
 `chrf2` in particular is written out rather than taken from `sacrebleu`, which was a
 deliberate choice — admitting a dependency to compute a number that fits in forty lines is
@@ -14,7 +15,9 @@ is not a control. These are.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import measure_room
 import pytest
 from measure_recognition import normalise, word_errors
 from measure_translation import chrf2, read_test_file
@@ -338,3 +341,167 @@ def test_the_verdict_says_which_threshold_was_crossed(
     import measure_latency
 
     assert measure_latency.verdict(value, target, hard).strip() == expected
+
+
+# ---------------------------------------------------------------------------------------
+# Room acoustics: the numbers behind ADR 0030.
+#
+# `measure_room.py` was the last measurement script no test reached, found by asking which
+# first-party modules the suite never imports even transitively. Its three functions are
+# pure signal processing with known answers, so they can be checked against arithmetic
+# rather than against a recording of a room.
+# ---------------------------------------------------------------------------------------
+
+
+def decay(tau_seconds: float, *, seconds: float = 2.0) -> Any:
+    """An impulse response that decays as `exp(-t/tau)` and nothing else."""
+    import numpy as np
+
+    return np.exp(-(np.arange(int(measure_room.RATE * seconds)) / measure_room.RATE) / tau_seconds)
+
+
+@pytest.mark.parametrize("tau", [0.05, 0.1, 0.2, 0.4])
+def test_reverberation_time_recovers_a_known_decay(tau: float) -> None:
+    """RT60 has a closed form for a pure exponential, and this must return it.
+
+    Amplitude `exp(-t/tau)` carries energy `exp(-2t/tau)`, so the Schroeder curve falls at
+    `20/(tau ln 10)` dB per second and sixty decibels take `3 tau ln 10`. Nothing about that
+    depends on a room, which is what makes it a test rather than a second opinion.
+    """
+    import numpy as np
+
+    measured, _ = measure_room.reverberation_time(decay(tau))
+
+    assert measured == pytest.approx(3 * tau * np.log(10), rel=1e-3)
+
+
+def test_the_usable_decay_shrinks_as_the_room_slows() -> None:
+    """The second return value is how much evidence the fit had, and it is not decoration.
+
+    The fit window is fixed at 20-120 ms, so a slow room decays through less of it. A figure
+    fitted over two decibels is far weaker than the same figure fitted over seventeen, and
+    reporting the RT60 without it would hide that.
+    """
+    _, fast = measure_room.reverberation_time(decay(0.05))
+    _, slow = measure_room.reverberation_time(decay(0.4))
+
+    assert fast > slow
+    assert fast == pytest.approx(17.4, abs=0.5)
+    assert slow == pytest.approx(2.2, abs=0.5)
+
+
+def test_the_fit_window_refuses_to_measure_the_noise_floor() -> None:
+    """The defect the window exists for, reproduced.
+
+    A comment in the script records a first attempt reporting 1.3 s for a response with 99%
+    of its energy in the first 100 ms, because the Schroeder curve flattens at the
+    measurement noise floor and a fit that includes the flat part reports the noise rather
+    than the room. Here a 25 ms room on a floor 60 dB down reads 0.19 s through the window
+    and 6.2 s without it.
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    room = decay(0.025)
+    noisy = room + rng.normal(0.0, 10 ** (-60 / 20), room.shape)
+
+    assert measure_room.early_energy_share(noisy, 100.0) > 0.99
+    windowed, _ = measure_room.reverberation_time(noisy)
+    assert windowed < 0.3
+
+    # What a fit over the whole curve would have said instead.
+    tail = noisy[int(np.argmax(np.abs(noisy))) :]
+    energy = np.cumsum(tail[::-1] ** 2)[::-1]
+    db = 10 * np.log10(np.maximum(energy / energy[0], 1e-12))
+    slope = np.polyfit(np.arange(len(db)) / measure_room.RATE, db, 1)[0]
+
+    assert -60.0 / slope > 5.0
+
+
+def test_silence_reports_no_reverberation_time_rather_than_a_number() -> None:
+    """No energy is not a fast room. `nan` refuses; a zero would be quoted."""
+    import numpy as np
+
+    measured, usable = measure_room.reverberation_time(np.zeros(measure_room.RATE))
+
+    assert np.isnan(measured)
+    assert usable == 0.0
+
+
+def test_a_response_too_short_for_the_fit_window_reports_nothing() -> None:
+    """The window ends at 120 ms; a recording shorter than that cannot be fitted."""
+    import numpy as np
+
+    measured, _ = measure_room.reverberation_time(decay(0.05, seconds=0.05))
+
+    assert np.isnan(measured)
+
+
+@pytest.mark.parametrize(
+    ("window_ms", "expected"),
+    [(50.0, 0.5), (150.0, 1.0)],
+)
+def test_early_energy_share_splits_two_taps_by_the_window(
+    window_ms: float, expected: float
+) -> None:
+    """Two equal taps 100 ms apart: the first window holds one, the second holds both."""
+    import numpy as np
+
+    response = np.zeros(measure_room.RATE)
+    response[1000] = 1.0
+    response[1000 + measure_room.RATE // 10] = 1.0
+
+    assert measure_room.early_energy_share(response, window_ms) == pytest.approx(expected)
+
+
+def test_early_energy_share_is_measured_from_the_peak_not_the_start() -> None:
+    """Silence before the direct sound is not part of the response.
+
+    Counting from index zero would let the leading gap decide the answer, and the gap is an
+    artefact of when the recording was armed.
+    """
+    import numpy as np
+
+    impulse = np.zeros(measure_room.RATE)
+    impulse[measure_room.RATE // 2] = 1.0
+
+    assert measure_room.early_energy_share(impulse, 10.0) == pytest.approx(1.0)
+
+
+def test_early_energy_share_of_silence_is_zero_rather_than_a_division_by_zero() -> None:
+    import numpy as np
+
+    assert measure_room.early_energy_share(np.zeros(measure_room.RATE), 50.0) == 0.0
+
+
+def test_the_sweep_and_its_inverse_convolve_to_an_impulse() -> None:
+    """The property the whole method rests on.
+
+    An exponential sine sweep is useful because convolving it with its own inverse filter
+    collapses to an impulse; the room's response is then whatever that convolution picks up
+    instead. If this failed, every number the script reports would be measuring the sweep.
+    """
+    import numpy as np
+
+    sweep, inverse = measure_room.sweep_and_inverse(1.0)
+    convolved = np.convolve(sweep, inverse)
+    energy = convolved**2
+    peak = int(np.argmax(np.abs(convolved)))
+    within_a_millisecond = measure_room.RATE // 1000
+
+    assert peak == pytest.approx(len(convolved) // 2, abs=within_a_millisecond)
+    share = energy[peak - within_a_millisecond : peak + within_a_millisecond].sum() / energy.sum()
+    assert share > 0.98
+
+
+def test_the_sweep_is_faded_in_and_out_and_stays_in_range() -> None:
+    """A sweep that starts at full amplitude clicks, and a click is broadband energy the
+    room responds to as much as the sweep does."""
+    import numpy as np
+
+    sweep, _ = measure_room.sweep_and_inverse(1.0)
+
+    assert len(sweep) == measure_room.RATE
+    assert sweep[0] == pytest.approx(0.0, abs=1e-9)
+    assert sweep[-1] == pytest.approx(0.0, abs=1e-9)
+    assert np.abs(sweep).max() <= 1.0
