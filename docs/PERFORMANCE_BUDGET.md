@@ -1187,10 +1187,35 @@ noise is common to both halves and largely cancels in the difference. That is wh
 reproduced the *comparisons* — greedy ahead by 0.13 against a recorded 0.06 for `en→ru`, and
 0.35 against 0.44 for `ru→en` — while missing the absolutes by 0.6.
 
+A third comparison was then re-measured to test that claim rather than assert it — the
+CTranslate2/ONNX gap from ADR 0018, which is paired in the same way. All five documented
+absolutes and all three documented differences, against the first 300 sentences:
+
+| paired difference | documented | re-measured | moved by |
+| --- | --- | --- | --- |
+| `en→ru` greedy − beam 6 | +0.06 | +0.13 | +0.07 |
+| `ru→en` greedy − beam 6 | +0.44 | +0.35 | −0.09 |
+| `en→ru` CTranslate2 − ONNX | +0.29 | +0.44 | **+0.15** |
+
+| absolute | documented | re-measured | moved by |
+| --- | --- | --- | --- |
+| `en→ru` greedy | 66.62 | 66.02 | −0.60 |
+| `en→ru` beam 6 | 66.56 | 65.89 | −0.67 |
+| `ru→en` greedy | 73.17 | 72.51 | −0.66 |
+| `ru→en` beam 6 | 72.73 | 72.16 | −0.57 |
+| `en→ru` ONNX | 66.33 | 65.58 | −0.75 |
+
+**Every sign held. Differences moved by at most 0.15; absolutes by 0.60 to 0.75** — four to
+five times as much, and all in the same direction, which is the slice rather than chance.
+
 So the reading rule for this document:
 
-- **A difference between two conditions on the same sentences is meaningful** at 300, down to
-  a few tenths.
+- **A difference between two conditions on the same sentences is meaningful** at 300, and
+  resolves to about **±0.15**. That is enough to say which of two conditions is ahead, and
+  not enough to quote the gap to two decimals. It also means ADR 0009 was right for the right
+  reason: a 0.06 difference is below this resolution, which is what "no quality cost that
+  this measurement can detect" amounts to. ADR 0018's 0.29 sits just above it — the gap is
+  real, its size is not.
 - **An absolute level is not**, and should not be compared against a figure computed on any
   other sample. The publisher's own `.eval.txt` for this release reports
   `chrF2 … numchars.6 … space.False = 0.669` over their whole test set; the like-for-like

@@ -128,6 +128,13 @@ seventh measurements, so the numbers are comparable to what is already in
 exactly** — same corpus, same metric, a different day and a rebuilt model directory. That
 reproduction is what makes the comparison worth reading at all.
 
+> **Caution added 2026-09-07.** The absolute figures in this ADR come from 300 sentences,
+> which the twenty-first measurement showed carries a spread of five to six chrF2 points —
+> re-measured on the first 300, this table's 66.33 is 65.58. The **gap** is what survives:
+> re-measured, CTranslate2 leads ONNX by 0.44 against the 0.29 recorded here, and paired
+> differences at this sample size resolve to about ±0.15. So "CTranslate2 is slightly ahead"
+> is supported; "by 0.29" is not, and neither is 66.33 as a level.
+
 **The quantisation is not where the gap is.** The full-precision graphs score **66.34** —
 the same as the quantised 66.33 — for 653 MB against 421 MB. So int8 costs nothing here, and
 the 0.29 against CTranslate2 is the export rather than the compression. Worth the one
