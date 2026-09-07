@@ -45,7 +45,7 @@ from on_the_fly.domain.retention.errors import (
     StoreCapacityExceededError,
 )
 from on_the_fly.domain.retention.policy import RetentionOverride, TransientRetentionPolicy
-from on_the_fly.domain.retention.reaper import ThreadedReaper
+from on_the_fly.domain.retention.reaper import IDLE_WAKE_SECONDS, ThreadedReaper
 from on_the_fly.domain.retention.store import (
     DEFAULT_MAX_DELETION_ATTEMPTS,
     DEFAULT_MAX_ENTRIES,
@@ -62,6 +62,7 @@ __all__ = [
     "DEFAULT_MAX_DELETION_ATTEMPTS",
     "DEFAULT_MAX_ENTRIES",
     "DEFAULT_TRANSIENT_RETENTION_SECONDS",
+    "IDLE_WAKE_SECONDS",
     "OPERATIONAL_METADATA_RETENTION_DAYS",
     "Clock",
     "ContentExpiredError",

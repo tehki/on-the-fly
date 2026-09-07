@@ -22,6 +22,7 @@ import yaml
 
 from on_the_fly.domain.retention import (
     DEFAULT_TRANSIENT_RETENTION_SECONDS,
+    IDLE_WAKE_SECONDS,
     ContentExpiredError,
     EntryState,
     EphemeralStore,
@@ -507,3 +508,243 @@ def test_threaded_reaper_deletes_without_being_asked() -> None:
 
     assert not store.is_present(handle), "the reaper did not delete on its own"
     assert len(store) == 0
+
+
+# ---------------------------------------------------------------------------------------
+# The reaper, beyond "it fires"
+#
+# Article 6 requires retention enforcement to be automatic. `EphemeralStore.reap()` does the
+# work but has to be called; `ThreadedReaper` is what calls it. Its module docstring says it
+# "is tested for the narrower question of whether it wakes up and calls through" — and that
+# was one test. Fourteen of its sixteen mutation sites survived the suite, including the
+# final reap on shutdown, the purge-on-stop mode, and every branch of the sleep computation.
+#
+# Most of what it decides needs no thread at all. `_sleep_seconds` is a pure function of the
+# store's next deadline and the clock, and it is the one that must never return a negative
+# number (a busy spin) or an unbounded one (a missed deletion).
+# ---------------------------------------------------------------------------------------
+
+
+def idle_reaper(store: EphemeralStore, clock: ManualClock, **kwargs: Any) -> ThreadedReaper:
+    """A reaper that is never started, for the decisions that do not need a thread."""
+    return ThreadedReaper(store, clock=clock, **kwargs)
+
+
+def test_an_idle_store_still_wakes_periodically() -> None:
+    """With nothing to delete the reaper must not sleep forever.
+
+    A deadline added by another thread between a reap and a sleep would otherwise wait on a
+    notify that may have been lost.
+    """
+    clock = ManualClock()
+    reaper = idle_reaper(make_store(clock), clock)
+
+    assert reaper._sleep_seconds() == IDLE_WAKE_SECONDS
+
+
+def test_a_deadline_already_past_is_not_waited_on() -> None:
+    """Never negative. A negative timeout on a condition variable returns immediately, so
+    the harm is not a hang — it is a loop that spins without bound."""
+    clock = ManualClock()
+    store = make_store(clock, policy=TransientRetentionPolicy(seconds=10.0))
+    store.put(SENSITIVE_TEXT, label="captured_audio_frames")
+    clock.advance(30.0)
+
+    assert idle_reaper(store, clock)._sleep_seconds() == 0.0
+
+
+def test_a_deadline_within_the_idle_window_is_waited_on_exactly() -> None:
+    clock = ManualClock()
+    store = make_store(clock, policy=TransientRetentionPolicy(seconds=0.25))
+    store.put(SENSITIVE_TEXT, label="captured_audio_frames")
+
+    assert idle_reaper(store, clock)._sleep_seconds() == pytest.approx(0.25)
+
+
+def test_a_deadline_beyond_the_idle_window_is_capped() -> None:
+    """Never unbounded. The loop re-reads the next deadline on every wake, so capping the
+    sleep is what makes a lost notify cost a delay rather than a missed deletion."""
+    clock = ManualClock()
+    store = make_store(clock, policy=TransientRetentionPolicy(seconds=10.0))
+    store.put(SENSITIVE_TEXT, label="captured_audio_frames")
+
+    assert idle_reaper(store, clock)._sleep_seconds() == IDLE_WAKE_SECONDS
+
+
+def test_content_held_under_lease_is_treated_as_idle() -> None:
+    """A borrowed entry has no deadline until the lease ends, and the reaper must not
+    conclude from that that something is overdue."""
+    clock = ManualClock()
+    store = make_store(clock, policy=TransientRetentionPolicy(seconds=0.25))
+    handle = store.put(SENSITIVE_TEXT, label="captured_audio_frames")
+    reaper = idle_reaper(store, clock)
+
+    with store.borrow(handle):
+        assert store.next_deadline() is None
+        assert reaper._sleep_seconds() == IDLE_WAKE_SECONDS
+
+
+# --- shutdown ---------------------------------------------------------------------------
+
+
+def test_stopping_reaps_what_was_already_due() -> None:
+    """Handbook 35. Shutdown must not strand content that is already past its deadline.
+
+    Asserted without starting the thread, so what is under test is `stop()` itself rather
+    than a race with the loop.
+    """
+    clock = ManualClock()
+    store = make_store(clock, policy=TransientRetentionPolicy(seconds=10.0))
+    handle = store.put(SENSITIVE_TEXT, label="translation_output")
+    clock.advance(30.0)
+    reaper = idle_reaper(store, clock)
+
+    assert store.is_present(handle), "still there before the stop"
+    reaper.stop()
+
+    assert not store.is_present(handle), "stop() left content past its deadline behind"
+    assert reaper.last_report is not None
+    assert reaper.last_report.ok
+
+
+def test_stopping_leaves_content_that_is_not_yet_due() -> None:
+    """A final reap is a reap, not a purge. Shutting down does not shorten the window."""
+    clock = ManualClock()
+    store = make_store(clock, policy=TransientRetentionPolicy(seconds=10.0))
+    handle = store.put(SENSITIVE_TEXT, label="translation_output")
+
+    idle_reaper(store, clock).stop()
+
+    assert store.is_present(handle)
+
+
+def test_purge_on_stop_takes_everything_regardless_of_deadline() -> None:
+    """The mode for shutting the application down: nothing survives, due or not."""
+    clock = ManualClock()
+    store = make_store(clock, policy=TransientRetentionPolicy(seconds=10.0))
+    handle = store.put(SENSITIVE_TEXT, label="translation_output")
+
+    reaper = idle_reaper(store, clock, purge_on_stop=True)
+    reaper.stop()
+
+    assert not store.is_present(handle)
+    assert len(store) == 0
+
+
+def test_purge_on_stop_reaches_the_deleters_too() -> None:
+    """Purging its own memory is not enough; every location the policy lists has to go."""
+    clock = ManualClock()
+    deleter = FakeDeleter()
+    store = make_store(clock, deleters=[deleter], policy=TransientRetentionPolicy(seconds=10.0))
+    store.put(SENSITIVE_TEXT, label="captured_audio_frames")
+
+    idle_reaper(store, clock, purge_on_stop=True).stop()
+
+    assert deleter.deleted or deleter.purge_calls, "the spill location was never cleared"
+
+
+def test_the_last_report_is_the_account_of_the_final_reap() -> None:
+    """`stop()` is where a deletion failure at shutdown becomes visible."""
+    clock = ManualClock()
+    store = make_store(
+        clock,
+        deleters=[FakeDeleter(fail_times=999)],
+        policy=TransientRetentionPolicy(seconds=1.0),
+        max_deletion_attempts=1,
+    )
+    store.put(SENSITIVE_TEXT, label="captured_audio_frames")
+    clock.advance(30.0)
+
+    reaper = idle_reaper(store, clock)
+    reaper.stop()
+
+    assert reaper.last_report is not None
+    assert not reaper.last_report.ok, "a shutdown that could not delete is not clean"
+
+
+# --- lifecycle --------------------------------------------------------------------------
+
+
+def test_a_reaper_that_was_never_started_is_not_running() -> None:
+    clock = ManualClock()
+    reaper = idle_reaper(make_store(clock), clock)
+
+    assert not reaper.running
+    assert reaper.last_report is None
+
+
+def test_starting_twice_does_not_leave_a_second_thread_behind() -> None:
+    """Two threads reaping one store is not wrong, but it is not what start() promises."""
+    store = EphemeralStore("on-the-fly", policy=TransientRetentionPolicy(seconds=0.05))
+    reaper = ThreadedReaper(store)
+    reaper.start()
+    first = reaper._thread
+    try:
+        reaper.start()
+        assert reaper._thread is first
+        assert reaper.running
+    finally:
+        reaper.stop()
+
+    assert not reaper.running
+
+
+def test_the_context_manager_starts_and_stops() -> None:
+    store = EphemeralStore("on-the-fly", policy=TransientRetentionPolicy(seconds=0.05))
+    reaper = ThreadedReaper(store)
+
+    with reaper as entered:
+        assert entered is reaper
+        assert reaper.running
+
+    assert not reaper.running
+
+
+def test_notify_is_safe_before_the_thread_exists() -> None:
+    """Optional by contract: missing one costs a delay, and calling one early costs
+    nothing."""
+    clock = ManualClock()
+    idle_reaper(make_store(clock), clock).notify()
+
+
+def test_the_thread_is_named_after_the_project_it_reaps() -> None:
+    """One reaper per store, and a thread dump has to say which."""
+    store = EphemeralStore("on-the-fly", policy=TransientRetentionPolicy(seconds=0.05))
+    reaper = ThreadedReaper(store)
+    reaper.start()
+    try:
+        thread = reaper._thread
+        assert thread is not None
+        assert "on-the-fly" in thread.name
+        assert thread.daemon, "a forgotten stop() must not hang process exit"
+    finally:
+        reaper.stop()
+
+
+def test_the_idle_wake_cannot_outlast_the_retention_window() -> None:
+    """The bound that makes a lost notify a delay rather than a violation.
+
+    A missed notify costs at most one idle wake. If that wake were longer than the window
+    itself, the cost would be content living past its deadline — which is the one thing this
+    subsystem exists to prevent, and Article 6 does not have a tolerance for it.
+    """
+    assert IDLE_WAKE_SECONDS <= DEFAULT_TRANSIENT_RETENTION_SECONDS
+
+
+def test_stopping_actually_ends_the_thread_rather_than_forgetting_it() -> None:
+    """`running` reads the reaper's own handle, which `stop()` clears either way.
+
+    So the handle is not the question. A thread that ignored the stop signal would leave
+    `running` False while still alive and still reaping, and only the thread object itself
+    can say so.
+    """
+    store = EphemeralStore("on-the-fly", policy=TransientRetentionPolicy(seconds=0.05))
+    reaper = ThreadedReaper(store)
+    reaper.start()
+    thread = reaper._thread
+    assert thread is not None and thread.is_alive()
+
+    reaper.stop()
+
+    assert not thread.is_alive(), "stop() returned while the reaper thread was still running"
+    assert not reaper.running
