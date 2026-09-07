@@ -76,6 +76,19 @@ CPU baseline, because the CPU path is what most users will actually run.
 
 ## Measurement method
 
+`scripts/measure_latency.py` performs it. Until 2026-09-07 nothing did — this section
+described a procedure no code carried out, so the headline below could not be re-derived by
+anyone, including whoever first measured it. Every other number this project quotes has a
+script behind it (`measure_pauses.py`, `measure_room.py`, `measure_recognition.py`,
+`measure_translation.py`); the one the whole document exists to govern did not.
+
+```bash
+python scripts/measure_latency.py recording.wav --translate-to ru --repeat 30
+```
+
+It refuses to let a short run pass as evidence: below fifty utterances it says so in the
+output rather than printing a percentile as though it meant something.
+
 - Correlation ID attached at capture, carried through the pipeline; stage boundaries
   recorded as timestamps.
 - Timings are `OPERATIONAL_METADATA`: duration, language pair, model identifier, audio
@@ -1222,6 +1235,28 @@ So the reading rule for this document:
   check against it is the full-set one in the eighteenth measurement, which gives 66.95.
 - **At 1000 sentences** — what ADR 0032 and the sixteenth measurement use — the spread is
   roughly halved, and the four-pair table there is the one to quote.
+
+## Twenty-second measurement — 2026-09-07, the headline re-derived
+
+The first run of `measure_latency.py`, on 70 utterances of the same recorded English the
+tenth measurement used, translating `en→ru` through the shipped defaults:
+
+| | tenth measurement, idle | **re-derived** | tenth measurement, 3 of 4 cores busy | target |
+| --- | --- | --- | --- | --- |
+| load average | (not recorded) | **1.78 of 4 cpus** | (3 of 4 busy) | — |
+| Endpoint → caption p50 | 332 ms | **542 ms** | 710 ms | 700 ms |
+| Endpoint → caption p95 | 736 ms | **1009 ms** | 1662 ms | 1500 ms |
+| Endpoint → caption p99 | 944 ms | **1638 ms** | 2219 ms | 4000 ms |
+
+**Every target met, and the two recorded columns bracket the new one at every percentile.**
+The machine sat between the conditions they describe, and the result sits between them too.
+Unlike the chrF2 absolutes — which the twenty-first measurement showed cannot be reproduced
+from a sample that size — the latency figures corroborate.
+
+Without a translator the same run gives **p50 131 ms**, which is the pipeline's own overhead
+between a final being decoded and a caller holding it. So essentially the whole
+endpoint-to-caption window is the translation, which is what the eighth and ninth
+measurements concluded by subtraction and this measures directly.
 
 ## Status
 
