@@ -19,8 +19,15 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 POLICY_FILE = REPO_ROOT / "CODING_AGENT_POLICY_v1.3-otf1.yaml"
-CONSTITUTION_FILE = REPO_ROOT / "CODING_AGENT_CONSTITUTION_v1.3-otf1.md"
-HANDBOOK_FILE = REPO_ROOT / "CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v1.6-otf1.md"
+
+# The companion documents, named by the version the policy declares rather than by a fixed
+# filename. ADR 0004 makes adopting an upstream version a rename, so the declared version
+# and the filename are the same fact written twice — and the check below is what stops them
+# being written differently.
+COMPANION_DOCUMENTS = {
+    "constitution_version": "CODING_AGENT_CONSTITUTION_v{version}.md",
+    "handbook_version": "CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT_v{version}.md",
+}
 
 # Article 6: transient project content defaults to a maximum 10-second post-use window.
 MAX_EPHEMERAL_POST_USE_SECONDS = 10
@@ -88,16 +95,23 @@ def check_precedence_and_versions(policy: dict[str, Any], errors: list[str]) -> 
 
     # Version drift between layers is itself a defect (handbook 0A). A declared companion
     # version must correspond to a document that actually exists in the tree.
-    declared_companions = {
-        "constitution_version": (meta.get("constitution_version"), CONSTITUTION_FILE),
-        "handbook_version": (meta.get("handbook_version"), HANDBOOK_FILE),
-    }
-    for field, (declared, path) in declared_companions.items():
+    #
+    # The filename is built from the declared version. It used to be a module constant with
+    # the version baked into it, which made this branch unreachable: the constant named a
+    # file that is always there, so the version could be bumped to anything at all and the
+    # check went on passing — asserting that the repository still contained the document it
+    # already had, rather than the one the policy now claimed.
+    for field, template in COMPANION_DOCUMENTS.items():
+        declared = meta.get(field)
         if declared is None:
             errors.append(f"policy.{field} is missing")
-        elif not path.exists():
+            continue
+        name = template.format(version=declared)
+        if not (REPO_ROOT / name).is_file():
             errors.append(
-                f"policy.{field} is {declared!r} but {path.name} is not present in the repository"
+                f"policy.{field} is {declared!r} but {name} is not present in the "
+                "repository. Adopting a version is a rename (ADR 0004): the declared "
+                "version and the filename are the same fact, and they disagree."
             )
 
     enforcement = policy.get("constitution_enforcement", {})
