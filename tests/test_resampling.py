@@ -57,6 +57,51 @@ def test_a_tone_keeps_its_pitch_across_the_conversion(source_rate: int) -> None:
     assert abs(dominant_frequency(converted, 16000) - 440.0) < 25.0
 
 
+@pytest.mark.parametrize("source_rate", [48000, 44100, 32000, 22050])
+def test_two_seconds_in_is_two_seconds_out(source_rate: int) -> None:
+    """The assertion nobody had written: *how much* audio comes out.
+
+    Every other test here pushes one large block, where the amount is right by accident.
+    A real device delivers 20 ms at a time, and that is the path that was broken: the
+    resampler appended `bytes(plane)` — the plane's allocated buffer, padded for alignment
+    and reused at the largest size it had needed — rather than the samples in it. It emitted
+    **1.19x** the audio it was given, the surplus being stale audio from earlier blocks.
+
+    The tolerance is one-sided in spirit: a little short is the resampler's own filter delay,
+    still inside libswresample when the stream ends. Long means invented audio.
+    """
+    resampler = Resampler(source_rate_hz=source_rate, target_rate_hz=16000, frame_bytes=FRAME_BYTES)
+    block_seconds, blocks = 0.02, 100
+
+    emitted = 0
+    for _ in range(blocks):
+        for frame in resampler.push(tone(440.0, block_seconds, source_rate)):
+            emitted += len(frame) // 2
+    emitted += resampler.pending_bytes // 2
+
+    expected = int(block_seconds * blocks * 16000)
+    assert emitted <= expected * 1.01, "audio was invented; the surplus is padding, not sound"
+    assert emitted >= expected * 0.97, "too much audio was lost to leave only filter delay"
+
+
+def test_a_tone_pushed_in_device_sized_blocks_keeps_its_pitch() -> None:
+    """The same guarantee as the single-block test, on the path hardware actually uses.
+
+    Padding appended between blocks does not merely add duration — it interleaves stale
+    audio with live audio, which a pitch measurement over the whole stream can survive by
+    averaging. This one is here so the block path has a content check of its own.
+    """
+    resampler = Resampler(source_rate_hz=44100, target_rate_hz=16000, frame_bytes=FRAME_BYTES)
+
+    frames: list[bytes] = []
+    for _ in range(100):
+        frames.extend(resampler.push(tone(440.0, 0.02, 44100)))
+    converted = b"".join(frames)
+
+    assert converted
+    assert abs(dominant_frequency(converted, 16000) - 440.0) < 25.0
+
+
 def test_content_above_the_new_nyquist_does_not_alias_down_into_speech() -> None:
     """The reason this is not hand-written arithmetic.
 
@@ -101,13 +146,30 @@ def test_a_block_too_short_to_complete_a_frame_returns_nothing_yet() -> None:
 
 
 def test_audio_held_back_is_emitted_once_the_next_block_completes_it() -> None:
-    """Nothing is dropped at a block boundary; a word split across reads survives."""
+    """Nothing is dropped at a block boundary; a word split across reads survives.
+
+    This used to assert that two 10 ms blocks produced a whole frame, **and it passed only
+    because of the padding bug**: 20 ms of input is 32 bytes short of a 20 ms frame, because
+    the resampler holds a constant one-millisecond filter delay. The surplus that closed the
+    gap was padding, not audio.
+
+    So it now asserts the guarantee the name always claimed. Across every block, what has
+    been emitted plus what is held tracks the input to within that delay — never less, which
+    would be audio going missing, and never more, which would be audio being invented.
+    """
     resampler = Resampler(source_rate_hz=48000, target_rate_hz=16000, frame_bytes=FRAME_BYTES)
+    filter_delay_bytes = 64  # 1 ms at 16 kHz is 32 bytes; twice that is ample slack.
 
-    first = resampler.push(tone(440.0, 0.01, 48000))
-    second = resampler.push(tone(440.0, 0.01, 48000))
+    emitted = 0
+    for pushed in range(1, 4):
+        for frame in resampler.push(tone(440.0, 0.01, 48000)):
+            emitted += len(frame)
+        ideal = int(pushed * 0.01 * 16000) * 2
+        held = emitted + resampler.pending_bytes
+        assert held >= ideal - filter_delay_bytes, "audio went missing at a block boundary"
+        assert held <= ideal, "audio was invented at a block boundary"
 
-    assert len(first) + len(second) >= 1
+    assert emitted >= FRAME_BYTES, "and a whole frame is out by the third block"
 
 
 def test_an_empty_block_is_ignored() -> None:
