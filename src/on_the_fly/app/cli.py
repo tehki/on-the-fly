@@ -32,6 +32,10 @@ from on_the_fly.app.pipeline import (
     translate_finals,
 )
 from on_the_fly.domain.audio import (
+    DEFAULT_HANGOVER_MS,
+    DEFAULT_MAX_UTTERANCE_MS,
+    DEFAULT_MIN_UTTERANCE_MS,
+    DEFAULT_PRE_ROLL_MS,
     InputQuality,
     LevelWatchingSource,
     SegmenterConfig,
@@ -50,7 +54,7 @@ from on_the_fly.infrastructure.asr import (
     resolve,
 )
 from on_the_fly.infrastructure.audio.backend import AudioDeviceError
-from on_the_fly.infrastructure.audio.microphone import MicrophoneSource
+from on_the_fly.infrastructure.audio.microphone import DEFAULT_FRAME_MS, MicrophoneSource
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
 from on_the_fly.infrastructure.model_store import ModelStore, ModelStoreError
 from on_the_fly.infrastructure.translation import (
@@ -87,15 +91,26 @@ def build_parser() -> argparse.ArgumentParser:
         "segment", help="split a WAV file into utterances and report on them"
     )
     segment.add_argument("path", type=Path, help="path to a mono 16-bit WAV file")
-    segment.add_argument("--frame-ms", type=int, default=20, help="frame size (default: 20)")
     segment.add_argument(
-        "--pre-roll-ms", type=int, default=300, help="audio kept before speech starts"
+        "--frame-ms",
+        type=int,
+        default=DEFAULT_FRAME_MS,
+        help=f"frame size (default: {DEFAULT_FRAME_MS})",
     )
     segment.add_argument(
-        "--hangover-ms", type=int, default=500, help="silence that ends an utterance"
+        "--pre-roll-ms",
+        type=int,
+        default=DEFAULT_PRE_ROLL_MS,
+        help="audio kept before speech starts",
     )
-    segment.add_argument("--min-utterance-ms", type=int, default=250)
-    segment.add_argument("--max-utterance-ms", type=int, default=15_000)
+    segment.add_argument(
+        "--hangover-ms",
+        type=int,
+        default=DEFAULT_HANGOVER_MS,
+        help="silence that ends an utterance",
+    )
+    segment.add_argument("--min-utterance-ms", type=int, default=DEFAULT_MIN_UTTERANCE_MS)
+    segment.add_argument("--max-utterance-ms", type=int, default=DEFAULT_MAX_UTTERANCE_MS)
     segment.add_argument(
         "--allowed-root",
         type=Path,
@@ -148,8 +163,8 @@ def build_parser() -> argparse.ArgumentParser:
             "faster). 'onnx' is the engine that runs on mobile hardware (ADR 0018)"
         ),
     )
-    transcribe.add_argument("--frame-ms", type=int, default=20)
-    transcribe.add_argument("--hangover-ms", type=int, default=500)
+    transcribe.add_argument("--frame-ms", type=int, default=DEFAULT_FRAME_MS)
+    transcribe.add_argument("--hangover-ms", type=int, default=DEFAULT_HANGOVER_MS)
     transcribe.add_argument("--json", action="store_true")
 
     stream = subcommands.add_parser(
@@ -237,7 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="hide partial results and show only finalised text",
     )
-    listen.add_argument("--frame-ms", type=int, default=20)
+    listen.add_argument("--frame-ms", type=int, default=DEFAULT_FRAME_MS)
     listen.add_argument(
         "--threads",
         type=int,
@@ -273,7 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
             "faster). 'onnx' is the engine that runs on mobile hardware (ADR 0018)"
         ),
     )
-    stream.add_argument("--frame-ms", type=int, default=20)
+    stream.add_argument("--frame-ms", type=int, default=DEFAULT_FRAME_MS)
     stream.add_argument(
         "--threads",
         type=int,

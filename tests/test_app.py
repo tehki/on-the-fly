@@ -17,10 +17,19 @@ from pathlib import Path
 import pytest
 
 from on_the_fly.app import PipelineResult, run_capture
-from on_the_fly.app.cli import main
-from on_the_fly.domain.audio import CaptureStats, EndReason, SegmenterConfig
+from on_the_fly.app.cli import build_parser, main
+from on_the_fly.domain.audio import (
+    DEFAULT_HANGOVER_MS,
+    DEFAULT_MAX_UTTERANCE_MS,
+    DEFAULT_MIN_UTTERANCE_MS,
+    DEFAULT_PRE_ROLL_MS,
+    CaptureStats,
+    EndReason,
+    SegmenterConfig,
+)
 from on_the_fly.domain.retention import EphemeralStore, ReapReport
 from on_the_fly.infrastructure.audio import WavFileSource, WavSourceError
+from on_the_fly.infrastructure.audio.microphone import DEFAULT_FRAME_MS
 
 RATE = 16_000
 FRAME_MS = 20
@@ -490,3 +499,58 @@ def test_a_failed_deletion_is_not_clean_even_with_nothing_left_in_the_index() ->
     """And the other clause on its own: the store is empty and a location refused."""
     assert not result_with(remaining=0, reap=ReapReport(failed=("entry",))).retention_clean
     assert not result_with(remaining=0, reap=ReapReport(pending_retry=("entry",))).retention_clean
+
+
+# ======================================================================================
+# The command line's defaults are the domain's defaults
+#
+# They were duplicated literals: `--frame-ms 20` written out four times, `--hangover-ms 500`
+# twice, and each of the segmentation timings once more, beside a domain constant holding
+# the same number. A default changed in one place and not the other is a command line
+# quietly doing something the domain no longer does — and the help text is another copy of
+# the same number again.
+# ======================================================================================
+
+
+@pytest.mark.parametrize(
+    ("command", "option", "constant"),
+    [
+        ("segment", "pre_roll_ms", DEFAULT_PRE_ROLL_MS),
+        ("segment", "hangover_ms", DEFAULT_HANGOVER_MS),
+        ("segment", "min_utterance_ms", DEFAULT_MIN_UTTERANCE_MS),
+        ("segment", "max_utterance_ms", DEFAULT_MAX_UTTERANCE_MS),
+        ("transcribe", "hangover_ms", DEFAULT_HANGOVER_MS),
+    ],
+)
+def test_a_segmentation_default_is_the_domains(command: str, option: str, constant: int) -> None:
+    parsed = build_parser().parse_args([command, "recording.wav"])
+
+    assert getattr(parsed, option) == constant
+
+
+@pytest.mark.parametrize("command", ["segment", "transcribe", "stream", "listen"])
+def test_every_command_takes_its_frame_size_from_one_place(command: str) -> None:
+    """Four subcommands, one number. Three of them agreeing and the fourth not would be a
+    difference nobody chose, visible only as a different frame count in the output."""
+    argv = [command] if command == "listen" else [command, "recording.wav"]
+
+    assert build_parser().parse_args(argv).frame_ms == DEFAULT_FRAME_MS
+
+
+def test_the_frame_size_a_file_is_read_at_is_the_one_it_is_segmented_at() -> None:
+    """`--frame-ms` is handed to the WAV reader *and* to the segmenter, which hold their own
+    defaults. They are two numbers that have to be the same one."""
+    assert DEFAULT_FRAME_MS == SegmenterConfig().frame_ms
+
+
+def test_the_help_text_states_the_default_it_actually_uses(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The number appears in prose as well, and prose does not move when a constant does.
+
+    Read the way a user reads it, off `--help`, rather than out of argparse's internals.
+    """
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["segment", "--help"])
+
+    assert f"default: {DEFAULT_FRAME_MS}" in capsys.readouterr().out
