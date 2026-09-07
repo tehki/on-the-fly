@@ -986,3 +986,85 @@ def test_a_format_is_frozen_so_a_frame_size_cannot_change_under_a_reader() -> No
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         fmt.sample_rate_hz = 8000  # type: ignore[misc]
+
+
+# ======================================================================================
+# When a capture device is declared failed
+#
+# "A device that produces malformed buffers occasionally is a nuisance; one that does it
+# continuously is broken." Both halves of that are decided by one counter and one
+# comparison, and mutation testing found neither pinned — including the reset that is the
+# entire difference between "occasionally" and "continuously".
+# ======================================================================================
+
+
+BAD_FRAME = b"\x01"  # an odd byte count: not a whole int16 sample
+
+
+def session_over(frames: list[bytes], *, limit: int) -> CaptureSession:
+    return CaptureSession(
+        source=FakeSource(frames),
+        detector=ScriptedDetector([False] * len(frames)),
+        store=make_store(),
+        config=TEST_CONFIG,
+        max_consecutive_invalid_frames=limit,
+    )
+
+
+def test_the_device_is_failed_on_the_frame_that_reaches_the_limit() -> None:
+    """Not one after it. The limit is the number of malformed buffers in a row that is
+    treated as a broken device, and a run one short of it is still a nuisance."""
+    session = session_over([BAD_FRAME] * 3, limit=3)
+
+    with pytest.raises(CaptureError, match="3 malformed"):
+        list(session.utterances())
+
+
+def test_a_run_one_short_of_the_limit_is_tolerated() -> None:
+    session = session_over([BAD_FRAME] * 2 + [SILENT_FRAME], limit=3)
+
+    assert list(session.utterances()) == []
+    assert session.stats.frames_invalid == 2
+
+
+def test_a_good_frame_resets_the_run_of_bad_ones() -> None:
+    """The whole of "consecutive". Without the reset the tenth malformed buffer of a long
+    session would fail a device that had been working between them — which is exactly the
+    occasional nuisance the limit is written to tolerate.
+    """
+    frames = [BAD_FRAME] * 2 + [SILENT_FRAME] + [BAD_FRAME] * 2 + [SILENT_FRAME]
+    session = session_over(frames, limit=3)
+
+    assert list(session.utterances()) == []
+    assert session.stats.frames_invalid == 4, "four bad buffers, never three in a row"
+
+
+def test_a_limit_of_one_fails_on_the_first_malformed_buffer() -> None:
+    """One is the smallest limit that can exist, and means no tolerance at all."""
+    with pytest.raises(CaptureError, match="1 malformed"):
+        list(session_over([BAD_FRAME, SILENT_FRAME], limit=1).utterances())
+
+
+def test_a_limit_of_zero_is_refused() -> None:
+    """A device would be failed before it had produced anything."""
+    with pytest.raises(ValueError, match="max_consecutive_invalid_frames"):
+        session_over([SILENT_FRAME], limit=0)
+
+
+def test_a_session_that_read_nothing_reports_zeros() -> None:
+    """The counters start where a reader would assume, and are metadata only."""
+    session = session_over([], limit=3)
+    list(session.utterances())
+
+    assert session.stats == CaptureStats()
+    assert (session.stats.frames_read, session.stats.frames_invalid) == (0, 0)
+    assert (session.stats.utterances_emitted, session.stats.audio_seconds_seen) == (0, 0.0)
+
+
+def test_capture_stats_are_frozen_so_a_reported_count_cannot_be_edited() -> None:
+    """They are handed to callers and printed; a mutable count is a count that can drift
+    from what was actually seen."""
+    stats = CaptureStats(frames_read=3)
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        stats.frames_read = 99  # type: ignore[misc]
