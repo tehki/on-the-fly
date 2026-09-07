@@ -10,6 +10,7 @@ The energy detector is tested on its own, against synthesised audio.
 
 from __future__ import annotations
 
+import dataclasses
 from array import array
 from collections.abc import Iterator
 
@@ -927,3 +928,61 @@ def test_a_pre_roll_longer_than_the_retention_window_is_refused() -> None:
         UtteranceSegmenter(
             store=store, detector=ScriptedDetector([]), audio_format=FORMAT, config=config
         )
+
+
+# ======================================================================================
+# The arithmetic everything else is measured in
+#
+# `AudioFormat` turns durations into byte counts and back. Every frame size, every reported
+# duration and every real-time factor in this project is derived from it, so a guard that
+# is off by one here is off by one everywhere. Mutation testing found each of its
+# boundaries unpinned.
+# ======================================================================================
+
+
+def test_the_smallest_frame_duration_is_one_millisecond() -> None:
+    """The guard is on zero and below. One millisecond is a legal, if unusual, frame, and
+    the refusal must not creep up into durations somebody chose."""
+    assert AudioFormat().frame_bytes(1) == 32
+
+    with pytest.raises(ValueError, match="must be positive"):
+        AudioFormat().frame_bytes(0)
+
+
+def test_a_negative_frame_duration_is_refused() -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        AudioFormat().frame_bytes(-20)
+
+
+def test_a_sample_rate_of_one_hertz_is_allowed() -> None:
+    """Absurd and legal. The guard is against zero and negative rates, which cannot
+    describe audio at all; one hertz merely describes it badly."""
+    assert AudioFormat(sample_rate_hz=1).bytes_per_second == 2
+
+
+def test_a_sample_rate_of_zero_is_refused() -> None:
+    """Zero would make every frame zero bytes long, and a reader looping on whole frames
+    would never advance."""
+    with pytest.raises(ValueError, match="sample_rate_hz must be positive"):
+        AudioFormat(sample_rate_hz=0)
+
+
+def test_no_audio_at_all_lasts_no_time() -> None:
+    """Zero is the boundary of the guard and a real answer: an empty buffer is zero
+    seconds, not an error. A run that read nothing reports that duration."""
+    assert AudioFormat().duration_seconds(0) == 0.0
+
+
+def test_a_negative_byte_count_is_refused() -> None:
+    """There is no such buffer, and returning a negative duration would put a negative
+    real-time factor in front of a reader."""
+    with pytest.raises(ValueError, match="cannot be negative"):
+        AudioFormat().duration_seconds(-2)
+
+
+def test_a_format_is_frozen_so_a_frame_size_cannot_change_under_a_reader() -> None:
+    """Frame sizes are computed from it once and used for the length of a run."""
+    fmt = AudioFormat()
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        fmt.sample_rate_hz = 8000  # type: ignore[misc]
