@@ -14,9 +14,12 @@ import hashlib
 import json
 import math
 import struct
+import sys
 import tempfile
+import types
 import wave
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -408,3 +411,100 @@ def test_the_real_model_verifies_and_transcribes() -> None:
     text = recognizer.transcribe(b"\x00\x00" * RATE, AudioFormat())
 
     assert isinstance(text, str)
+
+
+# ======================================================================================
+# What the model is loaded with
+#
+# Three arguments to `WhisperModel` are decisions with comments explaining them, and
+# mutation testing found none of them pinned. One is a network-access control.
+# ======================================================================================
+
+
+class RecordingWhisperModel:
+    """Stands in for faster-whisper. Records how it was constructed and transcribes nothing."""
+
+    constructed: ClassVar[dict[str, object]] = {}
+    called: ClassVar[dict[str, object]] = {}
+
+    def __init__(self, model_dir: str, **kwargs: object) -> None:
+        RecordingWhisperModel.constructed = {"model_dir": model_dir, **kwargs}
+
+    def transcribe(self, samples: object, **kwargs: object) -> tuple[list[object], object]:
+        RecordingWhisperModel.called = dict(kwargs)
+        return [], None
+
+
+def loaded_recognizer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **kwargs: object
+) -> FasterWhisperRecognizer:
+    """A recogniser that has loaded a fake model over a directory that exists."""
+    module = types.ModuleType("faster_whisper")
+    module.WhisperModel = RecordingWhisperModel  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "faster_whisper", module)
+    model_dir = tmp_path / "tiny"
+    model_dir.mkdir(exist_ok=True)
+    recognizer = FasterWhisperRecognizer(model_dir, **kwargs)  # type: ignore[arg-type]
+    recognizer.transcribe(b"\x00\x00" * 160, AudioFormat())
+    return recognizer
+
+
+def test_the_model_is_loaded_from_disk_and_never_from_the_network(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The control the comment beside it describes.
+
+    The weights on disk were put there by `ModelStore`, which checked them against a pinned
+    digest. A loader permitted to download would be a second path to the same thing with no
+    such check — the model would arrive, transcription would work, and nothing would have
+    verified anything.
+    """
+    loaded_recognizer(monkeypatch, tmp_path)
+
+    assert RecordingWhisperModel.constructed["local_files_only"] is True
+
+
+def test_the_model_is_not_asked_to_segment_the_audio_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Segmentation already happened upstream, under bounds this project can explain and a
+    retention window it enforces. Whisper's own VAD would cut the audio again on rules
+    nobody here chose, and the utterance boundaries the caller was given would stop
+    describing what was transcribed."""
+    loaded_recognizer(monkeypatch, tmp_path)
+
+    assert RecordingWhisperModel.called["vad_filter"] is False
+
+
+def test_decoding_is_greedy_unless_a_caller_asks_otherwise(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A beam of one. ADR 0014's argument, in the place it takes effect: the default is the
+    cheap one, and paying for a wider search is a decision a caller makes."""
+    loaded_recognizer(monkeypatch, tmp_path)
+
+    assert RecordingWhisperModel.called["beam_size"] == 1
+
+
+def test_a_wider_beam_is_passed_through_when_it_is_asked_for(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    loaded_recognizer(monkeypatch, tmp_path, beam_size=5)
+
+    assert RecordingWhisperModel.called["beam_size"] == 5
+
+
+def test_a_beam_of_zero_is_refused(tmp_path: Path) -> None:
+    """Not a cheaper search: no search at all."""
+    with pytest.raises(ValueError, match="beam_size"):
+        FasterWhisperRecognizer(tmp_path, beam_size=0)
+
+
+def test_the_model_directory_is_the_one_it_was_given(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The verified directory, and not a name faster-whisper would resolve for itself —
+    which is what `local_files_only` stops it doing."""
+    loaded_recognizer(monkeypatch, tmp_path)
+
+    assert RecordingWhisperModel.constructed["model_dir"] == str(tmp_path / "tiny")

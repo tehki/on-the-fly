@@ -10,6 +10,7 @@ from __future__ import annotations
 import tempfile
 import wave
 from array import array
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from on_the_fly.infrastructure.asr.models import (
     streaming_pins,
 )
 from on_the_fly.infrastructure.asr.sherpa_streaming import (
+    _CEILING_TOLERANCE_SECONDS,
     FLUSH_TAIL_SECONDS,
     MAX_UTTERANCE_SECONDS,
     SILENCE_AFTER_SPEECH_SECONDS,
@@ -227,6 +229,14 @@ def test_real_speech_produces_partials_then_a_final() -> None:
     assert len(partials[0].text) < len(partials[-1].text)
     assert finals[-1].text.strip()
 
+    # And no partial repeats the one before it. Re-emitting an unchanged hypothesis makes
+    # a caption flicker for no reason, and the guard against it is one `and` in `accept`.
+    texts = [event.text for event in partials]
+    assert all(later != earlier for earlier, later in pairwise(texts)), (
+        "an unchanged partial was emitted twice"
+    )
+    assert all(text for text in texts), "an empty partial is not a hypothesis"
+
 
 # ======================================================================================
 # Flushing. A transducer cannot emit a symbol it has no future frames for, so the last
@@ -293,6 +303,31 @@ def test_resetting_reopens_a_finished_recogniser() -> None:
 
     assert recognizer.accept(b"\x00\x00" * 320) == ()
     assert recognizer.finish() == ()
+
+
+def test_resetting_forgets_what_the_last_session_counted() -> None:
+    """Reopening is not the whole of it. A session that inherited the previous one's
+    counters would number its first utterance after the last one's, and report audio it
+    never heard — the numbers travel with every event as `utterance_index`.
+    """
+    model_dir = real_streaming_model()
+    sample = published_speech_sample()
+    if model_dir is None or sample is None:
+        pytest.skip("streaming model or published speech sample not present")
+
+    with wave.open(str(sample), "rb") as reader:
+        audio = reader.readframes(reader.getnframes())
+
+    recognizer = SherpaStreamingRecognizer(model_dir)
+    for offset in range(0, len(audio) - 640, 640):
+        recognizer.accept(audio[offset : offset + 640])
+    recognizer.finish()
+    assert recognizer.utterances_seen > 0, "the first session heard something"
+
+    recognizer.reset()
+
+    assert recognizer.utterances_seen == 0
+    assert recognizer.silent_endpoints == 0
 
 
 def test_the_last_word_survives_the_end_of_the_stream() -> None:
@@ -535,3 +570,55 @@ def test_the_silence_rule_is_short_enough_to_fire_on_conversation() -> None:
     # Still long enough that a gap between words is not a sentence boundary: the measured
     # within-speech cluster sits at 0.12-0.22 s.
     assert SILENCE_AFTER_SPEECH_SECONDS >= 0.3
+
+
+# ======================================================================================
+# Why an utterance ended
+#
+# The recogniser is told *that* the stream endpointed, never why, so the reason is
+# inferred from how long the utterance ran. `_end_reason` is a pure function of two
+# numbers, and mutation testing found the point it turns on unpinned.
+# ======================================================================================
+
+
+def ended_after(seconds: float) -> EndReason:
+    """The reason inferred for an utterance of exactly this length."""
+    recognizer = SherpaStreamingRecognizer(Path("unused"))
+    recognizer._utterance_started_at = 0.0
+    recognizer._audio_seconds = seconds
+    reason: EndReason = recognizer._why_it_ended()
+    return reason
+
+
+def test_an_utterance_that_ran_to_the_ceiling_is_reported_as_hitting_it() -> None:
+    """The ceiling is checked per frame, so an utterance ended by it lands on or just past
+    the boundary rather than exactly on it — which is what the tolerance is for."""
+    assert ended_after(MAX_UTTERANCE_SECONDS) is EndReason.MAX_DURATION
+    assert ended_after(MAX_UTTERANCE_SECONDS + 1.0) is EndReason.MAX_DURATION
+
+
+def test_an_utterance_one_frame_short_of_the_ceiling_ended_on_silence() -> None:
+    """A speaker who stopped just before the cut did stop. Reporting MAX_DURATION there
+    would say the buffer filled when what happened is that the sentence finished."""
+    assert ended_after(MAX_UTTERANCE_SECONDS - 0.1) is EndReason.SILENCE
+    assert ended_after(0.5) is EndReason.SILENCE
+
+
+def test_the_tolerance_is_about_one_frame_and_no_more() -> None:
+    """It exists because the ceiling is checked per frame, not to widen the ceiling. A
+    tolerance much larger than a frame would report ordinary sentences as truncated ones.
+    """
+    assert 0.0 < _CEILING_TOLERANCE_SECONDS <= 0.02
+    assert ended_after(MAX_UTTERANCE_SECONDS - _CEILING_TOLERANCE_SECONDS) is (
+        EndReason.MAX_DURATION
+    )
+
+
+def test_the_recogniser_itself_defaults_to_one_thread() -> None:
+    """ADR 0014, at the constructor rather than at the flag.
+
+    `tests/test_streaming_wiring.py` asserts the command line's `--threads` default. That
+    is the other end of the same number: a caller constructing the recogniser directly —
+    the desktop worker does — never passes through argparse.
+    """
+    assert SherpaStreamingRecognizer(Path("unused"))._num_threads == 1
