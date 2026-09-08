@@ -119,7 +119,7 @@ class MicrophoneSource:
 
     # -- capture -----------------------------------------------------------------------
 
-    def frames(self) -> Generator[bytes, None, None]:
+    def frames(self) -> Generator[bytes]:
         """Open the device and yield frames until closed.
 
         Raises `AudioDeviceError` if the device cannot be opened or fails mid-stream. The
