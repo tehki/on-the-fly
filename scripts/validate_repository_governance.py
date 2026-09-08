@@ -19,6 +19,7 @@ import ast
 import re
 import sys
 from datetime import date
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -415,6 +416,12 @@ DISTRIBUTION_FOR_IMPORT = {"pyside6": "pyside6-essentials"}
 # Requirement lines are `name==version`; markers and extras are not used in this repository
 # and would need handling here if they ever were.
 REQUIREMENT_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*==")
+REQUIREMENT_PIN = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*==\s*([^\s;#]+)")
+
+# What CI installs before it runs the gate. `requirements-ui.txt` is deliberately absent:
+# ADR 0016 keeps the GUI toolkit an optional extra and CI installs it nowhere, so a machine
+# that has it and a machine that does not are both correct.
+GATE_REQUIREMENTS_FILES = ("requirements.txt", "requirements-dev.txt")
 
 
 def normalise_distribution(name: str) -> str:
@@ -664,6 +671,50 @@ def required_job_commands(governance: dict[str, Any]) -> list[str] | None:
     if not isinstance(job, dict):
         return None
     return [str(step["run"]).strip() for step in (job.get("steps") or []) if "run" in step]
+
+
+def installed_version(distribution: str) -> str | None:
+    """The version actually importable here, or None when the package is absent."""
+    try:
+        return metadata.version(distribution)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def check_the_installed_toolchain_matches_the_pins(errors: list[str]) -> None:
+    """`make check` runs the versions this repository declares, not whatever is lying around.
+
+    `check_local_gate_mirrors_ci` establishes that the local gate runs the same *commands*
+    as CI. This is the other half: the same commands can still give a different answer if
+    they are different programs. CI installs the pins on every run and so is always right;
+    a working copy is whatever it was last told to install.
+
+    That is not a hypothetical. The ruff pin moved from 0.16.5 to 0.16.6 on 2026-09-08, and
+    between the merge and the next `pip install` this machine's `make check` was running a
+    linter one version behind the one the required status check runs — the exact situation
+    the Makefile's opening line says cannot happen.
+
+    A missing package is skipped rather than refused. It cannot change the answer of a run
+    that could not start, and the tools the gate invokes are absent only on a machine where
+    the gate does not run at all.
+    """
+    for filename in GATE_REQUIREMENTS_FILES:
+        path = REPO_ROOT / filename
+        if not path.is_file():
+            errors.append(f"{filename} is missing; the gate's inputs are undeclared")
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            match = REQUIREMENT_PIN.match(line)
+            if match is None:
+                continue
+            distribution, declared = match.group(1), match.group(2)
+            present = installed_version(distribution)
+            if present is not None and present != declared:
+                errors.append(
+                    f"{filename}:{number} pins {distribution} {declared}, but {present} is "
+                    "installed here. `make check` is not running what CI runs; reinstall "
+                    f"with `pip install -r {filename}` before trusting its answer."
+                )
 
 
 def check_local_gate_mirrors_ci(governance: dict[str, Any], errors: list[str]) -> None:
@@ -1018,6 +1069,7 @@ def main() -> int:
     check_policy_document_references(errors)
     check_ci_wiring(governance, errors)
     check_local_gate_mirrors_ci(governance, errors)
+    check_the_installed_toolchain_matches_the_pins(errors)
     check_truthfulness(governance, errors)
     check_declared_protection_matches_verification(governance, errors)
     check_cross_document_versions(governance, errors)

@@ -1842,3 +1842,109 @@ def test_a_policy_naming_no_governance_manifest_is_refused() -> None:
         "manifest is missing" in error
         for error in policy_refusals(policy_validator.check_security_controls, policy)
     )
+
+
+# ---------------------------------------------------------------------------------------
+# `make check` runs the versions this repository declares
+#
+# `check_local_gate_mirrors_ci` establishes that the local gate runs the same commands as
+# CI. This is the other half: the same commands can still give a different answer if they
+# are different programs.
+# ---------------------------------------------------------------------------------------
+
+
+def toolchain_tree(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    pins: str,
+    installed: dict[str, str],
+) -> list[str]:
+    """Run the check against a made-up requirements file and a made-up environment."""
+    (tmp_path / "requirements.txt").write_text(pins, encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "GATE_REQUIREMENTS_FILES", ("requirements.txt",))
+    monkeypatch.setattr(governance_validator, "installed_version", installed.get)
+    errors: list[str] = []
+    governance_validator.check_the_installed_toolchain_matches_the_pins(errors)
+    return errors
+
+
+def test_this_machine_is_running_the_versions_this_repository_pins() -> None:
+    errors: list[str] = []
+    governance_validator.check_the_installed_toolchain_matches_the_pins(errors)
+
+    assert errors == []
+
+
+def test_the_pins_are_read_and_cover_the_tools_the_gate_runs() -> None:
+    """Without this, a parser that matched nothing would make the check vacuous."""
+    text = "\n".join(
+        (governance_validator.REPO_ROOT / name).read_text(encoding="utf-8")
+        for name in governance_validator.GATE_REQUIREMENTS_FILES
+    )
+    pinned = {
+        match.group(1)
+        for line in text.splitlines()
+        if (match := governance_validator.REQUIREMENT_PIN.match(line))
+    }
+
+    assert {"ruff", "mypy", "pytest"} <= pinned
+
+
+def test_a_version_that_does_not_match_its_pin_is_caught(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The real one. The ruff pin moved to 0.16.6 on 2026-09-08, and until the next
+    `pip install` this machine's `make check` ran a linter one version behind the one the
+    required status check runs — which the Makefile's opening line says cannot happen.
+    """
+    errors = toolchain_tree(
+        monkeypatch, tmp_path, pins="ruff==0.16.6\n", installed={"ruff": "0.16.5"}
+    )
+
+    assert any("pins ruff 0.16.6, but 0.16.5 is installed" in error for error in errors)
+
+
+def test_a_matching_version_is_accepted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert (
+        toolchain_tree(monkeypatch, tmp_path, pins="ruff==0.16.6\n", installed={"ruff": "0.16.6"})
+        == []
+    )
+
+
+def test_a_package_that_is_not_installed_is_skipped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """It cannot change the answer of a run that could not start, and the GUI extra is
+    deliberately absent on CI (ADR 0016)."""
+    assert toolchain_tree(monkeypatch, tmp_path, pins="absent==1.0\n", installed={}) == []
+
+
+def test_comments_and_blank_lines_are_not_pins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """These files are mostly prose: every entry carries its licence and its admission."""
+    pins = "# ruff==9.9.9 is not a pin\n\n  \nruff==0.16.6\n"
+    errors = toolchain_tree(monkeypatch, tmp_path, pins=pins, installed={"ruff": "0.16.6"})
+
+    assert errors == []
+
+
+def test_a_missing_requirements_file_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The gate's inputs cannot be undeclared."""
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "GATE_REQUIREMENTS_FILES", ("absent.txt",))
+    errors: list[str] = []
+    governance_validator.check_the_installed_toolchain_matches_the_pins(errors)
+
+    assert any("undeclared" in error for error in errors)
+
+
+def test_the_optional_gui_extra_is_not_part_of_the_gate() -> None:
+    """CI installs it nowhere, so a machine that has it and one that does not are both
+    correct — and requiring it would fail the gate on CI itself."""
+    assert "requirements-ui.txt" not in governance_validator.GATE_REQUIREMENTS_FILES
+    assert "requirements-dev.txt" in governance_validator.GATE_REQUIREMENTS_FILES
