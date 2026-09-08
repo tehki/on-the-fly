@@ -609,6 +609,107 @@ def check_policy_document_references(errors: list[str]) -> None:
                     )
 
 
+# Where content can be stored from. Tests count: content put into a store under a label
+# nobody declared is content under no retention profile, whoever wrote the line.
+LABEL_ROOTS = ("src", "scripts", "tests")
+
+
+def retention_labels_in_source() -> list[tuple[Path, int, str]]:
+    """Every literal `label=` in the tree, as `(file, line, label)`.
+
+    Both forms are read. A call site passing `label="translation_output"` is the obvious
+    one; a signature default like `UtteranceSegmenter(label="captured_audio_frames")` is
+    the one that decides what happens when nobody passes anything, which makes it the more
+    important of the two and the easier to miss.
+    """
+    found: list[tuple[Path, int, str]] = []
+    for name in LABEL_ROOTS:
+        root = REPO_ROOT / name
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):  # pragma: no cover - the linters catch these
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    for keyword in node.keywords:
+                        if keyword.arg == "label" and isinstance(keyword.value, ast.Constant):
+                            if isinstance(keyword.value.value, str):
+                                found.append((path, node.lineno, keyword.value.value))
+                elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                    arguments = node.args
+                    positional = (
+                        list(
+                            zip(
+                                arguments.args[-len(arguments.defaults) :],
+                                arguments.defaults,
+                                strict=True,
+                            )
+                        )
+                        if arguments.defaults
+                        else []
+                    )
+                    keyword_only = [
+                        (argument, default)
+                        for argument, default in zip(
+                            arguments.kwonlyargs, arguments.kw_defaults, strict=True
+                        )
+                        if default is not None
+                    ]
+                    for argument, default in [*positional, *keyword_only]:
+                        if argument.arg == "label" and isinstance(default, ast.Constant):
+                            if isinstance(default.value, str):
+                                found.append((path, node.lineno, default.value))
+    return found
+
+
+def check_retention_labels_are_declared(errors: list[str]) -> None:
+    """Every label content is stored under is a runtime profile the policy declares.
+
+    Article 6 requires explicit classification, and `EphemeralStore.put` enforces the half
+    of that it can see: it refuses an empty label, because unlabelled content cannot be
+    classified. Any non-empty string satisfies it. Nothing checked that the string names
+    something.
+
+    So `store.put(text, label="scratch")` would have been accepted, and the content would
+    have sat in the store under a profile that does not exist — classified in form, since
+    there is a label, and not in substance, since the label classifies nothing. The class,
+    the post-use window and whether raw content is permitted all come from the profile, and
+    a profile nobody wrote has none of them.
+
+    The store cannot check this itself. It is domain code and the policy is a YAML file in
+    the repository root; making the domain read it would put the layering ADR 0002 rests on
+    behind a file parse. This is the right place for it: the policy and the tree, compared
+    where the other cross-document checks live.
+    """
+    if not POLICY_FILE.exists():
+        errors.append(f"{POLICY_FILE.name} not found; retention labels cannot be checked")
+        return
+
+    profiles = (load_yaml(POLICY_FILE).get("retention") or {}).get("runtime_profiles") or {}
+    if not profiles:
+        errors.append(
+            "the policy declares no retention runtime profiles, so every label in the "
+            "source is undeclared. One of the two documents is wrong."
+        )
+        return
+
+    declared = set(profiles)
+    for path, line, label in retention_labels_in_source():
+        if label not in declared:
+            relative = path.relative_to(REPO_ROOT).as_posix()
+            errors.append(
+                f"{relative}:{line} stores content under label {label!r}, which "
+                f"{POLICY_FILE.name} does not declare as a runtime profile. Article 6 "
+                "requires explicit classification: a label that names no profile carries "
+                "no class, no window and no rule about content."
+            )
+
+
 def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
     ci = governance.get("ci", {})
 
@@ -1090,6 +1191,7 @@ def main() -> int:
     check_third_party_imports_are_lazy(errors)
     check_the_domain_imports_nothing_third_party(errors)
     check_policy_document_references(errors)
+    check_retention_labels_are_declared(errors)
     check_ci_wiring(governance, errors)
     check_local_gate_mirrors_ci(governance, errors)
     check_the_installed_toolchain_matches_the_pins(errors)
