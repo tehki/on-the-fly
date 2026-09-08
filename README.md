@@ -279,9 +279,22 @@ readings are five numbers and no audio.
 The measurement that decision was calibrated against was wrong, and
 [ADR 0020](docs/adr/0020-capture-settling.md) corrects it in place: the **51% of samples at
 full scale** ADR 0019 attributes to the reference machine's microphone was the capture path
-powering up. Settled, at the very same mixer settings, it clips 0.03% of its samples — while
-running five to eight times hotter than recorded speech, which the warning does *not* yet
-catch. Being honest about that is the point of writing the numbers down.
+powering up. Settled, at the very same mixer settings, it clips 0.03% of its samples while
+running five to eight times hotter than recorded speech — a condition the clipping check was
+never going to catch, because it is not a clipping problem.
+
+[ADR 0021](docs/adr/0021-too-loud-input.md) then measured what over-gain actually costs and
+found the obvious reading wrong: speech with **a fifth of its samples pinned at full scale
+still transcribes word for word**. What broke recognition was an amplified empty *room*, and
+peak, rms and crest factor cannot tell the two apart — they are numerically identical. The
+difference is over time: speech has pauses and a room does not. So the check that catches this
+measures the **quietest tenth of the last five seconds**. Replayed against the gain the
+reference machine was found at, that check reports
+`too_loud (peak 1.00, rms 0.445, clipped 0.9%, floor 0.373)` where the product used to print
+`input ok` beside two words transcribed from an empty room. Note the 0.9%: lowering the
+clipping threshold would never have found it. Thirty seconds of live speech at the corrected
+gain measures a floor of 0.015 against a threshold of 0.15, so the margin is an order of
+magnitude — from one speaker, one room and one microphone.
 
 ## Listening, without a window
 
