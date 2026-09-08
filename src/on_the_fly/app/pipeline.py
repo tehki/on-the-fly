@@ -246,7 +246,7 @@ def translate_finals(
     source_language: str,
     target_language: str,
     store: EphemeralStore | None = None,
-) -> Generator[TranslatedEvent, None, None]:
+) -> Generator[TranslatedEvent]:
     """Translate final transcript events as they arrive, passing partials straight through.
 
     Yields rather than returns, for the same reason `StreamingRun.events()` does: a caller
@@ -368,7 +368,7 @@ class StreamingRun:
         """Available once the event stream has been consumed to completion."""
         return self._stats
 
-    def events(self) -> Generator[TranscriptEvent, None, None]:
+    def events(self) -> Generator[TranscriptEvent]:
         """Yield transcript events as the audio is consumed.
 
         The source is closed and the store purged on every exit path, including a caller

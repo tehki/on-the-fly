@@ -186,7 +186,7 @@ class WavFileSource:
             f"rate={self._format.sample_rate_hz}, frame_ms={self._frame_ms})"
         )
 
-    def frames(self) -> Generator[bytes, None, None]:
+    def frames(self) -> Generator[bytes]:
         """Yield fixed-size frames until the file ends.
 
         A trailing partial frame is discarded rather than padded. Padding invents audio,
