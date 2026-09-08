@@ -248,13 +248,13 @@ def test_zero_approvals_citing_an_unrecorded_exception_is_rejected() -> None:
     governance = valid_main_branch()
     governance["main_branch"]["required_approvals"] = 0
     governance["approval_limitation"] = {
-        "exception_record": "EXC-9999-01-01-999",
+        "exception_record": unrecorded_exception(),
         "compensating_controls": ["something"],
         "removal_condition": "someday",
     }
     errors: list[str] = []
     governance_validator.check_branch_rules(governance, errors)
-    assert any("EXC-9999-01-01-999" in error for error in errors)
+    assert any(unrecorded_exception() in error for error in errors)
 
 
 def test_codeowners_parser_ignores_comments_and_blank_lines() -> None:
@@ -601,6 +601,17 @@ def test_an_illustrative_path_is_not_treated_as_a_repository_path(
 # rename "cannot pass silently". It could, and did — in a workflow comment, which is not a
 # protected path and so failed nothing.
 # ---------------------------------------------------------------------------------------
+
+
+def unrecorded_exception(sequence: str = "999") -> str:
+    """An exception id that is deliberately not one this repository records.
+
+    Built rather than written out, for the reason `renamed` gives: `tests/` is in scope for
+    `check_exception_references_exist`, so a literal here would make this file cite a record
+    nobody wrote — which is the thing the check refuses. The year is one no register can
+    hold, so a reader grepping for exception ids can see at a glance that it is a fixture.
+    """
+    return f"EXC-{9999}-01-01-{sequence}"
 
 
 def renamed(existing: str, version: str) -> str:
@@ -2289,3 +2300,106 @@ def test_a_missing_codeowners_file_is_left_to_the_check_that_owns_that(
     governance_validator.check_codeowners_rules_own_something(errors)
 
     assert errors == []
+
+
+# ---------------------------------------------------------------------------------------
+# An exception cited anywhere is one the register contains
+#
+# `check_exception_records` reads the register itself and the manifest's citation of it.
+# Everything else that names an exception — a comment explaining why a control was kept, a
+# retention override's record_id — was unchecked, and an authorisation citing a record
+# nobody wrote is an authorisation nobody gave.
+# ---------------------------------------------------------------------------------------
+
+
+def citing_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, body: str, cited: str
+) -> list[str]:
+    """A made-up register and one file citing something, checked against each other."""
+    exceptions = tmp_path / "EXCEPTIONS.md"
+    exceptions.write_text(body, encoding="utf-8")
+    source = tmp_path / "note.md"
+    source.write_text(cited, encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "EXCEPTIONS_FILE", exceptions)
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "referencing_files", lambda: [source, exceptions])
+    errors: list[str] = []
+    governance_validator.check_exception_references_exist(errors)
+    return errors
+
+
+REAL = "## EXC-2026-09-01-001 — something\n"
+
+
+def test_every_exception_this_repository_cites_is_recorded() -> None:
+    errors: list[str] = []
+    governance_validator.check_exception_references_exist(errors)
+
+    assert errors == []
+
+
+def test_the_register_is_read_and_holds_the_two_records_this_repository_has() -> None:
+    """Without this, a parser finding nothing would report the whole tree instead."""
+    recorded = governance_validator.recorded_exception_ids()
+
+    assert len(recorded) == 2
+    assert all(identifier.startswith("EXC-2026-09-01-") for identifier in recorded)
+
+
+def test_citing_a_record_the_register_does_not_hold_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    absent = unrecorded_exception("042")
+    errors = citing_tree(monkeypatch, tmp_path, body=REAL, cited=f"kept under {absent}\n")
+
+    assert any(absent in error and "Article 13" in error for error in errors)
+
+
+def test_citing_a_record_the_register_holds_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert (
+        citing_tree(monkeypatch, tmp_path, body=REAL, cited="kept under EXC-2026-09-01-001\n") == []
+    )
+
+
+def test_only_a_heading_declares_a_record(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Mentioning an id in the body of another record does not conjure it into existence —
+    a superseded record naming its replacement must not vouch for it."""
+    absent = unrecorded_exception("077")
+    body = f"{REAL}\nThis one replaces {absent}, which is not itself a record here.\n"
+
+    assert any(
+        absent in error
+        for error in citing_tree(monkeypatch, tmp_path, body=body, cited=f"see {absent}\n")
+    )
+
+
+def test_an_empty_register_is_reported_once_rather_than_per_citation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Otherwise one broken document would be reported as every file being wrong."""
+    errors = citing_tree(monkeypatch, tmp_path, body="# Register\n", cited="EXC-2026-09-01-001\n")
+
+    assert len(errors) == 1
+    assert "contains no records" in errors[0]
+
+
+def test_the_register_itself_may_name_its_own_records(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """It is the declaration, not a citation of one."""
+    assert citing_tree(monkeypatch, tmp_path, body=REAL, cited="nothing here\n") == []
+
+
+def test_the_workflow_comment_citing_a_removed_exception_still_resolves() -> None:
+    """The case that prompted this. The main-push-provenance comment cites a record as
+    REMOVED to explain why the control was kept; that was confirmed by hand when it was
+    written, and nothing would have said otherwise."""
+    workflow = (governance_validator.REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    cited = set(governance_validator.EXCEPTION_ID.findall(workflow))
+
+    assert cited, "the comment no longer cites an exception; this test has lost its subject"
+    assert cited <= governance_validator.recorded_exception_ids()
