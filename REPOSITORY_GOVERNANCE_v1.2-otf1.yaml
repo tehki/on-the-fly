@@ -77,7 +77,24 @@ security_sensitive_paths:
   # rest, which is correctness rather than trust: what may actually be loaded is decided by
   # the pin registries, and those are protected. ADR 0007 governs its contents.
   - /src/on_the_fly/domain/languages.py
+  # Produces a model pin for a maintainer to paste into a reviewed commit. It downloads
+  # weights and digests them, but decides nothing: whether a model may be loaded is settled
+  # by /src/on_the_fly/infrastructure/model_store.py, which is protected. Tested in
+  # tests/test_pin_model.py.
   - /scripts/pin_model.py
+  # The measurement tools. Their numbers are quoted as evidence in docs/adr/ and
+  # docs/PERFORMANCE_BUDGET.md, which makes them worth testing — and none of them makes a
+  # trust decision, holds a secret, or is imported by anything shipped. Checked before this
+  # classification was written: all five write no files at all, so nothing they read
+  # outlives the process, and the only subprocess any of them runs is `git rev-parse` for
+  # the commit line. measure_recognition prints transcripts on purpose, against published
+  # reference audio, because a word error rate nobody can see the errors behind is a number
+  # rather than evidence.
+  - /scripts/measure_latency.py
+  - /scripts/measure_pauses.py
+  - /scripts/measure_recognition.py
+  - /scripts/measure_room.py
+  - /scripts/measure_translation.py
   - /requirements.txt
 development_flow:
   one_pull_request_per_commit_required: false

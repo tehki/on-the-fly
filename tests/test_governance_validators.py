@@ -8,6 +8,7 @@ green suite that proves nothing is exactly what handbook 64S calls theatre.
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import sys
@@ -274,26 +275,15 @@ def test_codeowners_parser_ignores_comments_and_blank_lines() -> None:
 
 
 def classification_manifest(**overrides: Any) -> dict[str, Any]:
-    """The shape `check_source_classification` reads, with this repository's real paths."""
-    section: dict[str, Any] = {
-        "paths": [
-            "/src/on_the_fly/domain/retention/",
-            "/src/on_the_fly/domain/audio/",
-            "/src/on_the_fly/infrastructure/audio/",
-            "/src/on_the_fly/infrastructure/asr/",
-            "/src/on_the_fly/infrastructure/translation/",
-            "/src/on_the_fly/infrastructure/model_store.py",
-            "/src/on_the_fly/app/",
-            "/src/on_the_fly/ui/",
-        ],
-        "reviewed_not_sensitive": [
-            "/src/on_the_fly/__init__.py",
-            "/src/on_the_fly/__main__.py",
-            "/src/on_the_fly/domain/__init__.py",
-            "/src/on_the_fly/infrastructure/__init__.py",
-            "/src/on_the_fly/domain/languages.py",
-        ],
-    }
+    """The shape `check_source_classification` reads, taken from the real manifest.
+
+    Read rather than copied. This helper used to hold its own list of this repository's
+    paths, which meant the fixture and the manifest were the same fact written twice — and
+    when `scripts/` came into scope the copy was the half that did not know about it, so
+    every test here passed against a tree the validator refused.
+    """
+    manifest = governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE)
+    section = dict(manifest["security_sensitive_paths"])
     section.update(overrides)
     return {"security_sensitive_paths": section}
 
@@ -1948,3 +1938,123 @@ def test_the_optional_gui_extra_is_not_part_of_the_gate() -> None:
     correct — and requiring it would fail the gate on CI itself."""
     assert "requirements-ui.txt" not in governance_validator.GATE_REQUIREMENTS_FILES
     assert "requirements-dev.txt" in governance_validator.GATE_REQUIREMENTS_FILES
+
+
+# ---------------------------------------------------------------------------------------
+# `scripts/` is classified too
+#
+# The manifest already had an opinion about four files there — the three validators as
+# protected, `pin_model.py` as reviewed — so the repository plainly considered them worth a
+# decision. Completeness was enforced for `src/` alone, and the five measurement scripts
+# added since had slipped in with none.
+# ---------------------------------------------------------------------------------------
+
+
+def test_this_repository_classifies_every_script_as_well_as_every_source_file() -> None:
+    errors: list[str] = []
+    governance_validator.check_source_classification(classification_manifest(), errors)
+
+    assert errors == []
+
+
+def test_the_file_list_covers_both_trees() -> None:
+    """Without this, a walker that returned only `src/` would make the rest vacuous."""
+    found = {path.name for path in governance_validator.classifiable_sources()}
+
+    assert "cli.py" in found, "src/ is walked"
+    assert "measure_room.py" in found, "scripts/ is walked"
+    assert "validate_repository_governance.py" in found
+
+
+def test_compiled_caches_are_not_source_files() -> None:
+    """`__pycache__` is generated, not written, and demanding a decision about it would
+    make the rule absurd enough to be turned off."""
+    assert not any(
+        "__pycache__" in path.parts for path in governance_validator.classifiable_sources()
+    )
+
+
+@pytest.mark.parametrize("script", ["measure_room.py", "pin_model.py"])
+def test_a_script_left_out_of_the_manifest_is_refused(script: str) -> None:
+    """The failure this extension exists for: a new tool arrives and nobody decides what it
+    is. Driven for a measurement script and for the pinning tool, since the two sit in the
+    same list for different reasons."""
+    exempt = [
+        path
+        for path in classification_manifest()["security_sensitive_paths"]["reviewed_not_sensitive"]
+        if not path.endswith(script)
+    ]
+    errors: list[str] = []
+    governance_validator.check_source_classification(
+        classification_manifest(reviewed_not_sensitive=exempt), errors
+    )
+
+    assert any(script in error and "neither" in error for error in errors)
+
+
+def test_a_validator_that_stopped_being_protected_is_refused() -> None:
+    """The scripts that enforce this manifest are protected, not merely reviewed. Dropping
+    that rule would leave the enforcement editable without a code owner seeing it."""
+    paths = [
+        path
+        for path in classification_manifest()["security_sensitive_paths"]["paths"]
+        if not path.endswith("validate_repository_governance.py")
+    ]
+    errors: list[str] = []
+    governance_validator.check_source_classification(classification_manifest(paths=paths), errors)
+
+    assert any("validate_repository_governance.py" in error for error in errors)
+
+
+def test_the_measurement_tools_are_reviewed_rather_than_protected() -> None:
+    """A decision, recorded, not an omission: they make no trust decision, hold no secret,
+    are imported by nothing shipped, and write no files — so nothing they read outlives the
+    process. The numbers they produce are evidence in ADRs, which is why they are tested
+    rather than why they would be protected.
+    """
+    section = classification_manifest()["security_sensitive_paths"]
+    reviewed = set(section["reviewed_not_sensitive"])
+    protected = set(section["paths"])
+
+    for name in ("latency", "pauses", "recognition", "room", "translation"):
+        path = f"/scripts/measure_{name}.py"
+        assert path in reviewed, f"{path} is not classified"
+        assert path not in protected, f"{path} is in both lists"
+
+
+def test_no_measurement_script_writes_anything() -> None:
+    """The property the classification above rests on, asserted rather than assumed.
+
+    A measurement tool that started spilling transcripts to disk would be retaining project
+    content outside the store, and would no longer be a file this manifest can wave through.
+
+    Read by parsing rather than by searching for text. A first attempt grepped for `open(`
+    and flagged `wave.open(path)`, which is a read — the mode is the only thing that makes
+    either of them a write.
+    """
+    writing_calls = {"write_text", "write_bytes", "write", "mkdir", "TemporaryDirectory"}
+    scripts = sorted((governance_validator.REPO_ROOT / "scripts").glob("measure_*.py"))
+    assert len(scripts) == 5, "the five this manifest waves through"
+
+    for script in scripts:
+        for node in ast.walk(ast.parse(script.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+            elif isinstance(node.func, ast.Name):
+                name = node.func.id
+            else:
+                continue
+
+            assert name not in writing_calls, f"{script.name} calls {name}()"
+            if name != "open":
+                continue
+            modes = [
+                argument.value
+                for argument in [*node.args[1:], *(keyword.value for keyword in node.keywords)]
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str)
+            ]
+            assert not any(set(mode) & {"w", "a", "x", "+"} for mode in modes), (
+                f"{script.name} opens something for writing: {modes}"
+            )
