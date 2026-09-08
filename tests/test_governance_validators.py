@@ -2058,3 +2058,131 @@ def test_no_measurement_script_writes_anything() -> None:
             assert not any(set(mode) & {"w", "a", "x", "+"} for mode in modes), (
                 f"{script.name} opens something for writing: {modes}"
             )
+
+
+# ---------------------------------------------------------------------------------------
+# Every label content is stored under is a profile the policy declares
+#
+# Article 6 requires explicit classification. `EphemeralStore.put` enforces the half it can
+# see — it refuses an empty label — and any non-empty string satisfies it. Nothing checked
+# that the string named something.
+# ---------------------------------------------------------------------------------------
+
+
+def label_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, source: str, profiles: str
+) -> list[str]:
+    """Run the check against a made-up source tree and a made-up policy."""
+    (tmp_path / "src").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "src" / "thing.py").write_text(source, encoding="utf-8")
+    policy = tmp_path / "policy.yaml"
+    policy.write_text(f"retention:\n  runtime_profiles:\n{profiles}", encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(governance_validator, "POLICY_FILE", policy)
+    monkeypatch.setattr(governance_validator, "LABEL_ROOTS", ("src",))
+    errors: list[str] = []
+    governance_validator.check_retention_labels_are_declared(errors)
+    return errors
+
+
+DECLARED = "    captured_audio_frames:\n      class: EPHEMERAL\n"
+
+
+def test_every_label_this_repository_stores_under_is_declared() -> None:
+    errors: list[str] = []
+    governance_validator.check_retention_labels_are_declared(errors)
+
+    assert errors == []
+
+
+def test_the_labels_are_found_and_are_the_ones_this_project_uses() -> None:
+    """Without this, a walker that found nothing would make the check vacuous."""
+    labels = {label for _, _, label in governance_validator.retention_labels_in_source()}
+
+    assert {
+        "captured_audio_frames",
+        "speech_recognition_transcript",
+        "translation_output",
+    } <= labels
+
+
+def test_a_call_storing_under_an_undeclared_label_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Classified in form, since there is a label, and not in substance: the class, the
+    post-use window and whether raw content is permitted all come from the profile, and a
+    profile nobody wrote has none of them."""
+    errors = label_tree(
+        monkeypatch,
+        tmp_path,
+        source='def go(store):\n    store.put(b"x", label="scratch")\n',
+        profiles=DECLARED,
+    )
+
+    assert any("'scratch'" in error and "Article 6" in error for error in errors)
+
+
+def test_a_signature_default_nobody_passes_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The form that decides what happens when a caller says nothing, which makes it the
+    more important of the two and the easier to miss."""
+    errors = label_tree(
+        monkeypatch,
+        tmp_path,
+        source='def build(*, label: str = "audio_frames") -> str:\n    return label\n',
+        profiles=DECLARED,
+    )
+
+    assert any("'audio_frames'" in error for error in errors)
+
+
+def test_a_declared_label_is_accepted_in_both_forms(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = (
+        'def build(*, label: str = "captured_audio_frames"):\n'
+        "    return label\n\n\n"
+        "def go(store):\n"
+        '    store.put(b"x", label="captured_audio_frames")\n'
+    )
+
+    assert label_tree(monkeypatch, tmp_path, source=source, profiles=DECLARED) == []
+
+
+def test_a_label_that_is_not_a_literal_is_not_guessed_at(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A label passed through from a caller is checked where it was written down, not here.
+    Reporting a variable name as an undeclared profile would be noise."""
+    source = 'def go(store, chosen):\n    store.put(b"x", label=chosen)\n'
+
+    assert label_tree(monkeypatch, tmp_path, source=source, profiles=DECLARED) == []
+
+
+def test_a_policy_declaring_no_profiles_at_all_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Otherwise an empty profile block would make every label undeclared and the check
+    would report the whole codebase rather than the one document that broke."""
+    errors = label_tree(
+        monkeypatch,
+        tmp_path,
+        source='def go(store):\n    store.put(b"x", label="captured_audio_frames")\n',
+        profiles="",
+    )
+
+    assert any("declares no retention runtime profiles" in error for error in errors)
+
+
+def test_tests_are_in_scope_for_this_too() -> None:
+    """Content put into a store under a label nobody declared is content under no profile,
+    whoever wrote the line."""
+    assert "tests" in governance_validator.LABEL_ROOTS
+
+    from_tests = [
+        label
+        for path, _, label in governance_validator.retention_labels_in_source()
+        if path.parts[-2] == "tests"
+    ]
+    assert from_tests, "no label was read from tests/, so their being in scope proves nothing"
