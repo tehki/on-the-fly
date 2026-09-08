@@ -1289,6 +1289,41 @@ the same configuration — which is what the twenty-first measurement would pred
 absolute taken on a different machine at a different moment. The comparison is the part that
 transfers.
 
+## Twenty-fourth measurement — 2026-09-09, the two pairs no model serves
+
+Taken to decide whether `fr<->ru` should be bridged through English (ADR 0037). Same script,
+same metric, 1000 sentences of each direction's own publisher test set, on a machine at load
+average 8 to 12 on four cores.
+
+The baseline needed no download. The publisher's `.test.txt` carries the direct model's own
+output as its third line, so the model this project decided *not* to pin scored its own test
+set against the same references:
+
+| pair | direct model (theirs) | via English | difference | p50 | p95 |
+| --- | --- | --- | --- | --- | --- |
+| `fr→ru` | 57.27 | **62.71** | **+5.44** | 564 ms | 1383 ms |
+| `ru→fr` | **65.99** | 61.05 | −4.94 | 562 ms | 1281 ms |
+
+**A bridge is not automatically the worse route.** The compounding-error argument predicts a
+loss in both directions; what happened is +5.44 one way and −4.94 the other. A bridge is
+dominated by its second leg, and the sixteenth measurement says why that lands where it does:
+`en→ru` scores 64.51 against a direct `fr→ru` of 57.27, while `en→fr` scores 66.31 against a
+direct `ru→fr` of 65.99.
+
+**Two decodes cost two decodes and nothing more.** Each direction re-measured against its own
+first leg, in one session on the same 300 sentences, so the pair of numbers is comparable to
+itself rather than to a differently loaded machine:
+
+| | first leg alone | bridged | ratio |
+| --- | --- | --- | --- |
+| `fr→en` / `fr→ru` | 261 ms | 543 ms | 2.08x |
+| `ru→en` / `ru→fr` | 272 ms | 547 ms | 2.01x |
+
+Both p50s sit under the 700 ms target on a loaded machine, and translation is not on the path
+to first text (ADR 0009) — it runs after recognition has already finalised. The 300-sentence
+caution from the sixteenth measurement applies to the chrF2 columns and not to these: latency
+does not depend on which slice of a test set it is measured over.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
@@ -1303,7 +1338,8 @@ What keeps the status PROVISIONAL: read speech on the English side, no microphon
 controlled load environment. `ru→en` has a real distribution on spontaneous speech, which
 closed the gap the seventh measurement recorded, and the pair count closed with it — the
 sixteenth and seventeenth measurements cover **four** pairs on two engines, where this line
-once said two. One remaining gap is a product decision, one is hardware, and one — a quiet
+once said two, and the twenty-fourth adds the remaining two by bridging them (ADR 0037), for
+six. One remaining gap is a product decision, one is hardware, and one — a quiet
 machine — is what the eighth measurement shows matters most.
 
 The fifteenth measurement adds a caution rather than a number: every accuracy figure in this

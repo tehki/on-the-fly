@@ -470,6 +470,23 @@ def run_transcribe(args: argparse.Namespace) -> int:
     return EXIT_RETENTION_FAILURE if purge_failed else EXIT_OK
 
 
+def _describe_translation(choice: TranslationChoice) -> None:
+    """The two lines a user is owed before any translated text appears.
+
+    CC-BY-4.0 requires attribution reachable by a user, and this is where the command line
+    meets that obligation; a graphical interface owes its own.
+
+    A bridged pair (ADR 0037) says so on its own line rather than being folded into the
+    first. `name` already carries both models, but "two models are being used, and the text
+    passes through a third language on its way" is a thing to be told, not to infer from a
+    plus sign.
+    """
+    print(f"translation   {choice.name} on {choice.engine} (local, verified, {choice.licence})")
+    if choice.is_pivot:
+        print(f"              {choice.route}, because no single pinned model serves this pair")
+    print(f"attribution   {choice.attribution}")
+
+
 def _translate_utterances(
     result: PipelineResult,
     choice: TranslationChoice,
@@ -492,8 +509,7 @@ def _translate_utterances(
         return {}
 
     translator = open_translator(choice, cache_dir, allow_download=allow_download)
-    print(f"translation   {choice.name} on {choice.engine} (local, verified, {choice.licence})")
-    print(f"attribution   {choice.attribution}")
+    _describe_translation(choice)
 
     translations: dict[int, str] = {}
     for record in result.utterances:
@@ -657,10 +673,7 @@ def run_stream(args: argparse.Namespace) -> int:
     translator = None
     if choice is not None and target is not None:
         translator = open_translator(choice, args.cache_dir, allow_download=args.allow_download)
-        print(f"translation   {choice.name} on {choice.engine} (local, verified, {choice.licence})")
-        # CC-BY-4.0 requires attribution reachable by a user. This line is where that
-        # obligation is met for the command line; a graphical interface owes its own.
-        print(f"attribution   {choice.attribution}")
+        _describe_translation(choice)
 
     print()
 

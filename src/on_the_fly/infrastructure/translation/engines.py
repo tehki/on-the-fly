@@ -20,8 +20,10 @@ from enum import Enum
 from pathlib import Path
 
 from on_the_fly.domain.audio.ports import Translator
+from on_the_fly.infrastructure.translation.artifacts import TranslationArtifactError
 from on_the_fly.infrastructure.translation.artifacts import resolve as resolve_marian
 from on_the_fly.infrastructure.translation.onnx_artifacts import resolve_onnx
+from on_the_fly.infrastructure.translation.pivot import PIVOT_LANGUAGE, PivotTranslator
 
 
 class TranslationEngine(Enum):
@@ -52,22 +54,49 @@ class TranslationChoice:
     attribution: str
     source_language: str
     target_language: str
+    # Set when no single artefact serves the pair and it is reached through a bridge
+    # language instead (ADR 0037). `name` and `attribution` then describe both legs,
+    # because CC-BY-4.0 asks for attribution and two models were used.
+    via: str | None = None
 
     @property
     def pair(self) -> tuple[str, str]:
         return (self.source_language, self.target_language)
 
+    @property
+    def is_pivot(self) -> bool:
+        return self.via is not None
+
+    @property
+    def route(self) -> str:
+        """The pair, with the bridge in it when there is one: `fr->ru` or `fr->en->ru`."""
+        hops = (self.source_language, self.via, self.target_language)
+        return "->".join(hop for hop in hops if hop is not None)
+
     def __str__(self) -> str:
-        return f"{self.name} ({self.source_language}->{self.target_language}, {self.licence})"
+        return f"{self.name} ({self.route}, {self.licence})"
 
 
 def resolve(pair: tuple[str, str], engine: TranslationEngine = DEFAULT_ENGINE) -> TranslationChoice:
-    """Find the artefact serving `pair` on `engine`, or refuse.
+    """Find the route serving `pair` on `engine`, or refuse.
+
+    A single artefact first. Failing that, a two-leg route through `PIVOT_LANGUAGE`, which
+    is how `fr<->ru` is served (ADR 0037) — both legs on the same engine, so the answer to
+    "does this work on ONNX" stays one answer.
 
     Refusing rather than falling back to the other engine is deliberate. A caller who asked
     for ONNX because it is the engine that runs on their target hardware, and silently got
-    CTranslate2, would be told the application works there when it does not.
+    CTranslate2, would be told the application works there when it does not. Falling back
+    to a *bridge* is a different thing and is visible: the choice says so, `name` and
+    `attribution` name both models, and `str()` prints the route with the bridge in it.
     """
+    try:
+        return _resolve_direct(pair, engine)
+    except TranslationArtifactError as unserved:
+        return _resolve_via_pivot(pair, engine, unserved)
+
+
+def _resolve_direct(pair: tuple[str, str], engine: TranslationEngine) -> TranslationChoice:
     if engine is TranslationEngine.ONNX:
         model = resolve_onnx(pair)
         return TranslationChoice(
@@ -87,6 +116,47 @@ def resolve(pair: tuple[str, str], engine: TranslationEngine = DEFAULT_ENGINE) -
         attribution=artefact.attribution,
         source_language=artefact.source_language,
         target_language=artefact.target_language,
+    )
+
+
+def _resolve_via_pivot(
+    pair: tuple[str, str], engine: TranslationEngine, unserved: TranslationArtifactError
+) -> TranslationChoice:
+    """Both legs through the bridge, or the refusal the caller was already owed.
+
+    `unserved` is re-raised rather than replaced. It names the pair that was asked for and
+    lists what this project pins, which is what a reader can act on; a message about
+    whichever leg happened to be missing would send them to the wrong registry. A pair that
+    could have been bridged and could not gets one sentence added, because there the bridge
+    is the part worth explaining.
+    """
+    source, target = pair
+    if PIVOT_LANGUAGE in pair or source == target:
+        # Nothing to bridge: one side already is the bridge, so a leg would be the identity
+        # and the pair is either served directly or not at all.
+        raise unserved
+
+    try:
+        first = _resolve_direct((source, PIVOT_LANGUAGE), engine)
+        second = _resolve_direct((PIVOT_LANGUAGE, target), engine)
+    except TranslationArtifactError:
+        raise TranslationArtifactError(
+            f"{unserved} It cannot be reached through {PIVOT_LANGUAGE} either: that needs "
+            f"both {source}->{PIVOT_LANGUAGE} and {PIVOT_LANGUAGE}->{target}."
+        ) from None
+
+    licence = (
+        first.licence if first.licence == second.licence else f"{first.licence} + {second.licence}"
+    )
+    return TranslationChoice(
+        engine=engine,
+        name=f"{first.name} + {second.name}",
+        licence=licence,
+        # Both, in order. Two models were used and CC-BY-4.0 asks to be told about each.
+        attribution=f"{first.attribution} Then: {second.attribution}",
+        source_language=source,
+        target_language=target,
+        via=PIVOT_LANGUAGE,
     )
 
 
@@ -117,6 +187,15 @@ def open_translator(
     editing the source. The application never passes this either — `DEFAULT_INTRA_THREADS`
     stays the shipped setting.
     """
+    if choice.is_pivot:
+        return _open_pivot(
+            choice,
+            cache_dir,
+            allow_download=allow_download,
+            beam_size=beam_size,
+            intra_threads=intra_threads,
+        )
+
     if choice.engine is TranslationEngine.ONNX:
         if beam_size is not None:
             raise ValueError(
@@ -158,4 +237,41 @@ def open_translator(
         source_language=artefact.source_language,
         target_language=artefact.target_language,
         **extra,
+    )
+
+
+def _open_pivot(
+    choice: TranslationChoice,
+    cache_dir: Path | str,
+    *,
+    allow_download: bool,
+    beam_size: int | None,
+    intra_threads: int | None,
+) -> Translator:
+    """Load both legs and compose them.
+
+    Both are loaded before the first translation rather than the second being opened lazily
+    on first use: a pair that cannot be served should fail while the caller is still
+    starting up, not midway through the first sentence somebody says.
+    """
+    via = choice.via
+    if via is None:  # pragma: no cover - `is_pivot` is exactly this test
+        raise ValueError("a pivot choice must carry the language it bridges through")
+
+    legs = [
+        open_translator(
+            _resolve_direct(pair, choice.engine),
+            cache_dir,
+            allow_download=allow_download,
+            beam_size=beam_size,
+            intra_threads=intra_threads,
+        )
+        for pair in ((choice.source_language, via), (via, choice.target_language))
+    ]
+    return PivotTranslator(
+        legs[0],
+        legs[1],
+        source_language=choice.source_language,
+        target_language=choice.target_language,
+        via=via,
     )
