@@ -71,6 +71,17 @@ literally, does not bind this one.
   validators, and several documents. All are checked by
   `validate_repository_governance.py`, which fails the build if a protected path does not
   exist — so a missed rename cannot pass silently.
+
+  > **Corrected 2026-09-07.** That last clause was true only of references inside
+  > `security_sensitive_paths`. A reference in a comment is not a protected path and failed
+  > nothing, and `.github/workflows/ci.yml` went on citing the v1.1 manifest — a file this
+  > repository deleted when it adopted v1.2 — through every green build since. The claim was
+  > written about the mechanism that existed and describes more than that mechanism did.
+  >
+  > `check_policy_document_references` now makes it true as written: every reference to a
+  > policy-stack document, anywhere in the repository, must name a file that exists. The one
+  > deliberate exception is the manifest's own `supersedes:` field, whose whole purpose is to
+  > name the document step 6 below deletes.
 - Every adoption is a rename. That is deliberate: it forces the diff to be reviewed rather
   than an existing file being quietly overwritten with different content, which is how the
   collision would have gone unnoticed.
@@ -83,7 +94,9 @@ literally, does not bind this one.
 2. Re-apply the project deltas — Article 11 binding, project name, namespace, manifest
    pointer, verified remote state, project retention profiles.
 3. Grep for references to the previous names and update them.
-4. Run both validators. A stale reference fails as a missing protected path.
+4. Run both validators. A stale reference inside a protected path fails as a missing path;
+   a stale reference anywhere else fails as itself
+   (`check_policy_document_references`, added 2026-09-07).
 5. Extend the validators to cover whatever the new upstream version added, with a failing
    test for each new check.
 6. Delete the superseded derivatives in the same pull request, so two versions never

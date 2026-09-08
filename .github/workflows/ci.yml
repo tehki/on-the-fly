@@ -1,4 +1,4 @@
-# The `quality` job is the required status check named by REPOSITORY_GOVERNANCE_v1.1-otf1.yaml.
+# The `quality` job is the required status check named by REPOSITORY_GOVERNANCE_v1.2-otf1.yaml.
 # Renaming, removing, skipping or weakening it to make CI faster is prohibited
 # (handbook 34 and 64M). Add gates here; do not subtract them.
 name: CI
@@ -73,9 +73,11 @@ jobs:
         run: python -m pytest -q
 
   main-push-provenance:
-    # Compensating control required by REPOSITORY_GOVERNANCE_v1.1-otf1.yaml while remote
-    # branch protection is not yet configured. It cannot prevent an unauthorised push;
-    # it makes one visible. It is not a substitute for branch protection.
+    # Compensating control required by REPOSITORY_GOVERNANCE_v1.2-otf1.yaml. It was added
+    # while remote branch protection did not exist; the `main-protection` ruleset was
+    # applied and verified on 2026-09-01 (EXC-2026-09-01-002, REMOVED) and this was kept
+    # deliberately, because it now guards against a ruleset being disabled as much as
+    # against a direct push. It cannot prevent an unauthorised push; it makes one visible.
     name: main push provenance
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

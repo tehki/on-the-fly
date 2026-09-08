@@ -353,6 +353,18 @@ def referencing_files() -> list[Path]:
     return found
 
 
+# The policy stack's four documents, whose names carry their version. ADR 0004 made every
+# adoption a rename precisely so that a version change is visible in a diff; the cost is that
+# every reference to a renamed document has to move with it.
+POLICY_DOCUMENT_REFERENCE = re.compile(
+    r"\b(?:CODING_AGENT_CONSTITUTION|CODING_AGENT_POLICY"
+    r"|CODING_AGENT_DEVELOPMENT_PRINCIPLES_SYSTEM_PROMPT|REPOSITORY_GOVERNANCE)"
+    r"_v\d+\.\d+-otf\d+\.(?:md|yaml)\b"
+)
+
+SUPERSEDES_FIELD = re.compile(r"^\s*supersedes:\s")
+
+
 # A path this repository names in prose. Two shapes, because the documents use both: from the
 # repository root, and from the package root the way the source files refer to each other.
 REPO_PATH_REFERENCE = re.compile(r"`((?:src|scripts|docs|tests)/[A-Za-z0-9_./-]+)`")
@@ -528,6 +540,43 @@ def check_the_domain_imports_nothing_third_party(errors: list[str]) -> None:
                 "third-party package: it is what lets the engines be swapped, and the "
                 "tests run, without it noticing."
             )
+
+
+def check_policy_document_references(errors: list[str]) -> None:
+    """Every policy-stack document this repository names must be one that exists.
+
+    ADR 0004 makes every adoption of an upstream version a rename, and states the consequence
+    as settled: the filenames "are checked by `validate_repository_governance.py` … so a
+    missed rename cannot pass silently". That was only ever true of references inside
+    `security_sensitive_paths`. A reference in a comment is not a protected path and failed
+    nothing — which is how `.github/workflows/ci.yml` went on citing the v1.1 governance
+    manifest, a file this repository does not contain, with every validator green. (Named
+    here in words rather than spelled out, because spelling it out would make this docstring
+    the very thing it refuses.)
+
+    `check_referenced_paths_exist` covers paths into the tree; this covers the four documents
+    whose names carry a version, where the failure is a rename rather than a move.
+    """
+    for path in referencing_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for number, line in enumerate(text.splitlines(), start=1):
+            # `supersedes:` exists to name the document a rename replaced, and ADR 0004
+            # step 6 deletes that document in the same pull request. Naming a file that is
+            # gone is what the field is for, so it is the one place a dangling reference is
+            # correct.
+            if SUPERSEDES_FIELD.match(line):
+                continue
+            for name in POLICY_DOCUMENT_REFERENCE.findall(line):
+                if not (REPO_ROOT / name).is_file():
+                    relative = path.relative_to(REPO_ROOT).as_posix()
+                    errors.append(
+                        f"{relative}:{number} refers to {name}, which does not exist. "
+                        "Adopting a new version of a policy-stack document is a rename "
+                        "(ADR 0004); every reference has to move with it."
+                    )
 
 
 def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
@@ -966,6 +1015,7 @@ def main() -> int:
     check_declared_dependencies(errors)
     check_third_party_imports_are_lazy(errors)
     check_the_domain_imports_nothing_third_party(errors)
+    check_policy_document_references(errors)
     check_ci_wiring(governance, errors)
     check_local_gate_mirrors_ci(governance, errors)
     check_truthfulness(governance, errors)
