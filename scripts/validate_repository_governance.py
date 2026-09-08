@@ -274,6 +274,23 @@ def classification_of(relative: str, sensitive: list[str]) -> bool:
     return False
 
 
+def classifiable_sources() -> list[Path]:
+    """Every Python file the manifest has to have an opinion about.
+
+    `src/` is the application. `scripts/` is the validators that enforce this manifest, the
+    tool that produces model pins, and the measurement tools whose numbers land in ADRs —
+    all of it code that runs against this project's own audio and its own controls.
+    """
+    roots = (SOURCE_ROOT, REPO_ROOT / "scripts")
+    return [
+        path
+        for root in roots
+        if root.is_dir()
+        for path in root.rglob("*.py")
+        if "__pycache__" not in path.parts
+    ]
+
+
 def check_source_classification(governance: dict[str, Any], errors: list[str]) -> None:
     """Every source file is protected, or is declared in writing not to need protecting.
 
@@ -291,6 +308,14 @@ def check_source_classification(governance: dict[str, Any], errors: list[str]) -
     So the rule is that no source file may be unclassified. Adding one costs a line in the
     manifest and a decision about which list it belongs in, which is the right amount of
     friction for adding code to an application arranged around a retention promise.
+
+    `scripts/` counts, and did not until 2026-09-08. The manifest already classified four
+    of its files — the three validators as protected, `pin_model.py` as reviewed — so the
+    repository plainly considered them worth a decision; completeness was enforced for
+    `src/` alone, and the five measurement scripts added since had slipped in with no
+    classification at all. A maintainer tool that reads audio deserves the same one-line
+    decision as anything else, and the point of the rule is that the decision is taken
+    rather than defaulted.
     """
     section = governance.get("security_sensitive_paths", {})
     sensitive = [str(path) for path in (section.get("paths") or [])]
@@ -301,9 +326,7 @@ def check_source_classification(governance: dict[str, Any], errors: list[str]) -
         errors.append("security_sensitive_paths: src/ does not exist")
         return
 
-    for source in sorted(SOURCE_ROOT.rglob("*.py")):
-        if "__pycache__" in source.parts:
-            continue
+    for source in sorted(classifiable_sources()):
         relative = source.relative_to(REPO_ROOT).as_posix()
         if classification_of(relative, sensitive) or relative in exempt:
             continue
