@@ -30,7 +30,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from on_the_fly.domain.audio import AudioFormat, EndReason, TranscriptEvent
+from on_the_fly.domain.audio import (
+    INT16_NORMALISATION_SCALE,
+    AudioFormat,
+    EndReason,
+    TranscriptEvent,
+)
 
 # What the pinned Zipformer models were trained on.
 REQUIRED_SAMPLE_RATE_HZ = 16_000
@@ -111,8 +116,6 @@ _CEILING_TOLERANCE_SECONDS = 0.02
 # real-time factors it is between 0.2 s and 1.3 s of decoding, none of it on the
 # endpoint-to-caption path, because mid-stream finals always have future frames.
 FLUSH_TAIL_SECONDS = 1.5
-
-_INT16_FULL_SCALE = 32768.0
 
 
 @dataclass(frozen=True)
@@ -265,7 +268,7 @@ class SherpaStreamingRecognizer:
             raise StreamingRecognitionError(f"numpy is required: {exc}") from exc
 
         samples = numpy.frombuffer(frame, dtype=numpy.int16).astype(numpy.float32)
-        samples /= _INT16_FULL_SCALE
+        samples /= INT16_NORMALISATION_SCALE
         frame_seconds = len(samples) / REQUIRED_SAMPLE_RATE_HZ
 
         if self._audio_seconds == 0.0:
