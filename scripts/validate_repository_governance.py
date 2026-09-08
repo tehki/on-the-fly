@@ -218,6 +218,50 @@ def parse_codeowners_patterns(text: str) -> list[str]:
     return patterns
 
 
+# A rule that owns everything rather than a path. Skipped: there is nothing to check it
+# against, and it is the fallback that makes the rest additive.
+CODEOWNERS_CATCH_ALL = "*"
+
+
+def check_codeowners_rules_own_something(errors: list[str]) -> None:
+    """Every rule in CODEOWNERS points at a path that is there.
+
+    `check_sensitive_paths` reads this file in one direction: each protected path must have
+    a rule. The other direction was never checked, and CODEOWNERS itself claims otherwise —
+    "Keep this file in sync with security_sensitive_paths ... fails the build if they drift
+    apart". A rule for a directory that has been deleted or renamed passed silently.
+
+    That is the same failure `check_source_classification` exists for on the manifest side,
+    where a protected path that does not exist protects nothing, and the same one
+    `check_referenced_paths_exist` covers for prose. A code-owner rule is a control, and a
+    control pointing at nothing has quietly stopped applying while still reading as though
+    it applies.
+
+    Only existence is asserted, not that the manifest classifies the path. Owning something
+    the manifest says nothing about — `tests/`, say — is a reasonable thing to want, and a
+    rule against it would be this check inventing policy rather than enforcing it.
+    """
+    if not CODEOWNERS_FILE.exists():
+        return
+
+    for number, raw_line in enumerate(
+        CODEOWNERS_FILE.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = raw_line.split("#", 1)[0].strip()
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        pattern = fields[0]
+        if pattern == CODEOWNERS_CATCH_ALL:
+            continue
+        target = REPO_ROOT / pattern.strip("/")
+        if not target.exists():
+            errors.append(
+                f".github/CODEOWNERS:{number} owns {pattern}, which does not exist. A rule "
+                "pointing at nothing owns nothing, and reads as though it owns something."
+            )
+
+
 def check_sensitive_paths(governance: dict[str, Any], errors: list[str]) -> None:
     """Every protected path must exist, and must actually be owned by someone.
 
@@ -1184,6 +1228,7 @@ def main() -> int:
     check_development_flow(governance, errors)
     check_validation_lanes(governance, errors)
     check_sensitive_paths(governance, errors)
+    check_codeowners_rules_own_something(errors)
     check_source_classification(governance, errors)
     check_exception_records(governance, errors)
     check_referenced_paths_exist(errors)

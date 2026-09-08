@@ -2186,3 +2186,106 @@ def test_tests_are_in_scope_for_this_too() -> None:
         if path.parts[-2] == "tests"
     ]
     assert from_tests, "no label was read from tests/, so their being in scope proves nothing"
+
+
+# ---------------------------------------------------------------------------------------
+# A code-owner rule owns something
+#
+# `check_sensitive_paths` reads CODEOWNERS in one direction: each protected path must have
+# a rule. The other direction was never checked, and the file itself claimed otherwise —
+# "fails the build if they drift apart".
+# ---------------------------------------------------------------------------------------
+
+
+def codeowners(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str) -> list[str]:
+    owners = tmp_path / "CODEOWNERS"
+    owners.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(governance_validator, "CODEOWNERS_FILE", owners)
+    monkeypatch.setattr(governance_validator, "REPO_ROOT", tmp_path)
+    (tmp_path / "src" / "on_the_fly").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "Makefile").touch()
+    errors: list[str] = []
+    governance_validator.check_codeowners_rules_own_something(errors)
+    return errors
+
+
+def test_every_rule_in_this_repositorys_codeowners_owns_something() -> None:
+    errors: list[str] = []
+    governance_validator.check_codeowners_rules_own_something(errors)
+
+    assert errors == []
+
+
+def test_a_rule_for_a_path_that_was_deleted_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The failure this exists for. A control pointing at nothing has quietly stopped
+    applying while still reading as though it applies."""
+    errors = codeowners(monkeypatch, tmp_path, "/src/on_the_fly/gone/  @tehki\n")
+
+    assert any("owns nothing" in error for error in errors)
+
+
+def test_a_rule_for_a_path_that_is_there_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert codeowners(monkeypatch, tmp_path, "/Makefile  @tehki\n") == []
+
+
+def test_the_catch_all_is_not_a_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`* @tehki` owns everything rather than something. There is nothing to check it
+    against, and it is the fallback that makes every other rule additive."""
+    assert codeowners(monkeypatch, tmp_path, "*  @tehki\n") == []
+
+
+def test_comments_and_owner_less_lines_are_not_rules(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A path with no owner assigns ownership to nobody, which GitHub reads as removing it
+    — not something this check should report as a missing file."""
+    text = "# /src/on_the_fly/gone/ @tehki\n\n/src/on_the_fly/also-gone/\n"
+
+    assert codeowners(monkeypatch, tmp_path, text) == []
+
+
+def test_a_rule_naming_a_path_the_manifest_does_not_classify_is_allowed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Owning `tests/` is a reasonable thing to want. Refusing it would be this check
+    inventing policy rather than enforcing it — only existence is asserted.
+    """
+    (tmp_path / "tests").mkdir()
+
+    assert codeowners(monkeypatch, tmp_path, "/tests/  @tehki\n") == []
+
+
+def test_this_repository_already_owns_two_paths_it_calls_not_sensitive() -> None:
+    """Which is why the rule above is existence and not classification.
+
+    `pin_model.py` and `requirements.txt` are in reviewed_not_sensitive, and both have
+    owner rules. That is routing, not protection, and a check demanding they match `paths`
+    would have failed on the tree as it stands.
+    """
+    patterns = set(
+        governance_validator.parse_codeowners_patterns(
+            governance_validator.CODEOWNERS_FILE.read_text(encoding="utf-8")
+        )
+    )
+    exempt = set(
+        governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE)[
+            "security_sensitive_paths"
+        ]["reviewed_not_sensitive"]
+    )
+
+    assert {"/scripts/pin_model.py", "/requirements.txt"} <= patterns & exempt
+
+
+def test_a_missing_codeowners_file_is_left_to_the_check_that_owns_that(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`check_sensitive_paths` already reports it, and two errors for one cause is noise."""
+    monkeypatch.setattr(governance_validator, "CODEOWNERS_FILE", tmp_path / "absent")
+    errors: list[str] = []
+    governance_validator.check_codeowners_rules_own_something(errors)
+
+    assert errors == []
