@@ -5,8 +5,19 @@
 # own pull request). See REPOSITORY_GOVERNANCE_v1.2-otf1.yaml -> approval_limitation and
 # docs/EXCEPTIONS.md (EXC-2026-09-01-001).
 #
-# Keep this file in sync with security_sensitive_paths in REPOSITORY_GOVERNANCE_v1.2-otf1.yaml.
-# scripts/validate_repository_governance.py fails the build if they drift apart.
+# Kept in sync with security_sensitive_paths in REPOSITORY_GOVERNANCE_v1.2-otf1.yaml, in
+# both directions, by scripts/validate_repository_governance.py:
+#
+#   every path the manifest protects has a rule here   check_sensitive_paths
+#   every rule here points at a path that exists       check_codeowners_rules_own_something
+#
+# The second was added on 2026-09-08. Until then this comment claimed the file "fails the
+# build if they drift apart" and only the first half was true, so a rule for a directory
+# that had been deleted or renamed sat here owning nothing.
+#
+# A rule is not required to name something the manifest classifies. Owning a path the
+# manifest says nothing about is a reasonable thing to want; what is refused is a rule that
+# owns nothing at all.
 
 * @tehki
 
