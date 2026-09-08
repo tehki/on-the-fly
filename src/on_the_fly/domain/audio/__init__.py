@@ -41,6 +41,7 @@ model weights are executable trust like any other dependency.
 from __future__ import annotations
 
 from on_the_fly.domain.audio.formats import (
+    INT16_NORMALISATION_SCALE,
     RECOMMENDED_SAMPLE_RATE_HZ,
     SUPPORTED_SAMPLE_WIDTH_BYTES,
     AudioFormat,
@@ -111,6 +112,7 @@ __all__ = [
     "DEFAULT_SPEECH_FACTOR",
     "DEFAULT_WINDOW_FRAMES",
     "DEFAULT_WINDOW_MS",
+    "INT16_NORMALISATION_SCALE",
     "QUIET_RMS",
     "RECOMMENDED_SAMPLE_RATE_HZ",
     "SETTLED_CLIPPED_FRACTION",

@@ -25,13 +25,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from on_the_fly.domain.audio import AudioFormat
+from on_the_fly.domain.audio import INT16_NORMALISATION_SCALE, AudioFormat
 
 # What the model was trained on. Not a preference.
 REQUIRED_SAMPLE_RATE_HZ = 16_000
-
-# int16 full scale. Whisper wants float32 in [-1, 1).
-_INT16_FULL_SCALE = 32768.0
 
 
 class RecognitionError(Exception):
@@ -125,7 +122,7 @@ class FasterWhisperRecognizer:
             raise RecognitionError(f"numpy is required to pass audio to the model: {exc}") from exc
 
         samples = numpy.frombuffer(audio, dtype=numpy.int16).astype(numpy.float32)
-        samples /= _INT16_FULL_SCALE
+        samples /= INT16_NORMALISATION_SCALE
 
         try:
             segments, _info = model.transcribe(

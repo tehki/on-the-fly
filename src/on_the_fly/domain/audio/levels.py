@@ -58,6 +58,11 @@ from on_the_fly.domain.audio.ports import AudioSource
 # 16-bit signed PCM. Full scale is 32767; a sample at or beyond this counts as clipped —
 # not exactly 32767, because resampling and dithering shave a count or two off a saturated
 # signal without making it less saturated.
+#
+# One count away from `formats.INT16_NORMALISATION_SCALE`, and deliberately: that one maps
+# the type's range into [-1, 1) for a model, this one reports a peak as a fraction of the
+# loudest representable sample. The comment beside it explains why neither should be
+# tidied into the other.
 FULL_SCALE = 32767.0
 CLIPPED_SAMPLE = 32700
 

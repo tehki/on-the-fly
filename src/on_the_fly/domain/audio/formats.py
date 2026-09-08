@@ -19,6 +19,21 @@ SUPPORTED_SAMPLE_WIDTH_BYTES = 2
 # docs/PERFORMANCE_BUDGET.md.
 RECOMMENDED_SAMPLE_RATE_HZ = 16_000
 
+# Dividing an int16 sample by this maps the type's whole range into [-1, 1), which is the
+# float form every model in this project takes. The most negative sample, -32768, becomes
+# exactly -1.0; the most positive, 32767, lands just short of 1.0.
+#
+# This is deliberately *not* `levels.FULL_SCALE`, which is 32767.0 and one count away.
+# Both are right for their own question. Normalising audio asks "where in the type's range
+# is this sample", and the range is 65536 counts wide. Metering asks "how close is this to
+# the loudest thing representable", and the answer for a maximum positive sample should be
+# 1.0 rather than 0.99997.
+#
+# They are written down together because a number that differs by one from another with a
+# similar name looks like a typo, and tidying either into the other would be a quiet
+# correctness change in whichever it touched.
+INT16_NORMALISATION_SCALE = 32768.0
+
 
 @dataclass(frozen=True)
 class AudioFormat:

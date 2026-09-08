@@ -19,6 +19,7 @@ import pytest
 from on_the_fly.domain.audio import (
     ABSOLUTE_MAX_UTTERANCE_MS,
     DEFAULT_MAX_UTTERANCE_MS,
+    INT16_NORMALISATION_SCALE,
     AudioFormat,
     CaptureError,
     CaptureSession,
@@ -29,6 +30,7 @@ from on_the_fly.domain.audio import (
     UtteranceSegmenter,
     frame_rms,
 )
+from on_the_fly.domain.audio.levels import FULL_SCALE
 from on_the_fly.domain.retention import EphemeralStore, ManualClock
 
 FORMAT = AudioFormat()
@@ -1068,3 +1070,43 @@ def test_capture_stats_are_frozen_so_a_reported_count_cannot_be_edited() -> None
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         stats.frames_read = 99  # type: ignore[misc]
+
+
+# ======================================================================================
+# Two "full scale" numbers, one count apart, both correct
+#
+# `INT16_NORMALISATION_SCALE` is 32768.0 and `levels.FULL_SCALE` is 32767.0. A number that
+# differs by one from another with a similar name looks like a typo, and tidying either
+# into the other would be a quiet correctness change in whichever it touched. The comments
+# say why; these say the same thing in a form that fails.
+# ======================================================================================
+
+
+def test_normalising_maps_the_whole_int16_range_into_minus_one_to_one() -> None:
+    """What every model in this project takes. The most negative sample is exactly -1.0 and
+    the most positive lands just short of 1.0, which is what [-1, 1) means."""
+    assert -32768 / INT16_NORMALISATION_SCALE == -1.0
+    assert 32767 / INT16_NORMALISATION_SCALE < 1.0
+    assert 32767 / INT16_NORMALISATION_SCALE == pytest.approx(1.0, abs=1e-4)
+
+
+def test_metering_calls_the_loudest_representable_sample_full() -> None:
+    """The meter's question is different: how close is this to the loudest thing that can
+    be represented. For a maximum positive sample the answer is 1.0, not 0.99997."""
+    assert 32767 / FULL_SCALE == 1.0
+
+
+def test_the_two_scales_differ_by_exactly_one_count() -> None:
+    """Asserted so the relationship is a decision rather than a coincidence two files apart.
+
+    If someone unifies them, this fails and sends them to the comments explaining why the
+    two questions have different answers.
+    """
+    assert INT16_NORMALISATION_SCALE - FULL_SCALE == 1.0
+
+
+def test_normalising_never_reaches_one_for_any_representable_sample() -> None:
+    """The property the half-open interval rests on, over the whole type rather than its
+    endpoints — a model handed 1.0 exactly is a model handed something out of range."""
+    for sample in (-32768, -1, 0, 1, 32766, 32767):
+        assert -1.0 <= sample / INT16_NORMALISATION_SCALE < 1.0
