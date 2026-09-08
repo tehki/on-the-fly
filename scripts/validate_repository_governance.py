@@ -754,6 +754,69 @@ def check_retention_labels_are_declared(errors: list[str]) -> None:
             )
 
 
+# An Article 13 exception record, as the register numbers them.
+EXCEPTION_ID = re.compile(r"EXC-\d{4}-\d{2}-\d{2}-\d{3}")
+
+
+def recorded_exception_ids() -> set[str]:
+    """Every exception the register actually contains."""
+    if not EXCEPTIONS_FILE.is_file():
+        return set()
+    return {
+        match
+        for line in EXCEPTIONS_FILE.read_text(encoding="utf-8").splitlines()
+        if line.startswith("## ")
+        for match in EXCEPTION_ID.findall(line)
+    }
+
+
+def check_exception_references_exist(errors: list[str]) -> None:
+    """An exception cited anywhere is an exception the register contains.
+
+    Article 13 makes an exception a written record with an owner, a scope and an expiry.
+    `check_exception_records` reads the register itself and checks the manifest's citation
+    of it. Everything else that names one — a comment explaining why a control was kept, a
+    docstring justifying a relaxation, a retention override's `record_id` — was unchecked,
+    and an authorisation citing a record nobody wrote is an authorisation nobody gave.
+
+    The gap is easy to fall into rather than hypothetical. The `main-push-provenance`
+    comment in `.github/workflows/ci.yml` cites EXC-2026-09-01-002 as REMOVED; that was
+    confirmed by hand when it was written, and nothing would have said otherwise.
+
+    Only the register's own headings count as declaring an ID, so citing one in the body of
+    another record does not conjure it into existence.
+    """
+    if not EXCEPTIONS_FILE.is_file():
+        errors.append(f"{EXCEPTIONS_FILE.name} not found; exception citations cannot be checked")
+        return
+
+    recorded = recorded_exception_ids()
+    if not recorded:
+        errors.append(
+            "the exception register contains no records, so every citation of one is "
+            "dangling. One of the two is wrong."
+        )
+        return
+
+    for path in referencing_files():
+        if path == EXCEPTIONS_FILE:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        for number, line in enumerate(text.splitlines(), start=1):
+            for cited in EXCEPTION_ID.findall(line):
+                if cited not in recorded:
+                    errors.append(
+                        f"{relative}:{number} cites {cited}, which "
+                        f"{EXCEPTIONS_FILE.name} does not record. An authorisation citing "
+                        "a record nobody wrote is an authorisation nobody gave "
+                        "(Article 13)."
+                    )
+
+
 def check_ci_wiring(governance: dict[str, Any], errors: list[str]) -> None:
     ci = governance.get("ci", {})
 
@@ -1231,6 +1294,7 @@ def main() -> int:
     check_codeowners_rules_own_something(errors)
     check_source_classification(governance, errors)
     check_exception_records(governance, errors)
+    check_exception_references_exist(errors)
     check_referenced_paths_exist(errors)
     check_declared_dependencies(errors)
     check_third_party_imports_are_lazy(errors)
