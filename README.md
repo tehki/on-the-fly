@@ -10,7 +10,10 @@ Live speech translation. Speak without bounds with anyone worldwide.
 > ([ADR 0031](docs/adr/0031-french-recognition.md)) and now translates in both directions
 > against English ([ADR 0032](docs/adr/0032-french-translation.md)), on both engines
 > ([ADR 0033](docs/adr/0033-french-on-onnx.md)); its translation stage is the fastest of the
-> four, and no end-to-end figure has been taken for it.
+> four, and no end-to-end figure has been taken for it. **All six pairs among the three
+> streaming languages now work**: `fr↔ru`, which no single pinned model serves, goes through
+> English with no new models on either engine
+> ([ADR 0037](docs/adr/0037-french-and-russian-through-english.md)).
 >
 > **Three of the seven languages stream**, using sherpa-onnx with pinned Apache-2.0 models
 > ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md),
@@ -105,6 +108,41 @@ is wrong, and no score table could say so: the 2019 `fr-en` release is a **BPE**
 `source.bpe`, `target.bpe` — where every artefact here tokenises with sentencepiece. Loading
 it means admitting a BPE implementation on every user's machine to buy 0.11 chrF2. Both
 directions take the 2020 release.
+
+**And French and Russian now translate into each other, through English**
+([ADR 0037](docs/adr/0037-french-and-russian-through-english.md)). Three streaming languages
+make six ordered pairs; four were served and the two missing ones were the two where neither
+speaker knows English — which is the case this product exists for. They are served by chaining
+two pinned models, with **no new artefact, publisher, licence or download**, on both engines,
+because both legs already run on both.
+
+The direct models exist and are not used. `onnx-community`, the publisher
+[ADR 0018](docs/adr/0018-onnx-translation.md) admitted, publishes no export of either
+direction, and the exports that do exist declare no licence at all — the same ground ADR 0018
+refused `Xenova` on. Pinning the Marian archives alone would serve the pair on the desktop
+engine only, spending the invariant ADR 0033 had just bought.
+
+The compounding-error objection is real and was measured rather than assumed. The publisher's
+test file carries the direct model's own output as its third line, so the model this project
+declined to pin scored its own test set, and the bridge scored the same 1000 sentences against
+the same references with the same metric:
+
+| pair | direct model | via English | difference | translation p50 |
+| --- | --- | --- | --- | --- |
+| **`fr→ru`** | 57.27 | **62.71** | **+5.44** | 564 ms |
+| **`ru→fr`** | **65.99** | 61.05 | −4.94 | 562 ms |
+
+Better one way and worse the other, by about the same margin — not the consolation prize the
+objection predicts. The reason is visible in the four pairs above: a bridge is dominated by its
+second leg, and `en→ru` is stronger relative to the direct `fr→ru` than `en→fr` is relative to
+the direct `ru→fr`. What does not vary is the cost: two decodes, so twice the time — measured
+against each pair's own first leg in one session, 2.08x and 2.01x, which is what "twice" looks
+like when nothing else is being paid for. Translation runs after recognition has finalised, so
+it is not the tight budget.
+
+The bridge is never silent. The route prints as `fr->en->ru`, the attribution names both
+models, and both load before the first sentence rather than the second one failing midway
+through what somebody just said.
 
 **The other four are not waiting on effort.** They are waiting on two specific things, and
 both are somebody else's to fix — one commit adding a real licence file would make four
@@ -219,7 +257,9 @@ pair. The command line has always refused the same request before opening a devi
 sentence saying what is missing; `src/on_the_fly/app/catalogue.py` now derives the window's
 offer from the same pin registries, so the source list is whatever has a pinned model — three
 languages today — and the target list follows the source rather than sitting fixed beside
-it. French was added afterwards and needed no change here, which is the point of deriving it.
+it. French was added afterwards and needed no change here, which is the point of deriving it —
+and so was the bridged `fr↔ru` pair, which appears in the target list because the catalogue
+asks whether a pair can be *served*, not whether one artefact serves it.
 
 The target picker also offers *no translation* — live captions in the language being spoken,
 which the pipeline has always supported. Its row deliberately carries no language code.

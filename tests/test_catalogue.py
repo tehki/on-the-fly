@@ -103,10 +103,15 @@ def test_recognisable_languages_are_ordered_by_name() -> None:
 
 
 def test_translation_targets_come_from_the_pinned_pairs() -> None:
-    """Ordered by language name, which is why French precedes Russian under English."""
+    """Ordered by language name, which is why English precedes French and Russian.
+
+    Every streaming language now reaches both of the others: `fr<->ru` has no pinned model
+    and is bridged through English (ADR 0037), which the catalogue does not need to know —
+    it asks the engine resolver the same question it always did.
+    """
     assert [lang.code for lang in translation_targets("en")] == ["fr", "ru"]
-    assert [lang.code for lang in translation_targets("ru")] == ["en"]
-    assert [lang.code for lang in translation_targets("fr")] == ["en"]
+    assert [lang.code for lang in translation_targets("ru")] == ["en", "fr"]
+    assert [lang.code for lang in translation_targets("fr")] == ["en", "ru"]
 
 
 def test_a_source_with_no_pinned_pair_offers_no_targets() -> None:
@@ -133,15 +138,36 @@ def test_the_onnx_engine_is_asked_about_its_own_artefacts() -> None:
         for lang in translation_targets(source, engine=TranslationEngine.CTRANSLATE2)
     }
 
-    assert onnx == {model.pair for model in KNOWN_ONNX_MODELS.values()}
-    assert ctranslate2 == {artefact.pair for artefact in KNOWN_ARTIFACTS.values()}
+    # The point of the test, unchanged: the two engines offer the same thing, so "does this
+    # work on a phone" has one answer per pair rather than one per engine.
+    assert onnx == ctranslate2
+
+    # What each offers is no longer identical to what each pins. Since ADR 0037 a pair with
+    # no artefact can be bridged through English, and that route exists on both engines
+    # because both its legs do. Every pinned pair is still offered directly.
+    assert {model.pair for model in KNOWN_ONNX_MODELS.values()} <= onnx
+    assert {artefact.pair for artefact in KNOWN_ARTIFACTS.values()} <= ctranslate2
+    assert onnx - {model.pair for model in KNOWN_ONNX_MODELS.values()} == {
+        ("fr", "ru"),
+        ("ru", "fr"),
+    }
 
 
 def test_servable_pairs_needs_both_a_recogniser_and_a_translator() -> None:
     """A pair is only end-to-end servable when the source can be heard and the pair written."""
     pairs = {(source.code, target.code) for source, target in servable_pairs()}
 
-    assert pairs == {("en", "ru"), ("ru", "en"), ("en", "fr"), ("fr", "en")}
+    assert pairs == {
+        ("en", "ru"),
+        ("ru", "en"),
+        ("en", "fr"),
+        ("fr", "en"),
+        # Bridged through English rather than pinned. Every ordered pair among the three
+        # streaming languages is now servable, which is the point of ADR 0037.
+        ("fr", "ru"),
+        ("ru", "fr"),
+    }
+    assert len(pairs) == 6, "three streaming languages, every ordered pair"
 
 
 # --------------------------------------------------------------------------------------
