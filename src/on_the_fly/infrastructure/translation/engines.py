@@ -170,9 +170,19 @@ def open_translator(
 ) -> Translator:
     """Fetch, verify and load the model `choice` names.
 
-    Both branches raise rather than returning an unverified model: `ModelStore.ensure` and
-    `TranslationModelStore.ensure` each check every pinned digest before anything is loaded,
-    and neither has a path that returns a directory it could not verify.
+    **The two engines verify at different moments, and this is where that becomes visible.**
+    `ModelStore.ensure` (the ONNX route) re-checks every pinned digest on every call, so a
+    file altered since the last run is refused before it loads. `TranslationModelStore.ensure`
+    (the CTranslate2 route) checks the publisher's `.zip` when it converts it, and afterwards
+    returns the converted directory without checking anything — there is no digest to check
+    it against, because the conversion is this project's own output and no publisher publishes
+    one for it. What that route guarantees is that the weights it was built from matched the
+    pin, and that a conversion which did not finish is not mistaken for one that did.
+
+    Neither returns a directory it *could* verify and did not. The difference in what is
+    knowable is recorded in `docs/SECURITY_PRIVACY.md` rather than flattened into one
+    sentence here, because a reader who assumed the stronger guarantee applied to both would
+    be wrong about the default engine.
 
     `beam_size` overrides the shipped decoding width and exists for one caller:
     `scripts/measure_translation.py`, which has to be able to re-ask ADR 0009's question —
