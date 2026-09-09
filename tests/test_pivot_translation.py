@@ -144,23 +144,23 @@ def test_a_licence_is_not_flattened_when_the_legs_agree() -> None:
 
 
 def test_a_pair_that_cannot_be_bridged_keeps_the_message_it_was_owed() -> None:
-    """`de->en` has English on one side, so there is nothing to bridge. The reader gets the
+    """`es->en` has English on one side, so there is nothing to bridge. The reader gets the
     refusal about the pair they asked for, listing what is pinned — not a message about
     whichever leg happened to be missing."""
-    with pytest.raises(TranslationArtifactError, match="no pinned translation model for de->en"):
-        resolve_engine(("de", "en"))
+    with pytest.raises(TranslationArtifactError, match="no pinned translation model for es->en"):
+        resolve_engine(("es", "en"))
 
 
 def test_a_bridgeable_shape_with_a_missing_leg_says_so() -> None:
-    """`de->ru` is the shape a bridge fits — neither side is English — and the leg that
+    """`es->ru` is the shape a bridge fits — neither side is English — and the leg that
     would carry it is not pinned. There the bridge is the part worth explaining."""
     with pytest.raises(TranslationArtifactError, match="cannot be reached through en"):
-        resolve_engine(("de", "ru"))
+        resolve_engine(("es", "ru"))
 
 
 def test_a_language_to_itself_is_refused_rather_than_bridged() -> None:
     with pytest.raises(TranslationArtifactError):
-        resolve_engine(("de", "de"))
+        resolve_engine(("es", "es"))
 
 
 def test_english_bridges_because_every_pinned_pair_touches_it() -> None:

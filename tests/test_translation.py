@@ -32,6 +32,8 @@ from on_the_fly.infrastructure.translation import (
 )
 from on_the_fly.infrastructure.translation.artifacts import (
     KNOWN_ARTIFACTS,
+    OPUS_MT_DE_EN,
+    OPUS_MT_EN_DE,
     OPUS_MT_EN_FR,
     OPUS_MT_EN_RU,
     OPUS_MT_FR_EN,
@@ -382,6 +384,40 @@ def test_the_sentencepiece_french_releases_are_the_pinned_ones() -> None:
     assert "2019" not in OPUS_MT_FR_EN.url
 
 
+def test_the_pinned_german_artefacts_are_declared_correctly() -> None:
+    assert OPUS_MT_DE_EN.pair == ("de", "en")
+    assert OPUS_MT_EN_DE.pair == ("en", "de")
+    for artefact in (OPUS_MT_DE_EN, OPUS_MT_EN_DE):
+        assert artefact.licence == "CC-BY-4.0"
+        assert len(artefact.sha256) == 64
+        assert artefact.url.startswith("https://")
+    assert OPUS_MT_DE_EN.sha256 != OPUS_MT_EN_DE.sha256
+
+
+def test_the_sentencepiece_german_releases_are_the_pinned_ones() -> None:
+    """German publishes **three** releases per direction and only the 2020 one is usable.
+
+    The publisher's own `.yml` records 2019-12-04 and 2019-12-18 as `normalization +
+    tokenization + BPE`, which is the release ADR 0032 refused for French. Two thirds of the
+    published artefacts for this pair are the wrong kind, and nothing in a score table says
+    so — which is why the pin is an exact URL and this test reads it.
+    """
+    assert "opus-2020-02-26" in OPUS_MT_DE_EN.url
+    assert "opus-2020-02-26" in OPUS_MT_EN_DE.url
+    assert "2019" not in OPUS_MT_DE_EN.url
+    assert "2019" not in OPUS_MT_EN_DE.url
+
+
+def test_german_translates_without_being_recognisable_here() -> None:
+    """The two questions are independent, and this pair is the proof (ADR 0038).
+
+    German has no streaming pin and is transcribed an utterance at a time; it still
+    translates in both directions. A target needs a translation model and nothing else.
+    """
+    assert resolve(("en", "de")) is OPUS_MT_EN_DE
+    assert resolve(("de", "en")) is OPUS_MT_DE_EN
+
+
 def test_every_pinned_artefact_expects_sentencepiece() -> None:
     """A pin whose members named `.bpe` files would extract and then fail to tokenise."""
     for artefact in KNOWN_ARTIFACTS.values():
@@ -396,8 +432,10 @@ def test_resolving_the_reverse_pair_finds_the_reverse_artefact() -> None:
 
 
 def test_resolving_a_pair_with_no_pinned_model_is_refused() -> None:
+    """Spanish, which this project recognises at the batch tier and translates not at all.
+    German was the example here until ADR 0038 pinned it."""
     with pytest.raises(TranslationArtifactError, match="no pinned translation model"):
-        resolve(("en", "de"))
+        resolve(("en", "es"))
 
 
 def test_resolving_the_pinned_pair_finds_it() -> None:

@@ -244,10 +244,11 @@ def test_an_unknown_target_language_is_refused(
 def test_a_pair_with_no_pinned_model_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """German is a supported language with no translation model pinned for it."""
+    """Spanish is a supported language with no translation model pinned for it. It was
+    German until ADR 0038, which is why the argument is a variable and the message is not."""
     path = speech_wav(tmp_path / "a.wav")
 
-    exit_code = main(["stream", str(path), "--translate-to", "de", "--cache-dir", str(tmp_path)])
+    exit_code = main(["stream", str(path), "--translate-to", "es", "--cache-dir", str(tmp_path)])
 
     assert exit_code == 1
     assert "no pinned translation model" in capsys.readouterr().err
@@ -277,7 +278,7 @@ def test_transcribe_refuses_a_pair_with_no_pinned_model(
             "transcribe",
             str(path),
             "--language",
-            "de",
+            "es",
             "--translate-to",
             "en",
             "--cache-dir",
