@@ -20,11 +20,14 @@ this package imports it like every other caller rather than re-exporting it.
 from __future__ import annotations
 
 from on_the_fly.infrastructure.asr.models import (
+    BASE,
     DEFAULT_MODEL,
     KNOWN_MODELS,
+    SMALL,
     STREAMING_EN,
     STREAMING_LAYOUTS,
     TINY,
+    batch_pins,
     layout_for,
     resolve,
 )
@@ -39,9 +42,11 @@ from on_the_fly.infrastructure.asr.whisper_recognizer import (
 )
 
 __all__ = [
+    "BASE",
     "DEFAULT_MODEL",
     "KNOWN_MODELS",
     "REQUIRED_SAMPLE_RATE_HZ",
+    "SMALL",
     "STREAMING_EN",
     "STREAMING_LAYOUTS",
     "TINY",
@@ -49,6 +54,7 @@ __all__ = [
     "RecognitionError",
     "SherpaStreamingRecognizer",
     "StreamingRecognitionError",
+    "batch_pins",
     "layout_for",
     "resolve",
 ]

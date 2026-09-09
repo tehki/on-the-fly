@@ -45,6 +45,24 @@ scores **77.1% word error on clean read French**, where the pinned French stream
 scores 14.3% on the same clips. It does not return a flawed transcript — it returns a
 different sentence.
 
+**A larger Whisper was the obvious answer and it is not enough**
+([ADR 0041](docs/adr/0041-a-larger-whisper.md)). `base` and `small` are now pinned and
+measured on the same clips:
+
+| | English, 66 words | French, 35 words | French real time |
+| --- | --- | --- | --- |
+| `tiny` | 6.1% | 68.6% | 2.79x |
+| **`base`, the new default** | **4.5%** | **54.3%** | **1.79x** |
+| `small` | 4.5% | **34.3%** | 5.07x |
+| the pinned French streaming model | — | **14.3%** | 0.50x |
+
+English is solved: at `base` every remaining error is orthography, and `PARENT`, which `tiny`
+heard as `parrot`, is right. French halves and is still not usable — `small` returns a legible
+transcript of the right sentence, at five times real time, which for a six-second utterance is
+thirty seconds. `base` is the default because it beats `tiny` everywhere measured and, on
+French, is also **faster**: a model that returns a different sentence spends longer returning
+it.
+
 Russian, measured the same day, does the opposite: `tiny` differs from the pinned Russian
 model by **2 words in 12**, and both are spellings rather than misrecognitions. Two
 high-resource languages on clean read speech, a factor of four apart.
@@ -793,7 +811,7 @@ python -m on_the_fly transcribe recording.wav --allow-download
 
 ```text
 file          recording.wav
-model         tiny (local, verified)
+model         base (local, verified)
 audio         3.90s
 
   [   0.00s +2.00s] good morning, how are you

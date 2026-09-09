@@ -37,6 +37,40 @@ TINY = ModelPin(
     },
 )
 
+# The two larger Whisper models, pinned so the sentence above can be tested rather than
+# repeated. ADR 0035 measured `tiny` and said plainly what it could not say: "a larger Whisper
+# would very likely score far better and would be a different pin, a different download and a
+# different latency decision". These are that pin; ADR 0041 is that measurement.
+#
+# Same publisher, same licence, same four files, same tokeniser and vocabulary byte for byte —
+# `tokenizer.json` and `vocabulary.txt` have identical digests across all three sizes, which is
+# what one model family in three sizes looks like from outside.
+BASE = ModelPin(
+    name="base",
+    repo_id="Systran/faster-whisper-base",
+    revision="ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+    licence="MIT",
+    digests={
+        "config.json": "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
+        "model.bin": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+        "tokenizer.json": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+        "vocabulary.txt": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+    },
+)
+
+SMALL = ModelPin(
+    name="small",
+    repo_id="Systran/faster-whisper-small",
+    revision="536b0662742c02347bc0e980a01041f333bce120",
+    licence="MIT",
+    digests={
+        "config.json": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
+        "model.bin": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+        "tokenizer.json": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+        "vocabulary.txt": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+    },
+)
+
 # The chunk/left-context variant of the pinned English model. Named once so the digest
 # entries stay readable rather than wrapping mid-hash.
 _EN_VARIANT = "epoch-99-avg-1-chunk-16-left-64.int8.onnx"
@@ -148,12 +182,17 @@ STREAMING_PIN_PREFIX = "streaming-"
 
 KNOWN_MODELS: dict[str, ModelPin] = {
     TINY.name: TINY,
+    BASE.name: BASE,
+    SMALL.name: SMALL,
     STREAMING_EN.name: STREAMING_EN,
     STREAMING_RU.name: STREAMING_RU,
     STREAMING_FR.name: STREAMING_FR,
 }
 
-DEFAULT_MODEL = TINY
+# `base` and not `tiny` since ADR 0041. Measured on both published test sets this project has
+# references for, `base` is better than `tiny` everywhere it was measured and — on French —
+# also *faster*, because a model that returns a different sentence spends longer returning it.
+DEFAULT_MODEL = BASE
 
 
 def streaming_pins() -> dict[str, ModelPin]:
@@ -165,6 +204,21 @@ def streaming_pins() -> dict[str, ModelPin]:
     return {
         name: pin for name, pin in KNOWN_MODELS.items() if name.startswith(STREAMING_PIN_PREFIX)
     }
+
+
+def batch_pins() -> dict[str, ModelPin]:
+    """The pins the batch recogniser can load, keyed by name.
+
+    The complement of `streaming_pins`, from the same one rule, because the two lists have to
+    partition the registry and a hand-maintained pair of them would not.
+
+    This exists because `--model` offered every pin in the registry, including the streaming
+    ones. `transcribe --model streaming-en` was an accepted argument that verified a 73 MB
+    model and then failed with `Unable to open file 'model.bin'` — a picker promising
+    something it cannot serve, which is the defect ADR 0034 removed from the window's language
+    pickers and left standing here.
+    """
+    return {name: pin for name, pin in KNOWN_MODELS.items() if name not in streaming_pins()}
 
 
 def layout_for(pin: ModelPin) -> StreamingLayout:

@@ -28,12 +28,17 @@ from on_the_fly.app import run_capture
 from on_the_fly.app.cli import main
 from on_the_fly.domain.audio import AudioFormat
 from on_the_fly.infrastructure.asr import (
+    BASE,
     DEFAULT_MODEL,
     KNOWN_MODELS,
+    SMALL,
+    TINY,
     FasterWhisperRecognizer,
     RecognitionError,
+    batch_pins,
     resolve,
 )
+from on_the_fly.infrastructure.asr.models import streaming_pins
 from on_the_fly.infrastructure.audio import WavFileSource
 from on_the_fly.infrastructure.model_store import (
     ModelIntegrityError,
@@ -343,7 +348,7 @@ def test_the_cli_transcribes_and_purges(
     assert exit_code == 0
     output = capsys.readouterr().out
     assert "good morning" in output
-    assert "tiny (local, verified)" in output
+    assert f"{DEFAULT_MODEL.name} (local, verified)" in output
 
 
 def test_the_cli_transcribe_json_includes_text_and_timings(
@@ -362,7 +367,7 @@ def test_the_cli_transcribe_json_includes_text_and_timings(
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["model"] == "tiny"
+    assert payload["model"] == DEFAULT_MODEL.name
     assert payload["utterances"][0]["text"] == "bonjour"
     assert "recognition_seconds" in payload["utterances"][0]
 
@@ -544,3 +549,56 @@ def test_the_shortest_thing_that_can_be_a_revision_is_seven_characters() -> None
             licence="Apache-2.0",
             digests={"model.bin": "0" * 64},
         )
+
+
+# ---------------------------------------------------------------------------------------
+# Which models the batch command may be asked for
+#
+# `--model` offered every pin in the registry. `transcribe --model streaming-en` was an
+# accepted argument that verified a 73 MB model and then failed inside CTranslate2 with
+# `Unable to open file 'model.bin'` — a picker promising something it cannot serve, which is
+# the defect ADR 0034 removed from the window's language pickers and left standing here.
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_batch_pins_and_the_streaming_pins_partition_the_registry() -> None:
+    """Derived from one rule, so the two lists cannot drift apart by an edit to one."""
+    batch = set(batch_pins())
+    streaming = set(streaming_pins())
+
+    assert batch | streaming == set(KNOWN_MODELS)
+    assert batch & streaming == set()
+    assert batch, "the batch tier has no model at all"
+
+
+def test_no_streaming_model_is_offered_to_the_batch_recogniser() -> None:
+    for name in batch_pins():
+        assert not name.startswith("streaming-"), f"{name} cannot be loaded by faster-whisper"
+
+
+def test_the_default_model_is_one_the_batch_recogniser_can_load() -> None:
+    """It is what `transcribe` uses when nobody says otherwise."""
+    assert DEFAULT_MODEL.name in batch_pins()
+
+
+def test_the_command_line_offers_exactly_the_batch_pins(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Asserted through the parser rather than the registry, because the defect was in the
+    wiring between them and not in either."""
+    with pytest.raises(SystemExit):
+        main(["transcribe", str(tmp_path / "x.wav"), "--model", "streaming-en"])
+
+    assert "invalid choice" in capsys.readouterr().err
+
+
+def test_the_three_whisper_sizes_are_the_same_model_family() -> None:
+    """`tokenizer.json` and `vocabulary.txt` are identical across the three, byte for byte,
+    which is what one family in three sizes looks like from outside — and is the only check
+    available that these are the models they claim to be beyond the publisher's word."""
+    shared = [pin.digests["tokenizer.json"] for pin in (TINY, BASE, SMALL)]
+    vocabularies = [pin.digests["vocabulary.txt"] for pin in (TINY, BASE, SMALL)]
+
+    assert len(set(shared)) == 1, "the three sizes do not share a tokeniser"
+    assert len(set(vocabularies)) == 1, "the three sizes do not share a vocabulary"
+    assert len({pin.digests["model.bin"] for pin in (TINY, BASE, SMALL)}) == 3
