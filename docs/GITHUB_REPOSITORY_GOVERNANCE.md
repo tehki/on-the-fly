@@ -32,6 +32,39 @@ be rejected.
 This table is a record of a point in time, not a claim about now. Re-run the verification
 below after any administrative change and update it.
 
+### Re-verified 2026-09-09 — unchanged, and now by a script
+
+Read back a third time, this time by `scripts/verify_branch_protection.py`, which derives the
+comparison from `main_branch` in the manifest instead of from a reader's attention:
+
+```
+ruleset       'main-protection' id 22044161 active
+rules         deletion, non_fast_forward, pull_request, required_linear_history,
+              required_status_checks
+
+PASS remote branch protection matches the manifest (read back just now)
+```
+
+**Every declared field matched. Two enforced settings had never been declared**, and the
+script reported them because it lists what the remote enforces beyond the manifest rather than
+only what disagrees:
+
+| Setting | Value | Why it matters |
+| --- | --- | --- |
+| `pull_request.allowed_merge_methods` | `["squash", "rebase"]` | What keeps `require_linear_history` reachable from the merge button. The repository itself still offers merge commits (`allow_merge_commit: true`); the ruleset is what refuses them. Undeclared since 2026-09-01. |
+| `pull_request.require_extra_approval_for_unattributed_changes` | `true` | A rule nobody here decided to have. Harmless with `required_approving_review_count: 0`, and now recorded rather than discovered again later. |
+
+Both are now declared in `main_branch` and compared on every run. Three further settings —
+`require_last_push_approval: false`, `required_reviewers: []`, `do_not_enforce_on_create:
+false` — are GitHub's defaults holding their empty values and are reported, not declared.
+
+**A third thing was wrong, and it was in this repository rather than at GitHub.** The
+2026-09-07 re-verification below was written here and *not* into the manifest, whose
+`last_verified_remote_state.verified_at` still read `2026-09-01`. Nothing had drifted at
+GitHub; what had drifted was the answer to *how old is this evidence*, which is the only
+question this record exists to answer. `check_the_verification_date_is_one_record` now
+compares the two, so re-verifying in one place and not the other fails the gate.
+
 ### Re-verified 2026-09-07 — unchanged
 
 Six days on, every row above was read back from the API again. **Nothing had drifted.**

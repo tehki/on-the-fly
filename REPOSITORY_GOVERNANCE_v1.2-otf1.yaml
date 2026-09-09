@@ -26,6 +26,15 @@ main_branch:
   require_up_to_date_before_merge: true
   required_status_checks:
   - quality
+  # Enforced by the ruleset and undeclared here until 2026-09-09, when
+  # scripts/verify_branch_protection.py read the remote back field by field and reported
+  # them. `allowed_merge_methods` is the setting that keeps require_linear_history reachable
+  # from the merge button rather than only from a rejected push; the repository itself still
+  # offers merge commits, and this is what refuses them.
+  allowed_merge_methods:
+  - squash
+  - rebase
+  require_extra_approval_for_unattributed_changes: true
   required_approvals_limitation: single_maintainer_population
   require_code_owner_review_limitation: single_maintainer_population
 security_sensitive_paths:
@@ -44,6 +53,10 @@ security_sensitive_paths:
   - /scripts/validate_coding_agent_policy.py
   - /scripts/validate_repository_governance.py
   - /scripts/verify_main_push_provenance.py
+  # Reads the remote ruleset back and compares it against main_branch above. Protected for
+  # the same reason the validators are: a check that can be weakened without review is not a
+  # check, and this one decides whether the sentence "main is protected" may be said at all.
+  - /scripts/verify_branch_protection.py
   - /docs/SECURITY_PRIVACY.md
   - /docs/RETENTION_POLICY.md
   - /docs/GITHUB_REPOSITORY_GOVERNANCE.md
@@ -231,7 +244,12 @@ truthfulness:
   never_claim_remote_branch_protection_without_verification: true
   local_ci_manifest_does_not_equal_remote_enforcement: true
   last_verified_remote_state:
-    verified_at: '2026-09-01'
+    # 2026-09-01 first, re-read unchanged on 2026-09-07 and again on 2026-09-09. This date
+    # moved to 2026-09-09 late: the 2026-09-07 re-verification was written into
+    # docs/GITHUB_REPOSITORY_GOVERNANCE.md and not here, so for two days the two records of
+    # the same fact disagreed about when it was last checked. check_the_verification_date_is
+    # _one_record now compares them.
+    verified_at: '2026-09-09'
     branch_protection_present: true
     branch_protection_mechanism: repository_ruleset
     ruleset_id: 22044161
@@ -250,9 +268,14 @@ truthfulness:
     strict_required_status_checks_policy: true
     workflows_present: true
     vulnerability_alerts_enabled: true
+    allowed_merge_methods_verified:
+    - squash
+    - rebase
     verification_method: Read back independently from GET /repos/tehki/on-the-fly/rulesets/22044161 after
       creation, rather than trusting the response to the write. Additionally confirmed by observing the
-      ruleset reject a direct push to main.
+      ruleset reject a direct push to main. Since 2026-09-09 the comparison is performed by
+      scripts/verify_branch_protection.py, which derives it from main_branch rather than from a reader's
+      attention, and reports enforced settings this manifest does not declare.
     note: Evidence of a point in time, not a standing claim. Re-verify after any administrative configuration
       change before describing main as protected.
 authorization_boundaries:

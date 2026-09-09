@@ -1151,6 +1151,46 @@ PROTECTION_RULES: tuple[tuple[str, bool, str], ...] = (
 )
 
 
+def check_the_verification_date_is_one_record(
+    governance: dict[str, Any], errors: list[str]
+) -> None:
+    """The manifest and the document must agree about when the remote was last read.
+
+    Two files record the same verification: `truthfulness.last_verified_remote_state` holds
+    it as data, and `docs/GITHUB_REPOSITORY_GOVERNANCE.md` holds it as evidence a person can
+    read. Re-verifying means updating both, and on 2026-09-07 only the document was updated —
+    so for two days the manifest said the remote had last been read on 2026-09-01 while the
+    document described reading it six days later.
+
+    Neither was wrong about the *state*; nothing had drifted. What drifted was the answer to
+    "how old is this evidence", which is the only question the record exists to answer.
+
+    Checked by looking for the manifest's date in the document rather than by parsing the
+    document's own tables: the date is the fact that has to match, and a check that needed the
+    markdown to keep a shape would fail for reasons that are not this one.
+    """
+    verified_at = (
+        governance.get("truthfulness", {}).get("last_verified_remote_state", {}).get("verified_at")
+    )
+    if not verified_at:
+        return  # check_declared_protection_matches_verification reports the missing block.
+
+    document = REPO_ROOT / "docs" / "GITHUB_REPOSITORY_GOVERNANCE.md"
+    if not document.is_file():
+        errors.append(
+            f"truthfulness.last_verified_remote_state.verified_at is {verified_at} but "
+            f"{document.name} does not exist to describe what was verified"
+        )
+        return
+
+    if str(verified_at) not in document.read_text(encoding="utf-8"):
+        errors.append(
+            f"the manifest was last verified on {verified_at} and {document.name} does not "
+            "mention that date. One of the two records of the same verification is stale; "
+            "re-verify with scripts/verify_branch_protection.py and update both."
+        )
+
+
 def check_declared_protection_matches_verification(
     governance: dict[str, Any], errors: list[str]
 ) -> None:
@@ -1306,6 +1346,7 @@ def main() -> int:
     check_the_installed_toolchain_matches_the_pins(errors)
     check_truthfulness(governance, errors)
     check_declared_protection_matches_verification(governance, errors)
+    check_the_verification_date_is_one_record(governance, errors)
     check_cross_document_versions(governance, errors)
 
     if errors:

@@ -37,6 +37,7 @@
 /scripts/validate_coding_agent_policy.py                  @tehki
 /scripts/validate_repository_governance.py                @tehki
 /scripts/verify_main_push_provenance.py                   @tehki
+/scripts/verify_branch_protection.py                      @tehki
 
 # Security, retention and governance documentation
 /docs/SECURITY_PRIVACY.md                                 @tehki
