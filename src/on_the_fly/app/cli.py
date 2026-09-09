@@ -47,11 +47,11 @@ from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure import parallel
 from on_the_fly.infrastructure.asr import (
     DEFAULT_MODEL,
-    KNOWN_MODELS,
     FasterWhisperRecognizer,
     RecognitionError,
     SherpaStreamingRecognizer,
     StreamingRecognitionError,
+    batch_pins,
     layout_for,
     resolve,
 )
@@ -134,7 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument(
         "--model",
         default=DEFAULT_MODEL.name,
-        choices=sorted(KNOWN_MODELS),
+        # The batch pins, not every pin. A streaming model here was an accepted argument
+        # that fetched 73 MB and then failed inside CTranslate2 (ADR 0041).
+        choices=sorted(batch_pins()),
         help=f"pinned model to use (default: {DEFAULT_MODEL.name})",
     )
     transcribe.add_argument(

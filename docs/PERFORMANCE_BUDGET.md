@@ -1548,6 +1548,38 @@ archive when it converts it and not on every start — the asymmetry recorded in
 `docs/SECURITY_PRIVACY.md` — so there is nothing there for this to speed up, and one of the
 four runs taken was disturbed by other work on the machine.
 
+## Thirtieth measurement — 2026-09-09, a larger Whisper
+
+ADR 0035 measured `tiny` and left one sentence as the batch tier's whole hope: *"a larger
+Whisper would very likely score far better."* `base` and `small` pinned and measured on both
+published test sets this project holds human references for, same word error implementation,
+`--language` forced:
+
+| | English, 66 words | French, 35 words | English rtf | French rtf |
+| --- | --- | --- | --- | --- |
+| `tiny` | 6.1% | 68.6% | 0.33x | **2.79x** |
+| **`base`** | **4.5%** | **54.3%** | 0.69x | **1.79x** |
+| `small` | 4.5% | **34.3%** | 2.74x | 5.07x |
+| the pinned streaming model | 0.0% | 14.3% | 0.38x | 0.50x |
+
+**English is solved and its remaining errors are not recognition**: at `base` all three are
+orthography (`dishonoured`/`dishonored`, `FOR EVER`/`forever` counted twice), and `PARENT`,
+which `tiny` heard as `parrot`, is correct. Zero genuine misrecognitions on this sample.
+
+**French halves and is still not usable.** Discounting the conventions the metric does not
+normalise — `QUATRE`/`4`, `SEPT`/`7`, `SAINT PIERRE`/`Saint-Pierre` — `small`'s honest figure
+is about 27%, against 14.3% for the pinned French streaming model on the same three clips.
+
+**`base` is faster than `tiny` on French**, which is the counter-intuitive number here and the
+reason it is the new default: a model that returns a different sentence spends longer returning
+it. `small` at 5.07x means a six-second utterance takes thirty seconds, which is not "several
+seconds behind" in any sense a user would accept.
+
+`tiny`'s French figure also moved 9 points between ADR 0035's run and this one — 77.1% to
+68.6%, the difference being that this run forces `--language fr` where that one let Whisper
+detect it. Three clips do not support a decimal place, and neither figure is quoted as though
+they do.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
