@@ -533,8 +533,10 @@ def test_a_cache_input_naming_neither_half_is_refused() -> None:
 
 
 def test_a_pair_with_no_onnx_export_is_refused() -> None:
+    """Spanish: recognised at the batch tier, exported by nobody this project admits. It was
+    German until ADR 0038, which pinned both directions on both engines at once."""
     with pytest.raises(TranslationArtifactError):
-        resolve_onnx(("en", "de"))
+        resolve_onnx(("en", "es"))
 
 
 # --------------------------------------------------------------------------------------
@@ -560,7 +562,7 @@ def test_a_pair_the_requested_engine_cannot_serve_does_not_fall_back() -> None:
     assert resolve_engine(("ru", "en")).engine is TranslationEngine.CTRANSLATE2
 
     with pytest.raises(TranslationArtifactError):
-        resolve_engine(("en", "de"), TranslationEngine.ONNX)
+        resolve_engine(("en", "es"), TranslationEngine.ONNX)
 
 
 def test_french_is_served_on_both_engines() -> None:

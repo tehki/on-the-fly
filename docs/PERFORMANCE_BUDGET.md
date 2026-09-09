@@ -1324,6 +1324,47 @@ to first text (ADR 0009) — it runs after recognition has already finalised. Th
 caution from the sixteenth measurement applies to the chrF2 columns and not to these: latency
 does not depend on which slice of a test set it is measured over.
 
+## Twenty-fifth measurement — 2026-09-09, German, and what a bridge is worth twice
+
+Taken to decide German translation (ADR 0038). 1000 sentences of each direction's own
+publisher test set, load average 8 to 12 on four cores, same script and metric as the
+sixteenth.
+
+| pair | theirs (beam 6) | ours (greedy) | greedy costs | p50 | p95 |
+| --- | --- | --- | --- | --- | --- |
+| `de→en` | 71.61 | 70.82 | 0.79 | 270 ms | 580 ms |
+| `en→de` | 66.40 | 65.48 | 0.92 | 287 ms | 622 ms |
+
+Both sit inside the range the sixteenth measurement established for greedy decoding (0.26 to
+1.39 chrF2), and both p50s land with the four pairs already shipping. Nothing here re-opens
+that trade.
+
+**Both engines, as ADR 0033 requires:**
+
+| pair | CTranslate2 | ONNX | difference | CT2 p50 | ONNX p50 |
+| --- | --- | --- | --- | --- | --- |
+| `de→en` | 70.82 | 70.47 | −0.35 | 270 ms | 635 ms |
+| `en→de` | 65.48 | 65.45 | −0.03 | 287 ms | 573 ms |
+
+`en→de` agrees to a rounding error. `de→en`'s 0.35 is the **largest engine gap measured so
+far** — Russian was 0.29, French 0.05 — and it is still smaller than what greedy decoding
+costs on the same pair. Recorded, not explained: no digest connects an ONNX graph to a Marian
+archive, so behavioural agreement is the only check there is.
+
+**The second reading on bridging, and it goes the other way.** The twenty-fourth measurement
+found a bridge beating the direct `fr→ru` model by 5.44 chrF2. German-French, measured
+identically against the direct models' own output:
+
+| direction | direct model | via English | difference |
+| --- | --- | --- | --- |
+| `de→fr` | **67.00** | 62.48 | −4.52 |
+| `fr→de` | **68.07** | 64.41 | −3.66 |
+
+Together the four numbers say something neither said alone: **a bridge lands near its second
+leg whatever the pair.** It beats a weak direct model (`fr→ru`, 57.27) and loses to a strong
+one (`fr→de`, 68.07). It is a route, not a quality improvement, and the pairs where it is used
+are the pairs where nothing else can be pinned on both engines.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
@@ -1338,8 +1379,9 @@ What keeps the status PROVISIONAL: read speech on the English side, no microphon
 controlled load environment. `ru→en` has a real distribution on spontaneous speech, which
 closed the gap the seventh measurement recorded, and the pair count closed with it — the
 sixteenth and seventeenth measurements cover **four** pairs on two engines, where this line
-once said two, and the twenty-fourth adds the remaining two by bridging them (ADR 0037), for
-six. One remaining gap is a product decision, one is hardware, and one — a quiet
+once said two, the twenty-fourth adds the remaining two by bridging them (ADR 0037), and the
+twenty-fifth adds German (ADR 0038) — twelve ordered pairs among four languages, six pinned
+and six bridged. One remaining gap is a product decision, one is hardware, and one — a quiet
 machine — is what the eighth measurement shows matters most.
 
 The fifteenth measurement adds a caution rather than a number: every accuracy figure in this

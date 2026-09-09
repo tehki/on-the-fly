@@ -103,19 +103,22 @@ def test_recognisable_languages_are_ordered_by_name() -> None:
 
 
 def test_translation_targets_come_from_the_pinned_pairs() -> None:
-    """Ordered by language name, which is why English precedes French and Russian.
+    """Ordered by language name, which is why French precedes German precedes Russian.
 
-    Every streaming language now reaches both of the others: `fr<->ru` has no pinned model
-    and is bridged through English (ADR 0037), which the catalogue does not need to know —
-    it asks the engine resolver the same question it always did.
+    Four languages translate and each reaches all three others. Only half of those pairs are
+    pinned: the rest are bridged through English (ADR 0037, ADR 0038), which the catalogue
+    does not need to know — it asks the engine resolver the same question it always did.
     """
-    assert [lang.code for lang in translation_targets("en")] == ["fr", "ru"]
-    assert [lang.code for lang in translation_targets("ru")] == ["en", "fr"]
-    assert [lang.code for lang in translation_targets("fr")] == ["en", "ru"]
+    assert [lang.code for lang in translation_targets("en")] == ["fr", "de", "ru"]
+    assert [lang.code for lang in translation_targets("ru")] == ["en", "fr", "de"]
+    assert [lang.code for lang in translation_targets("fr")] == ["en", "de", "ru"]
+    assert [lang.code for lang in translation_targets("de")] == ["en", "fr", "ru"]
 
 
 def test_a_source_with_no_pinned_pair_offers_no_targets() -> None:
-    assert translation_targets("de") == ()
+    """Spanish is recognised at the batch tier and translated by nothing. German was here
+    until ADR 0038, and the difference between them is a pinned artefact, not a tier."""
+    assert translation_targets("es") == ()
 
 
 def test_a_language_is_never_a_translation_target_for_itself() -> None:
@@ -150,7 +153,11 @@ def test_the_onnx_engine_is_asked_about_its_own_artefacts() -> None:
     assert onnx - {model.pair for model in KNOWN_ONNX_MODELS.values()} == {
         ("fr", "ru"),
         ("ru", "fr"),
-    }
+        ("de", "ru"),
+        ("ru", "de"),
+        ("de", "fr"),
+        ("fr", "de"),
+    }, "everything that does not touch English, and nothing that does"
 
 
 def test_servable_pairs_needs_both_a_recogniser_and_a_translator() -> None:
@@ -162,12 +169,17 @@ def test_servable_pairs_needs_both_a_recogniser_and_a_translator() -> None:
         ("ru", "en"),
         ("en", "fr"),
         ("fr", "en"),
-        # Bridged through English rather than pinned. Every ordered pair among the three
-        # streaming languages is now servable, which is the point of ADR 0037.
+        # Bridged through English rather than pinned (ADR 0037).
         ("fr", "ru"),
         ("ru", "fr"),
+        # German is a target and not a source: it translates (ADR 0038) but does not stream,
+        # so somebody speaking English can be read in German while the reverse needs a file
+        # and the batch tier.
+        ("en", "de"),
+        ("fr", "de"),
+        ("ru", "de"),
     }
-    assert len(pairs) == 6, "three streaming languages, every ordered pair"
+    assert len(pairs) == 9, "three streaming sources, three targets each"
 
 
 # --------------------------------------------------------------------------------------
@@ -200,7 +212,7 @@ def test_captions_without_translation_is_offered_first() -> None:
     options = translation_options("en")
 
     assert options[0] == (NO_TRANSLATION, "no translation")
-    assert options[1:] == [("fr", "French"), ("ru", "Russian")]
+    assert options[1:] == [("fr", "French"), ("de", "German"), ("ru", "Russian")]
     assert NO_TRANSLATION not in SUPPORTED, "the row must not collide with a language"
 
 

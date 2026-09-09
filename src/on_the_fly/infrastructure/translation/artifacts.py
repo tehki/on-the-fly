@@ -211,11 +211,71 @@ OPUS_MT_FR_EN = MarianArtifact(
     ),
 )
 
+# German, the first pair whose *source* this project cannot stream (ADR 0038). German
+# recognition is the batch tier — Whisper, an utterance at a time — and translation does not
+# care: a target needs a translation model and nothing else, so `en->de` works from a live
+# microphone today while `de->en` works from a file.
+#
+# The release is chosen the same way the others were, and the choice was not free. `de-en`
+# publishes three: 2019-12-04, 2019-12-18 and 2020-02-26. Only the last is sentencepiece —
+# the publisher's own `.yml` records the first two as `pre-processing: normalization +
+# tokenization + BPE` — and ADR 0032 already refused a BPE release rather than admit a second
+# tokeniser to every user's machine. Verified 2026-09-09: HTTP 200, content-length 275152328,
+# last modified 2020-02-26, CC-BY-4.0 travelling inside the archive as `LICENSE`.
+OPUS_MT_DE_EN = MarianArtifact(
+    name="opus-mt-de-en",
+    url="https://object.pouta.csc.fi/OPUS-MT-models/de-en/opus-2020-02-26.zip",
+    sha256="62f7cbc9aaff7630b06db951d5d83251669c35a8fc9f07966e2c6a9bf68d74f3",
+    source_language="de",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "German-English translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+    members=(
+        "decoder.yml",
+        "opus.spm32k-spm32k.transformer-align.model1.npz.best-perplexity.npz",
+        "opus.spm32k-spm32k.vocab.yml",
+        "source.spm",
+        "target.spm",
+        "LICENSE",
+    ),
+)
+
+# The direction that reaches a live microphone: English, Russian or French spoken now, read
+# in German. Verified 2026-09-09: HTTP 200, content-length 275458389, last modified
+# 2020-02-26, the same CC-BY-4.0 `LICENSE` inside. Same three releases, same reason for
+# taking the 2020 one.
+OPUS_MT_EN_DE = MarianArtifact(
+    name="opus-mt-en-de",
+    url="https://object.pouta.csc.fi/OPUS-MT-models/en-de/opus-2020-02-26.zip",
+    sha256="acd747e3b1ec32e132bb0bdd7236dff2c632a070e77f514648f293202b843b50",
+    source_language="en",
+    target_language="de",
+    licence="CC-BY-4.0",
+    attribution=(
+        "English-German translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+    members=(
+        "decoder.yml",
+        "opus.spm32k-spm32k.transformer-align.model1.npz.best-perplexity.npz",
+        "opus.spm32k-spm32k.vocab.yml",
+        "source.spm",
+        "target.spm",
+        "LICENSE",
+    ),
+)
+
+
 KNOWN_ARTIFACTS: dict[str, MarianArtifact] = {
     OPUS_MT_EN_RU.name: OPUS_MT_EN_RU,
     OPUS_MT_RU_EN.name: OPUS_MT_RU_EN,
     OPUS_MT_EN_FR.name: OPUS_MT_EN_FR,
     OPUS_MT_FR_EN.name: OPUS_MT_FR_EN,
+    OPUS_MT_DE_EN.name: OPUS_MT_DE_EN,
+    OPUS_MT_EN_DE.name: OPUS_MT_EN_DE,
 }
 
 

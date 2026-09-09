@@ -13,7 +13,10 @@ Live speech translation. Speak without bounds with anyone worldwide.
 > four, and no end-to-end figure has been taken for it. **All six pairs among the three
 > streaming languages now work**: `fr↔ru`, which no single pinned model serves, goes through
 > English with no new models on either engine
-> ([ADR 0037](docs/adr/0037-french-and-russian-through-english.md)).
+> ([ADR 0037](docs/adr/0037-french-and-russian-through-english.md)). **German joined as a
+> translation target** ([ADR 0038](docs/adr/0038-german-translation.md)) — it does not stream,
+> and it does not have to: twelve of the twelve ordered pairs among English, Russian, French
+> and German now resolve, half pinned and half bridged.
 >
 > **Three of the seven languages stream**, using sherpa-onnx with pinned Apache-2.0 models
 > ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md),
@@ -144,9 +147,36 @@ The bridge is never silent. The route prints as `fr->en->ru`, the attribution na
 models, and both load before the first sentence rather than the second one failing midway
 through what somebody just said.
 
-**The other four are not waiting on effort.** They are waiting on two specific things, and
-both are somebody else's to fix — one commit adding a real licence file would make four
-languages evaluable again:
+**German translates in both directions, and does not stream**
+([ADR 0038](docs/adr/0038-german-translation.md)). Four of the seven languages could be
+transcribed and translated into *nothing at all*, which for a product whose first line is
+"live speech translation" is four sevenths of the list doing the half that is not the point.
+The two questions turn out to be independent: a translation target needs a translation model
+and nothing else, so **somebody speaking English, French or Russian can now be read in German**
+without any streaming model for German existing.
+
+| pair | theirs (beam 6) | ours (greedy) | p50 | CTranslate2 vs ONNX |
+| --- | --- | --- | --- | --- |
+| **`de→en`** | 71.61 | **70.82** | 270 ms | 70.82 / 70.47 |
+| **`en→de`** | 66.40 | **65.48** | 287 ms | 65.48 / 65.45 |
+
+Six pinned pairs on two engines, and six more bridged: twelve of the twelve ordered pairs among
+English, Russian, French and German resolve. `de↔ru` has no other route — Helsinki-NLP
+publishes no German-Russian model at all — while `de↔fr` does, and there the bridge loses by
+3.66 to 4.52 chrF2 to direct models this project still cannot pin, because `onnx-community`
+publishes no `de-fr` export and its `fr-de` export declares no licence. A bridge lands near its
+second leg whatever the pair: it beats a weak direct model and loses to a strong one, and both
+results are written down.
+
+**Spanish is the one that cannot be taken.** `es-en` and `en-es` publish one release each and
+the publisher's own manifest calls it `normalization + tokenization + BPE`, where every
+artefact here tokenises with sentencepiece. German publishes three releases per direction and
+two of them are the same trap; the pin is an exact URL and a test reads the year out of it. The
+largest of the four remaining languages is blocked on a release somebody else has not made.
+
+**The other four do not stream, and that is not waiting on effort.** They are waiting on two
+specific things, both somebody else's to fix — one commit adding a real licence file would make
+four languages evaluable again:
 
 | | |
 | --- | --- |

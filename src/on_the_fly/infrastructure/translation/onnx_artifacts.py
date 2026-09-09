@@ -283,11 +283,95 @@ ONNX_OPUS_MT_FR_EN = OnnxTranslationModel(
     ),
 )
 
+# German on the engine that runs on a phone (ADR 0038). The two declared links were followed
+# on 2026-09-09, in both directions, before either export was fetched: `onnx-community`
+# names `Helsinki-NLP/opus-mt-de-en` as its base model, and that checkpoint names
+# `opus-2020-02-26.zip` — the exact archive `artifacts.py` pins — as its original weights.
+# The declared licence is `cc-by-4.0`, matching the `LICENSE` inside that archive.
+#
+# The two directions share a vocabulary, which the digests show rather than assume: this
+# model's `source.spm` is the other's `target.spm`, byte for byte, and `vocab.json` is the
+# same file in both. That is what a jointly trained 32k sentencepiece pair looks like.
+_DE_EN_FILES = {
+    "onnx/encoder_model_int8.onnx": (
+        "3e7b95246cf1885b5c6c123a36818a417c3ef6f500d4c17e030fef427fff7a74"
+    ),
+    "onnx/decoder_model_int8.onnx": (
+        "7dee15834dc068cc01eabbcc12f87e572e69b13208767085e997216ca6a1b1dd"
+    ),
+    "onnx/decoder_with_past_model_int8.onnx": (
+        "51ab8b98bfba815baa5fe35bca8232cb963201f85812ea6e98d780bf073498a0"
+    ),
+    "source.spm": "bbd1f495eea99c8e21ae086d9146e0fa7b096c3dfdd9ba07ab8b631889df5c9b",
+    "target.spm": "678f2a1177d8389f67b66299762dcc4fc567e89b07e212ba91b0c56daecf47ce",
+    "vocab.json": "d5acea957b265a78554999144459c5e391e0df525864edc8287bc090290baa44",
+    "config.json": "501dcccbae8f0cfd1d036f6da751c7988c5abaab0387528242edc4ea476a41d7",
+    "generation_config.json": ("791a5133e33d7052a7dfd9fe1b43303b9913b8a93d46fef3bfd6b12444d9fa70"),
+}
+
+_EN_DE_FILES = {
+    "onnx/encoder_model_int8.onnx": (
+        "94ae6a9149aca29ef31a58bb8ccc1c3df3720840caef890ccc6cde73c94cb0f4"
+    ),
+    "onnx/decoder_model_int8.onnx": (
+        "2fcf90a41b9c5b91391145fef8d8fced2509689aa0ffb277a9809e062faf6416"
+    ),
+    "onnx/decoder_with_past_model_int8.onnx": (
+        "efc26e994ac1c135572e67db0e8c3defbc9296f8d3f444f2eb7055bbf19b3152"
+    ),
+    "source.spm": "678f2a1177d8389f67b66299762dcc4fc567e89b07e212ba91b0c56daecf47ce",
+    "target.spm": "bbd1f495eea99c8e21ae086d9146e0fa7b096c3dfdd9ba07ab8b631889df5c9b",
+    "vocab.json": "d5acea957b265a78554999144459c5e391e0df525864edc8287bc090290baa44",
+    "config.json": "0f6fa8a60847d355874373bb898cd70a21322cf8a1c621d415ed4cfe097ebe2e",
+    "generation_config.json": ("791a5133e33d7052a7dfd9fe1b43303b9913b8a93d46fef3bfd6b12444d9fa70"),
+}
+
+ONNX_OPUS_MT_DE_EN = OnnxTranslationModel(
+    name="onnx-opus-mt-de-en",
+    pin=ModelPin(
+        name="onnx-opus-mt-de-en",
+        repo_id="onnx-community/opus-mt-de-en",
+        revision="85f2f23c5f1863b741db8b9128cfbe7a5cbc0653",
+        licence="CC-BY-4.0",
+        digests=_DE_EN_FILES,
+    ),
+    source_language="de",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "German-English translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. ONNX conversion by onnx-community. "
+        "https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+)
+
+ONNX_OPUS_MT_EN_DE = OnnxTranslationModel(
+    name="onnx-opus-mt-en-de",
+    pin=ModelPin(
+        name="onnx-opus-mt-en-de",
+        repo_id="onnx-community/opus-mt-en-de",
+        revision="b4306231768977e5956c21c26c3ae14d6b2713c4",
+        licence="CC-BY-4.0",
+        digests=_EN_DE_FILES,
+    ),
+    source_language="en",
+    target_language="de",
+    licence="CC-BY-4.0",
+    attribution=(
+        "English-German translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26, "
+        "licensed CC-BY-4.0. ONNX conversion by onnx-community. "
+        "https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+)
+
+
 KNOWN_ONNX_MODELS: dict[str, OnnxTranslationModel] = {
     ONNX_OPUS_MT_EN_RU.name: ONNX_OPUS_MT_EN_RU,
     ONNX_OPUS_MT_RU_EN.name: ONNX_OPUS_MT_RU_EN,
     ONNX_OPUS_MT_EN_FR.name: ONNX_OPUS_MT_EN_FR,
     ONNX_OPUS_MT_FR_EN.name: ONNX_OPUS_MT_FR_EN,
+    ONNX_OPUS_MT_DE_EN.name: ONNX_OPUS_MT_DE_EN,
+    ONNX_OPUS_MT_EN_DE.name: ONNX_OPUS_MT_EN_DE,
 }
 
 
