@@ -1514,9 +1514,32 @@ is largest where the wait is worst.
 not return.
 
 **Startup is still nearly three times over its hard limit** at 16.9 s against 6 s. What is left
-after removing the serialisation is ONNX Runtime itself: about 3.5 s of digest verification and
-8 s of session construction per model on this machine. That is the next thing to attack, and it
-is not a Python problem.
+after removing the serialisation, measured directly for one ONNX export rather than inferred
+from a total:
+
+| | |
+| --- | --- |
+| digest verification, every file, every launch | **2.4 s** |
+| building the three graphs (`onnx_translator.load`) | 3.5 s to 7.6 s |
+| of which session construction alone | 2.7 s at `ORT_ENABLE_ALL`, 1.3 s at `ORT_DISABLE_ALL` |
+
+The spread on the second row is what else is resident: the second model built inside one
+process is consistently slower than the first. The third row says about half of session
+construction is graph optimisation performed at load time, on every launch, of a graph that
+never changes.
+
+**Verification is now 1.4 s of that**, digesting several files at a time. Nothing about what is
+checked changed — every pinned file, on every call — and an ONNX pair starts measurably sooner:
+
+| configuration | before | after |
+| --- | --- | --- |
+| `fr→en`, ONNX | 11.1 s, 11.3 s | **8.7 s, 9.2 s** |
+| `fr→ru` bridged, ONNX | 17.0 s, 15.6 s | **15.0 s, 15.1 s** |
+
+CTranslate2 is unchanged by this and its measurement is not quoted: that route verifies its
+archive when it converts it and not on every start — the asymmetry recorded in
+`docs/SECURITY_PRIVACY.md` — so there is nothing there for this to speed up, and one of the
+four runs taken was disturbed by other work on the machine.
 
 ## Status
 
