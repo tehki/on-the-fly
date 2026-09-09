@@ -1580,6 +1580,35 @@ seconds behind" in any sense a user would accept.
 detect it. Three clips do not support a decimal place, and neither figure is quoted as though
 they do.
 
+## Thirty-first measurement - 2026-09-09, what the streaming recogniser thought
+
+sherpa-onnx reports a log probability per emitted token and this project was discarding it.
+Measured through the shipped pipeline: five published clips, each decoded by its own
+language's model and by the other one, median of the run's finals (ADR 0043).
+
+| audio | right model | wrong model |
+| --- | --- | --- |
+| `en/0` | **-0.249** | nothing emitted |
+| `en/1` | **-0.311** | nothing emitted |
+| `fr_19364697` | **-0.351** | -0.875 |
+| `fr_19738183` | **-0.435** | -1.114 |
+| `fr_27024649` | **-0.827** | -1.376 |
+
+**The populations touch**, at -0.827 against -0.875, and the clip responsible is the one
+Whisper also fails on: hard audio, recognised correctly, scoring like a mismatched model. So
+the number is reported and no threshold is set. An earlier draft warned at -0.75 and fired on
+that clip with the correct language selected.
+
+The stronger signal in this table is not a score. **The French model emitted nothing at all on
+English audio, twice** — a run that produces no finals from audible speech may be a better
+wrong-language detector than any threshold, and it is not built.
+
+Also measured, and the reason ADR 0021's original gap stays open: synthetic noise — white and
+low-passed, at peaks of 0.05, 0.2 and 0.5 — produced **no tokens at all**, so the
+hallucination-from-noise case could not be reproduced to measure. Real speech amplified 24x,
+the case ADR 0021 measured as costing 0.0% word error, scores **-0.282** against **-0.250** for
+the same audio unamplified: the confidence does not false-positive on loud input.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.

@@ -62,6 +62,10 @@ class TranscriptEvent:
     # were added after the fact (ADR 0023).
     duration_seconds: float | None = None
     end_reason: EndReason | None = None
+    # The recogniser's own confidence in this utterance, when it will say: a mean token log
+    # probability, 0 being certain and more negative less sure. Finals only, and `None` from
+    # a recogniser that reports nothing — which is not the same as certainty (ADR 0043).
+    confidence: float | None = None
 
     def __str__(self) -> str:
         # The text is the whole point of this object, so it appears. Callers that log

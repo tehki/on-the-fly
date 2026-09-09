@@ -27,6 +27,7 @@ from typing import Any
 from on_the_fly.app.pipeline import (
     PipelineResult,
     StreamingRun,
+    StreamingStats,
     TranslatedEvent,
     run_capture,
     translate_finals,
@@ -704,6 +705,24 @@ def _load_both(
     return parallel.both(recogniser, translation)
 
 
+def _confidence_lines(stats: StreamingStats) -> list[str]:
+    """What the recogniser thought of the run. A number, and no verdict on it.
+
+    Per run rather than per caption, and reported rather than acted on: measured, the
+    confidence of a correctly recognised hard clip overlaps the confidence of a mismatched
+    model, so there is no line to draw here yet (ADR 0043). The number is printed because it
+    is what a later measurement will need, and because a user comparing two runs can see it
+    move.
+
+    A recogniser that reports nothing produces no line at all, rather than a line saying
+    nothing is known — which is what every run printed before this existed.
+    """
+    median = stats.median_confidence
+    if median is None:
+        return []
+    return [f"confidence    {median:.2f} median over {len(stats.confidences)} final(s)"]
+
+
 def run_stream(args: argparse.Namespace) -> int:
     """Stream a file through the streaming recogniser, printing text as it appears."""
     language, pin, target, choice = resolve_streaming(args)
@@ -780,6 +799,8 @@ def run_stream(args: argparse.Namespace) -> int:
     if stats.first_text_after_seconds is not None:
         print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
     print(f"events        {stats.partials} partial, {stats.finals} final")
+    for line in _confidence_lines(stats):
+        print(line)
     if translator is not None:
         if translation_times:
             ordered = sorted(translation_times)
@@ -932,6 +953,8 @@ def run_listen(args: argparse.Namespace) -> int:
     if stats.first_text_after_seconds is not None:
         print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
     print(f"events        {stats.partials} partial, {stats.finals} final")
+    for line in _confidence_lines(stats):
+        print(line)
     silent = getattr(recognizer, "silent_endpoints", None)
     if silent is not None:
         # Without this, a room nobody spoke in and an endpointer that never fires produce
