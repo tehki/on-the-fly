@@ -1536,6 +1536,13 @@ checked changed — every pinned file, on every call — and an ONNX pair starts
 | `fr→en`, ONNX | 11.1 s, 11.3 s | **8.7 s, 9.2 s** |
 | `fr→ru` bridged, ONNX | 17.0 s, 15.6 s | **15.0 s, 15.1 s** |
 
+**The other half of session construction was measured and left alone.** ONNX Runtime can
+serialise the optimised graph and skip the optimisation next launch: 3.26 s to build all three
+graphs normally, **1.72 s to load pre-optimised copies**. It costs 404 MB a model, a week after
+the twenty-eighth measurement removed 2.09 GB of files nobody reads, and ONNX Runtime warns
+that such a graph "should only be used in the same environment the model was optimized in" —
+on the engine whose whole purpose is running somewhere else. Not taken (ADR 0040).
+
 CTranslate2 is unchanged by this and its measurement is not quoted: that route verifies its
 archive when it converts it and not on every start — the asymmetry recorded in
 `docs/SECURITY_PRIVACY.md` — so there is nothing there for this to speed up, and one of the
