@@ -43,6 +43,7 @@ from on_the_fly.infrastructure.translation.artifacts import (
     OPUS_MT_IT_EN,
     OPUS_MT_RU_EN,
     file_digest,
+    loaded_members,
 )
 
 
@@ -620,8 +621,48 @@ def test_a_converted_model_alone_is_not_a_finished_cache(
     monkeypatch.setattr(TranslationModelStore, "_convert", lambda self, source, target: None)
     _, source = store.ensure(artefact)
 
-    for member in artefact.members:
+    for member in loaded_members(artefact):
         assert (source / member).is_file(), f"{member} was never extracted"
+
+
+def test_the_conversion_inputs_are_not_kept_after_they_have_been_converted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Marian weights are around 300 MB a pair and are read exactly once, by the
+    converter. Measured before this: a seven-pair cache held 4.74 GB of which 0.59 GB was
+    ever loaded.
+
+    The archive is deliberately not among the things discarded — it is the only thing that
+    can rebuild this directory, and a cache that needs the network to recover is a worse
+    trade for a project that runs offline by design.
+    """
+    store, artefact, archive = prepared_store(tmp_path)
+    monkeypatch.setattr(TranslationModelStore, "_convert", lambda self, source, target: None)
+
+    _, source = store.ensure(artefact)
+
+    assert (source / "source.spm").is_file(), "the tokeniser is loaded and must stay"
+    assert not (source / "decoder.yml").exists(), "a conversion input was kept"
+    assert archive.is_file(), "the archive is what rebuilds this"
+
+
+def test_a_cache_whose_inputs_were_discarded_is_still_a_complete_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half: having discarded them, the fast path must still recognise its own
+    work, or every run re-extracts 300 MB in order to delete it again."""
+    store, artefact, archive = prepared_store(tmp_path)
+    monkeypatch.setattr(TranslationModelStore, "_convert", lambda self, source, target: None)
+    store.ensure(artefact)
+    finished_conversion(store, artefact)
+    archive.unlink()
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a complete cache was rebuilt")
+
+    monkeypatch.setattr(TranslationModelStore, "_extract", refuse)
+
+    assert store.ensure(artefact) == (store.converted_dir(artefact), store.source_dir(artefact))
 
 
 def test_a_source_directory_missing_one_member_is_not_extracted(tmp_path: Path) -> None:

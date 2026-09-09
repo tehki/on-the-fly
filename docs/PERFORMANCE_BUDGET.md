@@ -1453,6 +1453,34 @@ disk) and measured its latency and quality. Resident memory was never part of th
 and on this evidence the engine that exists to run on small hardware is the more expensive one
 at runtime for the same model.
 
+## Twenty-eighth measurement — 2026-09-09, what the cache keeps
+
+The twelfth measurement said the disk cost was *"real and unmeasured against any device
+constraint"*. Measured, on a cache holding all seven CTranslate2 pairs:
+
+| per pair | bytes | read at load |
+| --- | --- | --- |
+| `artifact.zip`, the publisher's archive | 275–318 MB | no |
+| `marian/`, extracted for the converter | 297–343 MB | **the two `.spm` files only**, 1.6–1.9 MB |
+| `ctranslate2/`, the conversion | 80–93 MB | yes |
+
+**4.74 GB across seven pairs, of which 0.59 GB is ever loaded.** Eight times the useful size,
+and the ONNX exports sit beside it at another 2.1 GB, for 7.6 GB of models on a machine whose
+reference environment specifies 8 GB of RAM.
+
+The extracted Marian weights are read exactly once, by the converter, and then never again —
+so they are now discarded when the conversion finishes. That is 2.09 GB of the 4.14 GB, and it
+takes a pair from 630 MB to 345 MB, verified by rebuilding one and translating with it.
+
+**The archive is deliberately kept.** It is the only thing that can rebuild a converted
+directory, and a cache that needs the network to recover is a worse trade for a project whose
+whole argument is that it runs offline. A user who wants the other trade can delete
+`artifact.zip` and pay a download the next time the conversion is invalidated.
+
+No target row is proposed for disk. One number on one machine is not a budget, and the figure
+that would matter — what this costs on a phone, where the ONNX path exists — is still not
+measured.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
