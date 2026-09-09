@@ -85,7 +85,7 @@ security_sensitive_paths:
   # The measurement tools. Their numbers are quoted as evidence in docs/adr/ and
   # docs/PERFORMANCE_BUDGET.md, which makes them worth testing — and none of them makes a
   # trust decision, holds a secret, or is imported by anything shipped. Checked before this
-  # classification was written: all five write no files at all, so nothing they read
+  # classification was written: none of the five writes any file, so nothing they read
   # outlives the process, and the only subprocess any of them runs is `git rev-parse` for
   # the commit line. measure_recognition prints transcripts on purpose, against published
   # reference audio, because a word error rate nobody can see the errors behind is a number
@@ -95,6 +95,13 @@ security_sensitive_paths:
   - /scripts/measure_recognition.py
   - /scripts/measure_room.py
   - /scripts/measure_translation.py
+  # measure_memory does something the sentence above does not cover, so it is listed apart
+  # rather than folded into it. It runs the shipped command as a subprocess and samples
+  # /proc for the pid it started: argv is built in the script with no shell, the only file
+  # it reads is /proc/<pid>/status, it writes nothing, and it discards the child's stdout —
+  # so a run measured this way prints no transcript and no translation at all. It makes no
+  # trust decision and nothing shipped imports it.
+  - /scripts/measure_memory.py
   - /requirements.txt
 development_flow:
   one_pull_request_per_commit_required: false

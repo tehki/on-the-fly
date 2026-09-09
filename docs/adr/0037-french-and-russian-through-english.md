@@ -134,6 +134,14 @@ something no reaper can ever find.
 - **It does not change the latency budget.** Translation is not on the path to first text
   ([ADR 0009](0009-translation.md)); a bridged pair spends about twice as long on a stage that
   runs after recognition has already finalised.
+
+  > **It does move the memory budget, which this decision did not consider.** Measured
+  > 2026-09-09 (twenty-seventh measurement): a bridged pair holds two models, which costs 248
+  > MB on CTranslate2 and **438 MB on ONNX**, taking the worst shipped configuration to 1109
+  > MB steady against a 1200 MB target — 92% of it, where a direct pair on the same engine
+  > sits at 56%. The budget holds and the headroom is 91 MB. Loading both legs eagerly is not
+  > the cause: a lazily loaded leg reaches the same steady state on first use. Needing two
+  > models is the cause, and that is what the pair costs.
 - **It does not chain three models.** Two hops was measured. Three was not, and a route long
   enough to need a search is a different decision.
 

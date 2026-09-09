@@ -55,7 +55,7 @@ mid-word — it is something that must not be unbounded.
 | Speech → endpoint, worst case | — | 8000 ms | Added 2026-09-06 (ADR 0022). See below |
 | VAD endpoint detection | 300 ms | 500 ms | Trades against clipping the speaker |
 | Application start → ready to listen | 3 s | 6 s | Excludes first-run model download |
-| Steady-state resident memory | 1200 MB | 2000 MB | Dominated by loaded models |
+| Steady-state resident memory | 1200 MB | 2000 MB | Dominated by loaded models. **Measured in the twenty-seventh measurement**: 1109 MB worst case, 92% of target |
 | CPU, one active stream | < 60% of 4 cores | — | Must leave the machine usable |
 | Retention deletion after post-use | ≤ 10 s | 10 s | Not a performance target. A policy invariant that happens to be timed |
 
@@ -1405,6 +1405,53 @@ pair. What it **loses** moves with the strength of the direct model it is being 
 The largest loss measured is against the strongest direct model measured, which is the same
 fact stated twice. Bridging is a route to a pair that has none; it is not a reason to skip
 pinning a direct model wherever one can be pinned on both engines.
+
+## Twenty-seventh measurement — 2026-09-09, the memory row, measured at last
+
+The targets table has carried **steady-state resident memory, 1200 MB, hard limit 2000 MB**
+since it was written, with the note *"dominated by loaded models"*. Nothing in this document
+had ever measured it. It was the one row with a hard limit and no number, which was tolerable
+while a run held one recogniser and one translation model, and stopped being tolerable when
+ADR 0037 made a pair reachable through **two** translation models on the engine chosen because
+it runs on constrained hardware.
+
+`scripts/measure_memory.py` runs the shipped command as a subprocess and samples `VmRSS` out
+of `/proc`, so what a user runs is what gets measured — interpreter, runtimes and every copy
+nobody meant to make. Two numbers, because they answer different questions: **steady** is the
+highest level held for at least half a second, which is what a machine has to fit; **peak** is
+the kernel's `VmHWM`, which includes an allocation on its way somewhere else.
+
+Same 6.6 s of French audio through `stream`, on the reference machine:
+
+| configuration | steady | peak | against the 1200 MB target |
+| --- | --- | --- | --- |
+| captions only, no translation | 216 MB | 216 MB | 18% |
+| `fr→en`, CTranslate2 | 576 MB | 576 MB | 48% |
+| `fr→ru` bridged, CTranslate2 | 824 MB | 824 MB | 69% |
+| `fr→en`, ONNX | 671 MB | 875 MB | 56% |
+| **`fr→ru` bridged, ONNX** | **1109 MB** | **1339 MB** | **92%** |
+
+**The budget holds, and the worst configuration this project ships has 91 MB of headroom.**
+That is 8%, on a row whose hard limit is 2000 MB, so nothing is broken — but the number is
+close enough that it should have been known before a second model was added to a run rather
+than after.
+
+**Its transient peak is over the target.** 1339 MB is reached while loading, when ONNX Runtime
+is building sessions, and the run settles back to 1109 MB. The row says *steady-state*, so this
+is not a breach of it; a machine that cannot spare the spike still cannot run it, and that
+distinction is why both numbers are reported.
+
+**What bridging costs is not the same on the two engines.** A second CTranslate2 model adds 248
+MB; a second ONNX session adds 438 MB steady and 464 MB of peak. Loading both legs eagerly
+(ADR 0037) is not what causes it — a lazily loaded second leg reaches the same steady state as
+soon as it is used, and the same spike when it loads. What causes it is needing two models,
+which is what the pair costs.
+
+**A note on `fr→en`, where ONNX is 95 MB above CTranslate2 steady and 299 MB above at peak.**
+ADR 0018 chose int8 ONNX for the mobile engine on size (421 MB against 653 MB of graphs on
+disk) and measured its latency and quality. Resident memory was never part of that comparison,
+and on this evidence the engine that exists to run on small hardware is the more expensive one
+at runtime for the same model.
 
 ## Status
 

@@ -149,6 +149,14 @@ The bridge is never silent. The route prints as `fr->en->ru`, the attribution na
 models, and both load before the first sentence rather than the second one failing midway
 through what somebody just said.
 
+**Two models are also twice the memory, and that had never been measured.** The budget has
+carried a 1200 MB resident-memory target since it was written and nothing had ever checked it;
+`scripts/measure_memory.py` now does. A bridged pair on the portable engine — the worst
+configuration this project ships — holds **1109 MB**, which is 92% of the target, against 671
+MB for a direct pair on the same engine and 216 MB for captions with no translation at all.
+The budget holds with 91 MB to spare. It should have been known before a second model was
+added to a run rather than after.
+
 **German translates in both directions, and does not stream**
 ([ADR 0038](docs/adr/0038-german-translation.md)). Four of the seven languages could be
 transcribed and translated into *nothing at all*, which for a product whose first line is

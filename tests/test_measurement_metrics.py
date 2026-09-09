@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import measure_memory
 import measure_room
 import pytest
 from measure_recognition import normalise, word_errors
@@ -505,3 +506,73 @@ def test_the_sweep_is_faded_in_and_out_and_stays_in_range() -> None:
     assert sweep[0] == pytest.approx(0.0, abs=1e-9)
     assert sweep[-1] == pytest.approx(0.0, abs=1e-9)
     assert np.abs(sweep).max() <= 1.0
+
+
+# --------------------------------------------------------------------------------------
+# Resident memory. `docs/PERFORMANCE_BUDGET.md` has carried a 1200 MB target since it was
+# written and nothing measured it until the twenty-seventh measurement, whose numbers come
+# out of these two functions.
+# --------------------------------------------------------------------------------------
+
+
+def trace_of(*levels: float) -> list[tuple[float, float]]:
+    return [(index * measure_memory.SAMPLE_INTERVAL, mb) for index, mb in enumerate(levels)]
+
+
+def test_a_spike_is_not_a_level() -> None:
+    """The distinction the whole measurement rests on. A single sample at 2 GB is an
+    allocation on its way somewhere; what a run has to fit inside is what it holds."""
+    held = 10 * [400.0]
+    trace = trace_of(*[*held, 2000.0, *held])
+
+    assert measure_memory.plateau(trace) == 400.0
+
+
+def test_the_highest_sustained_level_wins_and_not_the_longest() -> None:
+    """A run passes through several plateaus and the longest is usually the one where the
+    least is loaded — before the models, or after teardown. The mode would return that."""
+    trace = trace_of(*[*(100 * [200.0]), *(12 * [900.0]), *(100 * [200.0])])
+
+    assert measure_memory.plateau(trace) == 900.0
+
+
+def test_a_level_held_for_less_than_the_window_is_not_counted() -> None:
+    trace = trace_of(*[*(20 * [300.0]), *(9 * [1500.0]), *(20 * [300.0])])
+
+    assert measure_memory.plateau(trace) == 300.0
+
+
+def test_a_trace_shorter_than_the_window_still_answers() -> None:
+    """A run that exits in under half a second has no sustained level, and reporting zero for
+    it would read as "used no memory" rather than "ended before this could tell"."""
+    assert measure_memory.plateau(trace_of(100.0, 400.0, 250.0)) == 400.0
+    assert measure_memory.plateau([]) == 0.0
+
+
+def test_the_steps_are_where_something_was_loaded() -> None:
+    trace = trace_of(100.0, 100.0, 480.0, 485.0, 900.0)
+    found = measure_memory.steps(trace)
+
+    assert len(found) == 2, found
+    assert "+   380 MB" in found[0]
+    assert "+   415 MB" in found[1]
+
+
+def test_a_gradual_climb_is_not_a_step() -> None:
+    """Otherwise every run reports a step, and the ones that mean "a model arrived" stop
+    standing out."""
+    assert measure_memory.steps(trace_of(*[100.0 + 5 * n for n in range(20)])) == []
+
+
+@pytest.mark.parametrize(
+    ("megabytes", "expected"),
+    [(500.0, "inside"), (1199.0, "inside"), (1201.0, "over the 1200 MB target"), (2500.0, "hard")],
+)
+def test_the_verdict_names_the_line_that_was_crossed(megabytes: float, expected: str) -> None:
+    assert expected in measure_memory.verdict(megabytes)
+
+
+def test_reading_a_process_that_has_gone_is_not_an_error() -> None:
+    """The process being measured is meant to exit, and doing so between the poll and the
+    read is the expected race rather than a failure."""
+    assert measure_memory.read_kb(2**22, "VmRSS:") is None
