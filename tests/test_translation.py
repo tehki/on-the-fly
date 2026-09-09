@@ -12,6 +12,7 @@ notices in a language they cannot read.
 
 from __future__ import annotations
 
+import dataclasses
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -824,3 +825,118 @@ def test_the_application_passes_neither_and_gets_the_shipped_defaults(tmp_path: 
 
     assert isinstance(translator, LoadedWith)
     assert translator.extra == {}
+
+
+# ---------------------------------------------------------------------------------------
+# The controls this file says are deliberate
+#
+# A mutation sweep removed the `not` from the https check inside `_download`, made the
+# conversion merge into whatever was already there, and left a partial conversion in place —
+# and every test here still passed. Each of those is a control the code documents in a
+# comment, so each gets a test that fails when the control is removed.
+# ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://example.invalid/model.zip", "file:///etc/passwd", "ftp://example.invalid/m.zip"],
+)
+def test_the_download_rechecks_the_scheme_immediately_before_fetching(
+    tmp_path: Path, url: str
+) -> None:
+    """`__post_init__` checks the URL at construction; `_download` checks it again.
+
+    The second check is the one that matters and it was untested. `urlopen` will happily open
+    `file:` and `ftp:`, and a value checked at construction is not the value used later —
+    Article 10.2, and the reason ruff's S310 exists. Asserted by setting the URL past the
+    frozen dataclass, which is exactly the shape of the mistake being guarded against.
+    """
+    store, artefact, archive = prepared_store(tmp_path)
+    object.__setattr__(artefact, "url", url)
+
+    with pytest.raises(TranslationArtifactError, match="non-https"):
+        store._download(artefact, archive)
+
+
+def test_the_artefact_cannot_be_edited_after_it_is_declared() -> None:
+    """It carries the URL that gets fetched and the digest that gets checked. Anything able
+    to rewrite either turns the pin into a suggestion."""
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        OPUS_MT_EN_RU.sha256 = "0" * 64  # type: ignore[misc]
+
+
+class FakeConverter:
+    """Stands in for `ctranslate2.converters.OpusMTConverter`, writing what one writes."""
+
+    def __init__(self, model_dir: str) -> None:
+        self.model_dir = model_dir
+
+    def convert(self, output_dir: str, **options: object) -> str:
+        target = Path(output_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "model.bin").write_bytes(b"converted weights")
+        (target / "config.json").write_text("{}", encoding="utf-8")
+        return output_dir
+
+
+@pytest.fixture
+def fake_converter(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ctranslate2.converters
+
+    monkeypatch.setattr(ctranslate2.converters, "OpusMTConverter", FakeConverter)
+
+
+@pytest.mark.usefixtures("fake_converter")
+def test_a_conversion_lands_in_one_step_and_leaves_no_staging_behind(tmp_path: Path) -> None:
+    store, artefact, _ = prepared_store(tmp_path)
+    converted = store.converted_dir(artefact)
+
+    store._convert(store.source_dir(artefact), converted)
+
+    assert store._is_converted(converted)
+    assert (converted / "model.bin").read_bytes() == b"converted weights"
+    assert not converted.with_name(converted.name + ".partial").exists()
+
+
+@pytest.mark.usefixtures("fake_converter")
+def test_a_new_conversion_replaces_the_old_one_rather_than_merging_into_it(
+    tmp_path: Path,
+) -> None:
+    """A converter writing different file names into a directory that already holds someone
+    else's output produces a directory that is neither, and `model.bin` being present would
+    make it look finished."""
+    store, artefact, _ = prepared_store(tmp_path)
+    converted = store.converted_dir(artefact)
+    converted.mkdir(parents=True, exist_ok=True)
+    (converted / "left_over.bin").write_bytes(b"from an older conversion")
+
+    store._convert(store.source_dir(artefact), converted)
+
+    assert not (converted / "left_over.bin").exists(), "the old conversion was merged into"
+    assert store._is_converted(converted)
+
+
+def test_extracting_twice_over_the_same_directory_is_allowed(tmp_path: Path) -> None:
+    """It happens whenever a converted directory is lost and rebuilt, which is now the normal
+    way a cache recovers."""
+    store, artefact, archive = prepared_store(tmp_path)
+    source = store.source_dir(artefact)
+
+    store._extract(artefact, archive, source)
+    (source / "source.spm").write_text("clobbered", encoding="utf-8")
+    store._extract(artefact, archive, source)
+
+    assert (source / "source.spm").read_text(encoding="utf-8") != "clobbered"
+
+
+def test_discarding_inputs_twice_is_not_an_error(tmp_path: Path) -> None:
+    """A half-cleaned cache is a state a user can produce with `rm`, and the second pass must
+    not turn it into a failed load."""
+    store, artefact, archive = prepared_store(tmp_path)
+    source = store.source_dir(artefact)
+    store._extract(artefact, archive, source)
+
+    store._discard_conversion_inputs(artefact, source)
+    store._discard_conversion_inputs(artefact, source)
+
+    assert (source / "source.spm").is_file()

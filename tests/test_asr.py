@@ -10,6 +10,7 @@ model cache still runs the full suite.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -508,3 +509,38 @@ def test_the_model_directory_is_the_one_it_was_given(
     loaded_recognizer(monkeypatch, tmp_path)
 
     assert RecordingWhisperModel.constructed["model_dir"] == str(tmp_path / "tiny")
+
+
+def test_a_pin_cannot_be_edited_after_it_is_declared() -> None:
+    """A `ModelPin` is the whole of this project's model trust: the repository, the revision
+    and a digest for every file. Anything able to rewrite one at runtime turns every check
+    built on it into a check of whatever was written last. A mutation making the class
+    mutable survived every test here.
+    """
+    pin = resolve("streaming-en")
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        pin.revision = "0" * 40  # type: ignore[misc]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        pin.digests = {}  # type: ignore[misc]
+
+
+def test_the_shortest_thing_that_can_be_a_revision_is_seven_characters() -> None:
+    """Git's own abbreviation floor, and the boundary was untested in both directions: only
+    a full 40-character revision was ever asserted, so the check could have been anywhere."""
+    ModelPin(
+        name="short-but-legal",
+        repo_id="example/model",
+        revision="a" * 7,
+        licence="Apache-2.0",
+        digests={"model.bin": "0" * 64},
+    )
+
+    with pytest.raises(ValueError, match="revision"):
+        ModelPin(
+            name="too-short",
+            repo_id="example/model",
+            revision="a" * 6,
+            licence="Apache-2.0",
+            digests={"model.bin": "0" * 64},
+        )

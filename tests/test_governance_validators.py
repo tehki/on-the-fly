@@ -2471,3 +2471,53 @@ def test_the_workflow_comment_citing_a_removed_exception_still_resolves() -> Non
 
     assert cited, "the comment no longer cites an exception; this test has lost its subject"
     assert cited <= governance_validator.recorded_exception_ids()
+
+
+# ---------------------------------------------------------------------------------------
+# One verification, recorded twice
+#
+# `truthfulness.last_verified_remote_state` holds the reading as data;
+# docs/GITHUB_REPOSITORY_GOVERNANCE.md holds it as evidence a person can read. On 2026-09-07
+# only the document was updated, so for two days the two disagreed about how old the evidence
+# was — which is the only question the record answers.
+# ---------------------------------------------------------------------------------------
+
+
+def verification_manifest(verified_at: str | None) -> dict[str, Any]:
+    state: dict[str, Any] = {"branch_protection_present": True}
+    if verified_at is not None:
+        state["verified_at"] = verified_at
+    return {"truthfulness": {"last_verified_remote_state": state}}
+
+
+def test_this_repository_records_one_verification_date() -> None:
+    errors: list[str] = []
+
+    governance_validator.check_the_verification_date_is_one_record(
+        governance_validator.load_yaml(governance_validator.GOVERNANCE_FILE), errors
+    )
+
+    assert errors == []
+
+
+def test_a_date_the_document_does_not_mention_is_a_stale_record() -> None:
+    errors: list[str] = []
+
+    governance_validator.check_the_verification_date_is_one_record(
+        verification_manifest("1999-01-01"), errors
+    )
+
+    assert errors, "a manifest date absent from the document passed as one record"
+    assert "one of the two records" in errors[0].lower()
+
+
+def test_a_manifest_with_no_verification_date_is_left_to_the_other_check() -> None:
+    """`check_declared_protection_matches_verification` reports the missing block, and two
+    checks reporting the same absence twice makes the output worse rather than safer."""
+    errors: list[str] = []
+
+    governance_validator.check_the_verification_date_is_one_record(
+        verification_manifest(None), errors
+    )
+
+    assert errors == []
