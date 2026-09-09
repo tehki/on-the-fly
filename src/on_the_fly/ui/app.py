@@ -109,6 +109,8 @@ def build_worker() -> Any:
         def _run(self) -> None:
             from on_the_fly.app.pipeline import StreamingRun, translate_finals
             from on_the_fly.domain.audio.levels import InputQuality
+            from on_the_fly.domain.audio.ports import Translator
+            from on_the_fly.infrastructure import parallel
             from on_the_fly.infrastructure.asr.models import layout_for, resolve
             from on_the_fly.infrastructure.asr.sherpa_streaming import SherpaStreamingRecognizer
             from on_the_fly.infrastructure.audio import MicrophoneSource
@@ -126,14 +128,27 @@ def build_worker() -> Any:
                 else None
             )
 
-            self.started.emit("loading recognition model")
-            model_dir = ModelStore(self._cache_dir, allow_download=True).ensure(pin)
-            recognizer = SherpaStreamingRecognizer(model_dir, layout=layout_for(pin))
+            def load_recogniser() -> SherpaStreamingRecognizer:
+                directory = ModelStore(self._cache_dir, allow_download=True).ensure(pin)
+                built = SherpaStreamingRecognizer(directory, layout=layout_for(pin))
+                # Warmed here rather than after the microphone opens: it needs no device,
+                # and doing it on this thread is what lets it overlap the translation model.
+                built.warm_up()
+                return built
 
-            translator = None
+            def load_translator() -> Translator | None:
+                if choice is None:
+                    return None
+                return open_translator(choice, self._cache_dir, allow_download=True)
+
+            # Both at once. Nothing in one needs the other, and in series this is the whole
+            # of the wait between pressing start and being able to speak — 5.2 s to 21.4 s
+            # measured on 2026-09-09 against a 3 s target.
+            self.started.emit(
+                "loading models" if choice is not None else "loading recognition model"
+            )
+            recognizer, translator = parallel.both(load_recogniser, load_translator)
             if choice is not None:
-                self.started.emit("loading translation model")
-                translator = open_translator(choice, self._cache_dir, allow_download=True)
                 self.attribution.emit(choice.attribution)
 
             # Wrapped, so the frames the pipeline reads are the frames that get measured.
@@ -143,7 +158,6 @@ def build_worker() -> Any:
             # Order is load-bearing and lives in `build_capture_stack`, where it is tested.
             watched = build_capture_stack(source)
             recognizer.validate_format(source.audio_format)
-            recognizer.warm_up()
             self.started.emit(
                 f"listening at {source.capture_rate_hz or source.audio_format.sample_rate_hz} Hz"
             )

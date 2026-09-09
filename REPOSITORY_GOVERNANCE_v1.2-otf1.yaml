@@ -86,6 +86,12 @@ security_sensitive_paths:
   - /src/on_the_fly/__main__.py
   - /src/on_the_fly/domain/__init__.py
   - /src/on_the_fly/infrastructure/__init__.py
+  # Two callables on two threads, waited for, both results returned (ADR 0040). It knows
+  # nothing about models: what it runs are closures defined in protected files, and every
+  # digest check, licence check and refusal happens inside those. It holds no secret, makes
+  # no trust decision, and has no path that returns a value neither callable produced — a
+  # weakened version that dropped an exception would still re-raise it from `.result()`.
+  - /src/on_the_fly/infrastructure/parallel.py
   # The language registry. It decides which language codes are accepted and refuses the
   # rest, which is correctness rather than trust: what may actually be loaded is decided by
   # the pin registries, and those are protected. ADR 0007 governs its contents.

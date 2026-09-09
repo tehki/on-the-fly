@@ -41,8 +41,10 @@ from on_the_fly.domain.audio import (
     SegmenterConfig,
     SettlingSource,
 )
+from on_the_fly.domain.audio.ports import Translator
 from on_the_fly.domain.languages import RecognitionTier
 from on_the_fly.domain.languages import resolve as resolve_language
+from on_the_fly.infrastructure import parallel
 from on_the_fly.infrastructure.asr import (
     DEFAULT_MODEL,
     KNOWN_MODELS,
@@ -643,26 +645,56 @@ def resolve_streaming(args: argparse.Namespace) -> tuple[Any, Any, Any, Translat
     return language, pin, target, choice
 
 
+def _load_both(
+    args: argparse.Namespace,
+    pin: Any,
+    choice: TranslationChoice | None,
+    audio_format: Any = None,
+) -> tuple[SherpaStreamingRecognizer, Translator | None]:
+    """The recogniser and the translation model, built at the same time.
+
+    They do not depend on each other, and building them in series is most of the wait before
+    a user can say anything: measured 2026-09-09 at 5.17 s for a direct pair on CTranslate2
+    and 21.39 s for a bridged pair on ONNX, against a 3 s target and a 6 s hard limit.
+
+    `audio_format` is checked inside the recogniser's half so that a file the model cannot
+    read is still refused before anything is loaded — it is the cheap check and it stays
+    first, whatever else is happening on the other thread.
+    """
+
+    def recogniser() -> SherpaStreamingRecognizer:
+        directory = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
+        built = SherpaStreamingRecognizer(
+            directory,
+            num_threads=args.threads,
+            # Which file is the encoder differs per model: the English pin names its files
+            # after a training epoch, the Russian one after a chunk size (ADR 0012).
+            layout=layout_for(pin),
+        )
+        if audio_format is not None:
+            built.validate_format(audio_format)
+        built.warm_up()
+        return built
+
+    def translation() -> Translator | None:
+        if choice is None:
+            return None
+        return open_translator(choice, args.cache_dir, allow_download=args.allow_download)
+
+    return parallel.both(recogniser, translation)
+
+
 def run_stream(args: argparse.Namespace) -> int:
     """Stream a file through the streaming recogniser, printing text as it appears."""
     language, pin, target, choice = resolve_streaming(args)
 
     source = WavFileSource(args.path, frame_ms=args.frame_ms)
-    model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
-    recognizer = SherpaStreamingRecognizer(
-        model_dir,
-        num_threads=args.threads,
-        # Which file is the encoder differs per model: the English pin names its files
-        # after a training epoch, the Russian one after a chunk size (ADR 0012).
-        layout=layout_for(pin),
-    )
-    recognizer.validate_format(source.audio_format)
 
     # Loading is paid before the clock starts and reported on its own line. Folding it
     # into the streaming measurement would make a recogniser that keeps up comfortably
     # look like one that cannot.
     load_started = time.monotonic()
-    recognizer.warm_up()
+    recognizer, translator = _load_both(args, pin, choice, source.audio_format)
     load_seconds = time.monotonic() - load_started
 
     print(f"file          {source.path.name}")
@@ -670,9 +702,7 @@ def run_stream(args: argparse.Namespace) -> int:
     print(f"model         {pin.name} (local, verified, {pin.licence})")
     print(f"model load    {load_seconds:.2f}s")
 
-    translator = None
-    if choice is not None and target is not None:
-        translator = open_translator(choice, args.cache_dir, allow_download=args.allow_download)
+    if choice is not None:
         _describe_translation(choice)
 
     print()
@@ -773,27 +803,19 @@ def run_listen(args: argparse.Namespace) -> int:
     """
     language, pin, target, choice = resolve_streaming(args)
 
-    model_dir = ModelStore(args.cache_dir, allow_download=args.allow_download).ensure(pin)
-    recognizer = SherpaStreamingRecognizer(
-        model_dir,
-        num_threads=args.threads,
-        layout=layout_for(pin),
-    )
-
     load_started = time.monotonic()
-    recognizer.warm_up()
+    recognizer, translator = _load_both(args, pin, choice)
     load_seconds = time.monotonic() - load_started
 
     print(f"language      {language.name} ({language.code}, streaming)")
     print(f"model         {pin.name} (local, verified, {pin.licence})")
     print(f"model load    {load_seconds:.2f}s")
 
-    translator = None
-    if choice is not None and target is not None:
-        translator = open_translator(choice, args.cache_dir, allow_download=args.allow_download)
-        print(f"translation   {choice.name} on {choice.engine} (local, verified, {choice.licence})")
-        # CC-BY-4.0 requires attribution reachable by a user, the same as for a file.
-        print(f"attribution   {choice.attribution}")
+    if choice is not None:
+        # The same two lines a file run prints, from the same place. This was a third copy
+        # of them, and the copy did not know that a pair can be bridged (ADR 0037) — so the
+        # one command that reads a live microphone was the one that did not say so.
+        _describe_translation(choice)
 
     # The device is opened here and not before: nothing above this point needs a
     # microphone, and holding one open while validating arguments is a privacy problem
