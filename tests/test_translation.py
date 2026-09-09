@@ -31,6 +31,7 @@ from on_the_fly.infrastructure.translation import (
     sentence_case,
 )
 from on_the_fly.infrastructure.translation.artifacts import (
+    CONVERSION_MARKER,
     KNOWN_ARTIFACTS,
     OPUS_MT_DE_EN,
     OPUS_MT_EN_DE,
@@ -652,9 +653,7 @@ def test_a_complete_cache_is_used_without_touching_the_archive(
     """
     store, artefact, archive = prepared_store(tmp_path)
     store._extract(artefact, archive, store.source_dir(artefact))
-    converted_dir = store.converted_dir(artefact)
-    converted_dir.mkdir(parents=True, exist_ok=True)
-    (converted_dir / "model.bin").write_bytes(b"converted")
+    converted_dir = finished_conversion(store, artefact)
     archive.unlink()
 
     def refuse(*args: object, **kwargs: object) -> None:
@@ -664,3 +663,65 @@ def test_a_complete_cache_is_used_without_touching_the_archive(
     monkeypatch.setattr(TranslationModelStore, "_convert", refuse)
 
     assert store.ensure(artefact) == (converted_dir, store.source_dir(artefact))
+
+
+def finished_conversion(store: TranslationModelStore, artefact: MarianArtifact) -> Path:
+    """What `_convert` leaves behind when it gets to the end."""
+    converted = store.converted_dir(artefact)
+    converted.mkdir(parents=True, exist_ok=True)
+    (converted / "model.bin").write_bytes(b"converted")
+    (converted / CONVERSION_MARKER).write_text("marian\n", encoding="utf-8")
+    return converted
+
+
+def test_a_conversion_that_did_not_finish_is_not_a_cache(tmp_path: Path) -> None:
+    """`model.bin` existing is not a finished conversion.
+
+    Ctrl-C, an OOM kill or a full disk leaves a partial file with the right name, and a cache
+    keyed on that name serves it to every later run. Nothing downstream catches it: the fast
+    path returns before any digest is checked, and no digest for a converted model exists to
+    check — the pin covers the publisher's archive, and the conversion is this project's own
+    output. Reproduced on a real cache before this was written: a one-byte `model.bin` was
+    returned as ready to use in place of 79.9 MB.
+    """
+    store, artefact, _ = prepared_store(tmp_path)
+    interrupted = store.converted_dir(artefact)
+    interrupted.mkdir(parents=True, exist_ok=True)
+    (interrupted / "model.bin").write_bytes(b"\x00")
+
+    assert not store._is_converted(interrupted)
+
+
+def test_a_cache_from_before_the_marker_is_converted_once_more(tmp_path: Path) -> None:
+    """The migration, stated as a test. Every cache built before this rule looks exactly like
+    an interrupted one, so it is rebuilt — a one-off conversion, and the price of no longer
+    trusting a directory nobody checked."""
+    store, artefact, _ = prepared_store(tmp_path)
+    older = store.converted_dir(artefact)
+    older.mkdir(parents=True, exist_ok=True)
+    (older / "model.bin").write_bytes(b"a complete conversion, from before the marker")
+
+    assert not store._is_converted(older)
+
+
+def test_the_marker_alone_is_not_a_cache_either(tmp_path: Path) -> None:
+    """Both, so that a stray marker cannot stand in for the model."""
+    store, artefact, _ = prepared_store(tmp_path)
+    marked = store.converted_dir(artefact)
+    marked.mkdir(parents=True, exist_ok=True)
+    (marked / CONVERSION_MARKER).write_text("marian\n", encoding="utf-8")
+
+    assert not store._is_converted(marked)
+
+
+def test_a_failed_conversion_leaves_nothing_behind(tmp_path: Path) -> None:
+    """Not even the staging directory: a `.partial` left in the cache is a directory the next
+    run has to reason about, and the next run should find the cache empty."""
+    store, artefact, _ = prepared_store(tmp_path)
+    converted = store.converted_dir(artefact)
+
+    with pytest.raises(TranslationArtifactError, match="could not convert"):
+        store._convert(store.source_dir(artefact), converted)
+
+    assert not converted.exists()
+    assert not converted.with_name(converted.name + ".partial").exists()

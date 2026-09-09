@@ -335,6 +335,12 @@ def file_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Written last, inside the staging directory, so that a converted model directory exists only
+# once its conversion finished. The name is dotted to keep it out of the way of the converter's
+# own files rather than for any deeper reason.
+CONVERSION_MARKER = ".converted"
+
+
 class TranslationModelStore:
     """Resolves a `MarianArtifact` to a converted, ready-to-load directory.
 
@@ -398,7 +404,19 @@ class TranslationModelStore:
         return converted, source
 
     def _is_converted(self, converted: Path) -> bool:
-        return (converted / "model.bin").is_file()
+        """Whether `converted` holds a conversion that **finished**.
+
+        `model.bin` existing is not that. A conversion interrupted by Ctrl-C, an OOM kill or
+        a full disk leaves a partial `model.bin` behind, and a cache keyed on its existence
+        serves that file to every later run — with nothing downstream to catch it, because
+        the fast path below returns before any digest is checked.
+
+        So the marker is written last, inside the staging directory, and the directory is
+        moved into place in one step. A cache built before this existed has no marker and is
+        converted once more, which costs a one-off conversion and is how it stops being
+        silently trusted.
+        """
+        return (converted / CONVERSION_MARKER).is_file() and (converted / "model.bin").is_file()
 
     def _is_extracted(self, artefact: MarianArtifact, source: Path) -> bool:
         return source.is_dir() and all((source / name).is_file() for name in artefact.members)
@@ -469,7 +487,18 @@ class TranslationModelStore:
                 f"runtime requirements. Underlying error: {exc}"
             ) from exc
 
+        # Built beside the destination and moved in one step, for the reason `_download`
+        # gives about a `.partial` file: an interrupted conversion must not be mistaken for a
+        # finished one by a later run. The staging directory is a sibling so the move is a
+        # rename within one filesystem rather than a copy that can itself be interrupted.
+        staging = converted.with_name(converted.name + ".partial")
+        shutil.rmtree(staging, ignore_errors=True)
         try:
-            OpusMTConverter(str(source)).convert(str(converted), quantization="int8", force=True)
+            OpusMTConverter(str(source)).convert(str(staging), quantization="int8", force=True)
+            (staging / CONVERSION_MARKER).write_text(f"{source.name}\n", encoding="utf-8")
         except Exception as exc:
+            shutil.rmtree(staging, ignore_errors=True)
             raise TranslationArtifactError(f"could not convert translation model: {exc}") from exc
+
+        shutil.rmtree(converted, ignore_errors=True)
+        staging.replace(converted)
