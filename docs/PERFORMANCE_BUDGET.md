@@ -54,7 +54,7 @@ mid-word — it is something that must not be unbounded.
 | Endpoint → caption, p99 | — | 4000 ms | Above this, treated as a dropped turn |
 | Speech → endpoint, worst case | — | 8000 ms | Added 2026-09-06 (ADR 0022). See below |
 | VAD endpoint detection | 300 ms | 500 ms | Trades against clipping the speaker |
-| Application start → ready to listen | 3 s | 6 s | Excludes first-run model download |
+| Application start → ready to listen | 3 s | 6 s | Excludes first-run model download. **Measured end to end in the twenty-ninth measurement**: 7.6 s to 16.9 s, still over |
 | Steady-state resident memory | 1200 MB | 2000 MB | Dominated by loaded models. **Measured in the twenty-seventh measurement**: 1109 MB worst case, 92% of target |
 | CPU, one active stream | < 60% of 4 cores | — | Must leave the machine usable |
 | Retention deletion after post-use | ≤ 10 s | 10 s | Not a performance target. A policy invariant that happens to be timed |
@@ -1480,6 +1480,43 @@ whole argument is that it runs offline. A user who wants the other trade can del
 No target row is proposed for disk. One number on one machine is not a budget, and the figure
 that would matter — what this costs on a phone, where the ONNX path exists — is still not
 measured.
+
+## Twenty-ninth measurement — 2026-09-09, the wait before the first word
+
+The startup row has been recorded as over budget since the fourth measurement, in pieces: 5.35
+s of recognition model load, 9.18 s of ONNX translation load. Never end to end, and never for
+a run holding two translation models.
+
+Wall time from process start to the first text on screen, models cached, load average 3, two
+runs per configuration alternating between the two versions in one session:
+
+| configuration | in series | at once | change |
+| --- | --- | --- | --- |
+| `fr→en`, CTranslate2 | 8.1 s | 7.6 s | −0.5 s |
+| `fr→ru` bridged, CTranslate2 | 8.8 s | 8.4 s | −0.4 s |
+| `fr→en`, ONNX | 13.4 s | 11.7 s | −1.7 s |
+| `fr→ru` bridged, ONNX | **21.3 s** | **16.9 s** | **−4.4 s, −21%** |
+
+**Interpreter start and imports are 0.17 s.** Everything else is model construction, and until
+ADR 0040 it was performed one model after another although nothing in one needs another.
+Building them at once makes the wait the longer of the two rather than their sum, and the gain
+is largest where the wait is worst.
+
+**It costs memory.** Same worst configuration, same session, `scripts/measure_memory.py`:
+
+| | steady | peak |
+| --- | --- | --- |
+| in series | 1109 MB | 1331 MB |
+| at once | 1146 MB | 1356 MB |
+
+37 MB steady and 25 MB peak, taking the headroom against the 1200 MB target from 91 MB to
+**54 MB**. No new objects are live; two loads at once leave allocator arenas the process does
+not return.
+
+**Startup is still nearly three times over its hard limit** at 16.9 s against 6 s. What is left
+after removing the serialisation is ONNX Runtime itself: about 3.5 s of digest verification and
+8 s of session construction per model on this machine. That is the next thing to attack, and it
+is not a Python problem.
 
 ## Status
 

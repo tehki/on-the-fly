@@ -147,7 +147,10 @@ it is not the tight budget.
 
 The bridge is never silent. The route prints as `fr->en->ru`, the attribution names both
 models, and both load before the first sentence rather than the second one failing midway
-through what somebody just said.
+through what somebody just said — **at the same time as each other**, and as the recogniser
+([ADR 0040](docs/adr/0040-loading-two-models-at-once.md)), because nothing in one needs the
+other and in series that was the slowest thing this project does: 21.3 s from launch to first
+text, now 16.9 s.
 
 **Two models are also twice the memory, and that had never been measured.** The budget has
 carried a 1200 MB resident-memory target since it was written and nothing had ever checked it;

@@ -20,6 +20,7 @@ from enum import Enum
 from pathlib import Path
 
 from on_the_fly.domain.audio.ports import Translator
+from on_the_fly.infrastructure import parallel
 from on_the_fly.infrastructure.translation.artifacts import TranslationArtifactError
 from on_the_fly.infrastructure.translation.artifacts import resolve as resolve_marian
 from on_the_fly.infrastructure.translation.onnx_artifacts import resolve_onnx
@@ -263,24 +264,33 @@ def _open_pivot(
     Both are loaded before the first translation rather than the second being opened lazily
     on first use: a pair that cannot be served should fail while the caller is still
     starting up, not midway through the first sentence somebody says.
+
+    And both at once. The two legs do not depend on each other, and loading them in series
+    made a bridged pair the slowest thing this project does — measured at 17.85 s of model
+    loading on ONNX against a 6 s hard limit for being ready at all.
     """
     via = choice.via
     if via is None:  # pragma: no cover - `is_pivot` is exactly this test
         raise ValueError("a pivot choice must carry the language it bridges through")
 
-    legs = [
-        open_translator(
+    def leg(pair: tuple[str, str]) -> Translator:
+        return open_translator(
             _resolve_direct(pair, choice.engine),
             cache_dir,
             allow_download=allow_download,
             beam_size=beam_size,
             intra_threads=intra_threads,
         )
-        for pair in ((choice.source_language, via), (via, choice.target_language))
-    ]
+
+    # At the same time rather than one after the other: neither leg needs the other, and a
+    # bridged pair on ONNX otherwise pays 17.9 s of loading against a 6 s hard limit.
+    first, second = parallel.both(
+        lambda: leg((choice.source_language, via)),
+        lambda: leg((via, choice.target_language)),
+    )
     return PivotTranslator(
-        legs[0],
-        legs[1],
+        first,
+        second,
         source_language=choice.source_language,
         target_language=choice.target_language,
         via=via,
