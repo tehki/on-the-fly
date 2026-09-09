@@ -20,9 +20,11 @@ from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 
 from on_the_fly.domain.audio import (
+    AudioFormat,
     AudioSource,
     CaptureSession,
     CaptureStats,
+    ConfidenceReporting,
     EndReason,
     EnergyVoiceActivityDetector,
     SegmenterConfig,
@@ -60,6 +62,15 @@ class UtteranceRecord:
     # under the same ten-second rule as the audio it came from.
     transcript_handle: TransientHandle | None = None
     recognition_seconds: float | None = None
+    # What the recogniser thought of its own answer, when it will say (ADR 0042). A mean log
+    # probability: 0 is certain, more negative is less sure, `None` from a recogniser that
+    # does not report one. It is a number about the model, not about the speaker, so it is
+    # `OPERATIONAL_METADATA` like the duration beside it.
+    confidence: float | None = None
+    # True when the recogniser rejected its own first answer and fell back to sampling. That
+    # is the model saying it could not decode this, and it is the only thing in this project
+    # that can notice fluent nonsense (ADR 0042).
+    decode_fell_back: bool = False
 
     def __str__(self) -> str:
         return (
@@ -123,6 +134,22 @@ def build_store(
     return EphemeralStore(project_id, policy=policy)
 
 
+def _recognise(
+    recognizer: SpeechRecognizer, audio: bytes, audio_format: AudioFormat
+) -> tuple[str, float | None, bool]:
+    """The text, and the recogniser's own confidence in it when there is one.
+
+    Asked for rather than assumed: the batch recogniser reports a log probability per segment
+    and the streaming transducer reports nothing comparable, so a recogniser that cannot
+    answer returns `None` and every caller downstream treats that as "not known" rather than
+    as "certain" (ADR 0042).
+    """
+    if isinstance(recognizer, ConfidenceReporting):
+        result = recognizer.transcribe_with_confidence(audio, audio_format)
+        return str(result.text), result.confidence, bool(result.is_failed_decode)
+    return recognizer.transcribe(audio, audio_format), None, False
+
+
 def run_capture(
     source: AudioSource,
     *,
@@ -165,6 +192,8 @@ def run_capture(
         for index, utterance in enumerate(session.utterances(), start=1):
             transcript_handle: TransientHandle | None = None
             recognition_seconds: float | None = None
+            confidence: float | None = None
+            fell_back = False
 
             if recognizer is not None:
                 # Borrowing holds the audio against deletion for exactly as long as the
@@ -179,7 +208,9 @@ def run_capture(
                             f"utterance {utterance.handle.entry_id} holds "
                             f"{type(audio).__name__}, not audio"
                         )
-                    text = recognizer.transcribe(audio, utterance.audio_format)
+                    text, confidence, fell_back = _recognise(
+                        recognizer, audio, utterance.audio_format
+                    )
                 recognition_seconds = time.monotonic() - recognition_started
                 if text:
                     transcript_handle = active_store.put(
@@ -195,6 +226,8 @@ def run_capture(
                     ended_because=utterance.ended_because,
                     transcript_handle=transcript_handle,
                     recognition_seconds=recognition_seconds,
+                    confidence=confidence,
+                    decode_fell_back=fell_back,
                 )
             )
             elapsed_audio = session.stats.audio_seconds_seen

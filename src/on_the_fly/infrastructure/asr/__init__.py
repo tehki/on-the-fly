@@ -36,14 +36,17 @@ from on_the_fly.infrastructure.asr.sherpa_streaming import (
     StreamingRecognitionError,
 )
 from on_the_fly.infrastructure.asr.whisper_recognizer import (
+    FAILED_DECODE_CONFIDENCE,
     REQUIRED_SAMPLE_RATE_HZ,
     FasterWhisperRecognizer,
     RecognitionError,
+    Transcription,
 )
 
 __all__ = [
     "BASE",
     "DEFAULT_MODEL",
+    "FAILED_DECODE_CONFIDENCE",
     "KNOWN_MODELS",
     "REQUIRED_SAMPLE_RATE_HZ",
     "SMALL",
@@ -54,6 +57,7 @@ __all__ = [
     "RecognitionError",
     "SherpaStreamingRecognizer",
     "StreamingRecognitionError",
+    "Transcription",
     "batch_pins",
     "layout_for",
     "resolve",

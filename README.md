@@ -63,6 +63,25 @@ thirty seconds. `base` is the default because it beats `tiny` everywhere measure
 French, is also **faster**: a model that returns a different sentence spends longer returning
 it.
 
+**And when it does that, it now says so** ([ADR 0042](docs/adr/0042-the-model-saying-it-failed.md)).
+ADR 0021 recorded that nothing here could detect a recogniser inventing words — the level
+checks catch bad audio, and this failure happens on good audio. faster-whisper applies its own
+quality checks to a greedy decode and, when they reject it, retries the segment by sampling.
+The temperature it ended up using was being thrown away. It separates the measured clips five
+times out of five, where the log probability everyone quotes separates them once in five:
+
+```text
+  [   0.00s +6.32s] sur la scénère majeur littéra le conseil de la taille de 100 pierres…
+                    ! the model rejected its own first answer here, confidence -0.99;
+                      treat this as unrecognised
+```
+
+The text is printed either way. A reader who knows the language judges a transcript better than
+a threshold does, and a product that quietly dropped what it was unsure about would be hiding
+its own failures. What changes is that nobody is left alone with a fluent sentence and no
+reason to doubt it. It covers `transcribe` and not the live captions: the streaming transducer
+emits no comparable signal, and ADR 0021's gap is closed on one side only.
+
 Russian, measured the same day, does the opposite: `tiny` differs from the pinned Russian
 model by **2 words in 12**, and both are spellings rather than misrecognitions. Two
 high-resource languages on clean read speech, a factor of four apart.

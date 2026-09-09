@@ -22,6 +22,8 @@ text to its caller and writes it nowhere — no log, no cache, no exception mess
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +35,66 @@ REQUIRED_SAMPLE_RATE_HZ = 16_000
 
 class RecognitionError(Exception):
     """The recogniser could not load, or could not process the audio it was given."""
+
+
+# What faster-whisper does when its own quality checks reject a decode: it retries the segment
+# at a higher temperature, which means sampling instead of taking the best token. A segment
+# that comes back above zero is one the model's greedy decode failed and it fell back on.
+#
+# That, and not the log probability, is the signal. Measured on the three published French
+# clips and the two English ones, three runs each: every clip that comes back correct is
+# decoded at temperature 0.0 every time, and the one that comes back as a *different sentence*
+# is decoded at 0.2 or 1.0 every time. The log probability after the fallback is much weaker —
+# it crossed the publisher's -1.0 threshold in only one run of five on the same clip, because
+# the number reported is the one the retry settled for (ADR 0042).
+GREEDY_TEMPERATURE = 0.0
+
+# OpenAI's threshold for a failed decode, kept because the number it applies to is worth
+# reporting even when the fallback flag is the thing being acted on.
+FAILED_DECODE_CONFIDENCE = -1.0
+
+
+@dataclass(frozen=True)
+class Transcription:
+    """One utterance, and what the model thought of its own answer.
+
+    `confidence` is a mean log probability: 0 is certain, and more negative is less sure.
+    `temperature` is the highest any segment needed — above zero means the model's own quality
+    checks rejected the greedy decode and it sampled instead. Both are `None` when there was
+    nothing to decode, which is not the same as being sure about silence.
+    """
+
+    text: str
+    confidence: float | None
+    no_speech: float | None
+    temperature: float | None = None
+
+    @property
+    def is_failed_decode(self) -> bool:
+        """Whether the model fell back to sampling, having rejected its own first answer."""
+        return self.temperature is not None and self.temperature > GREEDY_TEMPERATURE
+
+
+def _weighted_confidence(segments: Sequence[Any]) -> float | None:
+    """Mean `avg_logprob` weighted by segment duration, or `None` if there is nothing.
+
+    Weighted because a segment covering nine seconds describes more of the utterance than one
+    covering half a second, and an unweighted mean lets a short confident fragment speak for a
+    long uncertain one.
+    """
+    if not segments:
+        return None
+    weights: list[float] = [
+        max(float(segment.end) - float(segment.start), 0.0) for segment in segments
+    ]
+    total = sum(weights)
+    if total <= 0:
+        return sum(float(segment.avg_logprob) for segment in segments) / len(segments)
+    weighted = [
+        float(segment.avg_logprob) * weight
+        for segment, weight in zip(segments, weights, strict=True)
+    ]
+    return sum(weighted) / total
 
 
 class FasterWhisperRecognizer:
@@ -105,6 +167,19 @@ class FasterWhisperRecognizer:
 
     def transcribe(self, audio: bytes, audio_format: AudioFormat) -> str:
         """Return the text of one utterance. Empty when nothing was recognised."""
+        return self.transcribe_with_confidence(audio, audio_format).text
+
+    def transcribe_with_confidence(self, audio: bytes, audio_format: AudioFormat) -> Transcription:
+        """The text, and what the model thought of it (ADR 0042).
+
+        Whisper reports `avg_logprob` per segment and OpenAI's own implementation treats a
+        value below -1.0 as a failed decode. This project had no way at all to notice a
+        recogniser inventing a sentence — ADR 0021 said so plainly — and this is one, for the
+        batch tier, for free, out of a field that was being discarded.
+
+        The utterance's figure is the duration-weighted mean of its segments, because a long
+        segment's confidence describes more of the utterance than a short one's.
+        """
         if audio_format.sample_rate_hz != REQUIRED_SAMPLE_RATE_HZ:
             raise RecognitionError(
                 f"this model expects {REQUIRED_SAMPLE_RATE_HZ} Hz audio but was given "
@@ -112,7 +187,7 @@ class FasterWhisperRecognizer:
                 "recogniser will not do it silently."
             )
         if not audio:
-            return ""
+            return Transcription(text="", confidence=None, no_speech=None, temperature=None)
 
         model = self._load()
 
@@ -134,9 +209,17 @@ class FasterWhisperRecognizer:
                 vad_filter=False,
             )
             # `segments` is a generator; the work happens as it is consumed.
-            text = " ".join(segment.text.strip() for segment in segments)
+            decoded = list(segments)
         except Exception as exc:
             # The message deliberately says nothing about the audio or any partial result.
             raise RecognitionError(f"transcription failed: {type(exc).__name__}") from exc
 
-        return text.strip()
+        text = " ".join(segment.text.strip() for segment in decoded).strip()
+        return Transcription(
+            text=text,
+            confidence=_weighted_confidence(decoded),
+            no_speech=max((float(segment.no_speech_prob) for segment in decoded), default=None),
+            # The worst of them: one segment the model gave up on is an utterance it gave up
+            # on, however confident it was about the rest.
+            temperature=max((float(segment.temperature) for segment in decoded), default=None),
+        )

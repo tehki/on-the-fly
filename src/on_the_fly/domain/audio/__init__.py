@@ -59,6 +59,7 @@ from on_the_fly.domain.audio.levels import (
 )
 from on_the_fly.domain.audio.ports import (
     AudioSource,
+    ConfidenceReporting,
     SpeechRecognizer,
     Translator,
     VoiceActivityDetector,
@@ -125,6 +126,7 @@ __all__ = [
     "CaptureError",
     "CaptureSession",
     "CaptureStats",
+    "ConfidenceReporting",
     "EndReason",
     "EnergyVoiceActivityDetector",
     "InputQuality",

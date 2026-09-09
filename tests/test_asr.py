@@ -27,6 +27,7 @@ import pytest
 from on_the_fly.app import run_capture
 from on_the_fly.app.cli import main
 from on_the_fly.domain.audio import AudioFormat
+from on_the_fly.domain.audio.ports import ConfidenceReporting
 from on_the_fly.infrastructure.asr import (
     BASE,
     DEFAULT_MODEL,
@@ -35,6 +36,7 @@ from on_the_fly.infrastructure.asr import (
     TINY,
     FasterWhisperRecognizer,
     RecognitionError,
+    Transcription,
     batch_pins,
     resolve,
 )
@@ -602,3 +604,258 @@ def test_the_three_whisper_sizes_are_the_same_model_family() -> None:
     assert len(set(shared)) == 1, "the three sizes do not share a tokeniser"
     assert len(set(vocabularies)) == 1, "the three sizes do not share a vocabulary"
     assert len({pin.digests["model.bin"] for pin in (TINY, BASE, SMALL)}) == 3
+
+
+# ======================================================================================
+# What the model thought of its own answer (ADR 0042)
+#
+# ADR 0021 said this project could not detect a recogniser inventing words, and nothing
+# could. faster-whisper raises the decoding temperature only when its own quality checks
+# reject the greedy result, so a segment above zero is the model reporting that it fell back.
+# ======================================================================================
+
+
+class FakeSegment:
+    """One decoded segment, shaped like faster-whisper's."""
+
+    def __init__(
+        self,
+        text: str = "hello",
+        *,
+        start: float = 0.0,
+        end: float = 1.0,
+        avg_logprob: float = -0.2,
+        no_speech_prob: float = 0.01,
+        temperature: float = 0.0,
+    ) -> None:
+        self.text = text
+        self.start = start
+        self.end = end
+        self.avg_logprob = avg_logprob
+        self.no_speech_prob = no_speech_prob
+        self.temperature = temperature
+
+
+def whisper_returning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, segments: list[FakeSegment]
+) -> FasterWhisperRecognizer:
+    class Model:
+        def __init__(self, model_dir: str, **kwargs: object) -> None: ...
+
+        def transcribe(self, samples: object, **kwargs: object) -> tuple[list[FakeSegment], object]:
+            return segments, None
+
+    module = types.ModuleType("faster_whisper")
+    module.WhisperModel = Model  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "faster_whisper", module)
+    model_dir = tmp_path / "model"
+    model_dir.mkdir(exist_ok=True)
+    return FasterWhisperRecognizer(model_dir)
+
+
+def test_a_greedy_decode_is_not_a_failed_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    recognizer = whisper_returning(monkeypatch, tmp_path, [FakeSegment(temperature=0.0)])
+
+    result = recognizer.transcribe_with_confidence(b"\x00\x00" * 160, AudioFormat())
+
+    assert result.text == "hello"
+    assert not result.is_failed_decode
+
+
+def test_a_segment_the_model_resampled_is_a_failed_decode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """0.2 is the first fallback step, and the one the measured French clip lands on."""
+    recognizer = whisper_returning(monkeypatch, tmp_path, [FakeSegment(temperature=0.2)])
+
+    assert recognizer.transcribe_with_confidence(b"\x00\x00" * 160, AudioFormat()).is_failed_decode
+
+
+def test_one_failed_segment_fails_the_utterance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """However confident the model was about the rest of it."""
+    recognizer = whisper_returning(
+        monkeypatch,
+        tmp_path,
+        [FakeSegment(temperature=0.0), FakeSegment(temperature=1.0), FakeSegment(temperature=0.0)],
+    )
+
+    assert recognizer.transcribe_with_confidence(b"\x00\x00" * 160, AudioFormat()).is_failed_decode
+
+
+def test_confidence_is_weighted_by_how_much_of_the_utterance_a_segment_covers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unweighted mean lets a short confident fragment speak for a long uncertain one."""
+    recognizer = whisper_returning(
+        monkeypatch,
+        tmp_path,
+        [
+            FakeSegment(start=0.0, end=9.0, avg_logprob=-1.0),
+            FakeSegment(start=9.0, end=10.0, avg_logprob=0.0),
+        ],
+    )
+
+    result = recognizer.transcribe_with_confidence(b"\x00\x00" * 160, AudioFormat())
+
+    assert result.confidence == pytest.approx(-0.9)
+
+
+def test_segments_of_no_duration_still_produce_a_confidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Dividing by a total duration of zero would be an exception in the middle of a run."""
+    recognizer = whisper_returning(
+        monkeypatch,
+        tmp_path,
+        [FakeSegment(start=1.0, end=1.0, avg_logprob=-0.4), FakeSegment(start=2.0, end=2.0)],
+    )
+
+    assert recognizer.transcribe_with_confidence(
+        b"\x00\x00" * 160, AudioFormat()
+    ).confidence == pytest.approx(-0.3)
+
+
+def test_nothing_decoded_reports_no_opinion_rather_than_confidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`None` is not zero. A recogniser that decoded nothing has said nothing about it, and a
+    confidence of 0.0 would read as certainty."""
+    recognizer = whisper_returning(monkeypatch, tmp_path, [])
+
+    result = recognizer.transcribe_with_confidence(b"\x00\x00" * 160, AudioFormat())
+
+    assert result.text == ""
+    assert result.confidence is None
+    assert result.temperature is None
+    assert not result.is_failed_decode
+
+
+def test_empty_audio_reports_no_opinion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    recognizer = whisper_returning(monkeypatch, tmp_path, [FakeSegment()])
+
+    result = recognizer.transcribe_with_confidence(b"", AudioFormat())
+
+    assert result == Transcription(text="", confidence=None, no_speech=None, temperature=None)
+
+
+def test_the_port_still_returns_a_string(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """`SpeechRecognizer.transcribe` is unchanged: the extra reporting is an optional
+    capability, so a caller that does not ask for it sees exactly what it saw before."""
+    recognizer = whisper_returning(monkeypatch, tmp_path, [FakeSegment(text=" spaced ")])
+
+    assert recognizer.transcribe(b"\x00\x00" * 160, AudioFormat()) == "spaced"
+
+
+def test_a_recogniser_that_reports_confidence_is_recognised_as_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert isinstance(whisper_returning(monkeypatch, tmp_path, []), ConfidenceReporting)
+
+
+def test_a_recogniser_that_does_not_is_not() -> None:
+    """The streaming transducer reports nothing comparable, and asking it to would mean every
+    implementation answering a question only one of them can."""
+    assert not isinstance(FakeRecognizer(), ConfidenceReporting)
+
+
+def test_the_command_line_says_when_the_model_gave_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The text is still printed. A user who reads the language is a better judge of it than
+    a threshold — but "the model rejected its own answer" is a thing to be told, and until
+    ADR 0042 this project could not tell anyone (ADR 0021)."""
+
+    class Uncertain:
+        def transcribe(self, audio: bytes, audio_format: AudioFormat) -> str:
+            return "a different sentence"
+
+        def transcribe_with_confidence(
+            self, audio: bytes, audio_format: AudioFormat
+        ) -> Transcription:
+            return Transcription(
+                text="a different sentence", confidence=-1.02, no_speech=0.09, temperature=0.2
+            )
+
+    path = speech_like_wav(tmp_path / "speech.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr("on_the_fly.app.cli.FasterWhisperRecognizer", lambda *a, **k: Uncertain())
+
+    assert main(["transcribe", str(path), "--cache-dir", str(tmp_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "a different sentence" in output, "the text is withheld rather than flagged"
+    assert "rejected its own first answer" in output
+    assert "-1.02" in output
+
+
+def test_a_confident_transcript_carries_no_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Otherwise the marker means nothing. Every clip this project measured that comes back
+    correct is decoded at temperature 0."""
+
+    class Confident:
+        def transcribe(self, audio: bytes, audio_format: AudioFormat) -> str:
+            return "the right sentence"
+
+        def transcribe_with_confidence(
+            self, audio: bytes, audio_format: AudioFormat
+        ) -> Transcription:
+            return Transcription(
+                text="the right sentence", confidence=-0.36, no_speech=0.01, temperature=0.0
+            )
+
+    path = speech_like_wav(tmp_path / "speech.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr("on_the_fly.app.cli.FasterWhisperRecognizer", lambda *a, **k: Confident())
+
+    assert main(["transcribe", str(path), "--cache-dir", str(tmp_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "the right sentence" in output
+    assert "rejected" not in output
+
+
+def test_the_json_reports_the_confidence_and_the_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Uncertain:
+        def transcribe(self, audio: bytes, audio_format: AudioFormat) -> str:
+            return "text"
+
+        def transcribe_with_confidence(
+            self, audio: bytes, audio_format: AudioFormat
+        ) -> Transcription:
+            return Transcription(text="text", confidence=-1.0444, no_speech=0.1, temperature=1.0)
+
+    path = speech_like_wav(tmp_path / "speech.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr("on_the_fly.app.cli.FasterWhisperRecognizer", lambda *a, **k: Uncertain())
+
+    assert main(["transcribe", str(path), "--cache-dir", str(tmp_path), "--json"]) == 0
+
+    utterance = json.loads(capsys.readouterr().out)["utterances"][0]
+    assert utterance["confidence"] == -1.044
+    assert utterance["failed_decode"] is True
+
+
+def test_a_recogniser_with_no_opinion_is_not_reported_as_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`None` is not a complaint. Treating it as one would put a warning on every caption
+    produced by a recogniser that reports nothing."""
+    path = speech_like_wav(tmp_path / "speech.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.FasterWhisperRecognizer", lambda *a, **k: FakeRecognizer("plain")
+    )
+
+    assert main(["transcribe", str(path), "--cache-dir", str(tmp_path), "--json"]) == 0
+
+    utterance = json.loads(capsys.readouterr().out)["utterances"][0]
+    assert utterance["confidence"] is None
+    assert utterance["failed_decode"] is False

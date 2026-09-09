@@ -564,11 +564,29 @@ def format_transcript(
                     "recognition_seconds": round(record.recognition_seconds or 0.0, 3),
                     "text": text,
                     "translation": (translations or {}).get(record.index),
+                    # `None` when the recogniser does not report one, which is not the same
+                    # as being sure (ADR 0042).
+                    "confidence": (
+                        None if record.confidence is None else round(record.confidence, 3)
+                    ),
+                    "failed_decode": record.decode_fell_back,
                 }
             )
         else:
             timing = f"[{record.start_seconds:7.2f}s +{record.duration_seconds:4.2f}s]"
             lines.append(f"  {timing} {text or '(nothing recognised)'}")
+            if record.decode_fell_back:
+                # Said rather than hidden. The text is still shown, because a user who can
+                # read the language is a better judge of it than a threshold — but it is the
+                # difference between a transcript and something the model itself gave up on
+                # (ADR 0042).
+                confidence = (
+                    "" if record.confidence is None else f", confidence {record.confidence:.2f}"
+                )
+                lines.append(
+                    f"  {'':>21} ! the model rejected its own first answer here"
+                    f"{confidence}; treat this as unrecognised"
+                )
             rendered = (translations or {}).get(record.index)
             if rendered:
                 lines.append(f"  {'':>21} {ARROW} {rendered}")
