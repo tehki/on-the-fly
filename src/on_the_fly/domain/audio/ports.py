@@ -13,7 +13,7 @@ decision under Article 12 and is made separately.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from on_the_fly.domain.audio.formats import AudioFormat
 
@@ -66,6 +66,22 @@ class SpeechRecognizer(Protocol):
     """
 
     def transcribe(self, audio: bytes, audio_format: AudioFormat) -> str: ...
+
+
+@runtime_checkable
+class ConfidenceReporting(Protocol):
+    """A recogniser that will say how sure it was.
+
+    Optional, and asked for with `isinstance` rather than assumed, because the two engines
+    genuinely differ: Whisper reports a log probability per segment, and the streaming
+    transducer reports nothing of the kind. Widening `SpeechRecognizer` would make every
+    implementation answer a question only one of them can (ADR 0042).
+
+    The returned object carries `text` and `confidence`; the domain does not need to know
+    what else is on it.
+    """
+
+    def transcribe_with_confidence(self, audio: bytes, audio_format: AudioFormat) -> Any: ...
 
 
 class Translator(Protocol):
