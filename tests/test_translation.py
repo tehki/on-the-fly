@@ -27,7 +27,9 @@ from on_the_fly.infrastructure.translation import (
     TranslationError,
     TranslationModelStore,
     UnsupportedPairError,
+    open_translator,
     resolve,
+    resolve_engine,
     sentence_case,
 )
 from on_the_fly.infrastructure.translation.artifacts import (
@@ -725,3 +727,59 @@ def test_a_failed_conversion_leaves_nothing_behind(tmp_path: Path) -> None:
 
     assert not converted.exists()
     assert not converted.with_name(converted.name + ".partial").exists()
+
+
+# ---------------------------------------------------------------------------------------
+# From the choice to the loader
+#
+# `open_translator` forwards the two overrides that exist for `scripts/measure_translation.py`
+# — the beam width ADR 0009 traded away and the thread count ADR 0014 measured. Nothing
+# asserted that they arrive. A mutation dropping them survived every test in this file, and a
+# measurement labelled "beam 6" would have reported greedy numbers into an ADR.
+# ---------------------------------------------------------------------------------------
+
+
+class LoadedWith:
+    """Stands in for a loaded model, holding the keyword arguments it was built with."""
+
+    def __init__(self, **extra: int) -> None:
+        self.extra = extra
+
+
+@pytest.fixture
+def loader(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def fake_ensure(self: object, artefact: object) -> tuple[Path, Path]:
+        return tmp_path / "converted", tmp_path / "marian"
+
+    def fake_load(
+        converted: Path,
+        spm: Path,
+        *,
+        source_language: str,
+        target_language: str,
+        **extra: int,
+    ) -> LoadedWith:
+        return LoadedWith(**extra)
+
+    monkeypatch.setattr(TranslationModelStore, "ensure", fake_ensure)
+    monkeypatch.setattr("on_the_fly.infrastructure.translation.opus_mt.load", fake_load)
+
+
+@pytest.mark.usefixtures("loader")
+def test_the_overrides_reach_the_loader(tmp_path: Path) -> None:
+    translator = open_translator(
+        resolve_engine(("en", "ru")), tmp_path, beam_size=6, intra_threads=3
+    )
+
+    assert isinstance(translator, LoadedWith)
+    assert translator.extra == {"beam_size": 6, "intra_threads": 3}
+
+
+@pytest.mark.usefixtures("loader")
+def test_the_application_passes_neither_and_gets_the_shipped_defaults(tmp_path: Path) -> None:
+    """Absent rather than `None`: the loader's own defaults are the shipped settings, and
+    passing `None` through would override them with nothing."""
+    translator = open_translator(resolve_engine(("en", "ru")), tmp_path)
+
+    assert isinstance(translator, LoadedWith)
+    assert translator.extra == {}
