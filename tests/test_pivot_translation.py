@@ -14,14 +14,19 @@ already owed.
 
 from __future__ import annotations
 
+import dataclasses
+from pathlib import Path
+
 import pytest
 
 from on_the_fly.app.cli import _describe_translation as describe_translation
 from on_the_fly.infrastructure.translation import (
     KNOWN_ARTIFACTS,
     TranslationArtifactError,
+    open_translator,
     resolve_engine,
 )
+from on_the_fly.infrastructure.translation.artifacts import TranslationModelStore
 from on_the_fly.infrastructure.translation.engines import TranslationEngine
 from on_the_fly.infrastructure.translation.pivot import PIVOT_LANGUAGE, PivotTranslator
 
@@ -163,6 +168,17 @@ def test_a_language_to_itself_is_refused_rather_than_bridged() -> None:
         resolve_engine(("es", "es"))
 
 
+@pytest.mark.parametrize("code", ["de", "it", "fr", "ru"])
+def test_a_language_to_itself_is_refused_even_when_both_legs_exist(code: str) -> None:
+    """The case the `es` one cannot reach. German has both `de->en` and `en->de` pinned, so
+    a guard that asked for the wrong combination of conditions would happily build
+    `de->en->de` — a round trip through English, offered as a translation, for a request that
+    was never a pair. Found by a mutation that survived every other test here.
+    """
+    with pytest.raises(TranslationArtifactError, match="no pinned translation model"):
+        resolve_engine((code, code))
+
+
 def test_english_bridges_because_every_pinned_pair_touches_it() -> None:
     """The choice of bridge, asserted rather than assumed. A pinned pair with no English
     side would make this the wrong language to route through."""
@@ -201,3 +217,112 @@ def test_both_models_are_credited_where_a_user_can_read_it(
     describe_translation(choice)
 
     assert choice.attribution in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------------------
+# Loading. `resolve` decides the route; this is the part that builds it, and a mutation
+# sweep found it untested: swapping the two legs, or passing the same one twice, was caught
+# by nothing.
+# --------------------------------------------------------------------------------------
+
+
+class RecordingLeg:
+    """A loaded model, standing in for one. Reports which pair it was loaded for."""
+
+    def __init__(self, pair: tuple[str, str], log: list[tuple[str, str, str]]) -> None:
+        self.pair = pair
+        self._log = log
+
+    def translate(self, text: str, *, source_language: str, target_language: str) -> str:
+        self._log.append((text, source_language, target_language))
+        return f"{text} via {self.pair[0]}-{self.pair[1]}"
+
+
+@pytest.fixture
+def loaded_legs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[tuple[str, str, str]]:
+    """Every leg `open_translator` loads becomes a `RecordingLeg`, no model touched."""
+    log: list[tuple[str, str, str]] = []
+
+    def fake_ensure(self: object, artefact: object) -> tuple[Path, Path]:
+        return tmp_path / "converted", tmp_path / "marian"
+
+    def fake_load(
+        converted: Path,
+        spm: Path,
+        *,
+        source_language: str,
+        target_language: str,
+        **extra: int,
+    ) -> RecordingLeg:
+        return RecordingLeg((source_language, target_language), log)
+
+    monkeypatch.setattr(TranslationModelStore, "ensure", fake_ensure)
+    monkeypatch.setattr("on_the_fly.infrastructure.translation.opus_mt.load", fake_load)
+    return log
+
+
+def test_the_two_legs_are_loaded_in_the_order_they_are_used(
+    loaded_legs: list[tuple[str, str, str]], tmp_path: Path
+) -> None:
+    """`fr->en` first and `en->ru` second. Loading the same leg twice, or in the other
+    order, produces a translator that runs `fr->en` on Russian and is caught by nothing
+    downstream — the output would be fluent and wrong.
+    """
+    translator = open_translator(resolve_engine(("fr", "ru")), tmp_path)
+
+    translator.translate("bonjour", source_language="fr", target_language="ru")
+
+    assert loaded_legs == [
+        ("bonjour", "fr", "en"),
+        ("bonjour via fr-en", "en", "ru"),
+    ]
+
+
+def test_both_legs_are_loaded_before_the_first_sentence(
+    loaded_legs: list[tuple[str, str, str]], tmp_path: Path
+) -> None:
+    """A pair that cannot be served should fail while the caller is still starting up, not
+    midway through the first thing somebody says (ADR 0037). Asserted by loading and never
+    translating: a lazily opened second leg would show up as an unloaded one."""
+    loads: list[tuple[str, str]] = []
+
+    translator = open_translator(resolve_engine(("ru", "fr")), tmp_path)
+    for attribute in ("_first", "_second"):
+        leg = getattr(translator, attribute)
+        assert isinstance(leg, RecordingLeg), f"{attribute} is not a loaded model"
+        loads.append(leg.pair)
+
+    assert loads == [("ru", "en"), ("en", "fr")]
+    assert loaded_legs == [], "nothing was translated, and nothing should have been"
+
+
+def test_a_direct_pair_is_not_wrapped_in_a_route(
+    loaded_legs: list[tuple[str, str, str]], tmp_path: Path
+) -> None:
+    translator = open_translator(resolve_engine(("fr", "en")), tmp_path)
+
+    assert isinstance(translator, RecordingLeg)
+
+
+# --------------------------------------------------------------------------------------
+# Two defaults that a mutation flipped without any test noticing
+# --------------------------------------------------------------------------------------
+
+
+def test_opening_a_translator_never_downloads_unless_asked() -> None:
+    """`docs/SECURITY_PRIVACY.md` states `allow_download` defaults to false. That is a
+    property of this signature as much as of the stores' — a caller reaching a model over
+    the network because a default flipped would satisfy every other test in this file."""
+    import inspect
+
+    assert inspect.signature(open_translator).parameters["allow_download"].default is False
+
+
+def test_a_resolved_choice_cannot_be_edited_after_the_fact() -> None:
+    """It carries the licence and the attribution, and it is handed to the command line, the
+    window and the loader in turn. Any of them being able to rewrite it would make the
+    displayed attribution a different statement from the one that was resolved."""
+    choice = resolve_engine(("fr", "ru"))
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        choice.name = "something else"  # type: ignore[misc]
