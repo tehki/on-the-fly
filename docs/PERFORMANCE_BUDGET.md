@@ -1365,6 +1365,47 @@ leg whatever the pair.** It beats a weak direct model (`fr→ru`, 57.27) and los
 one (`fr→de`, 68.07). It is a route, not a quality improvement, and the pairs where it is used
 are the pairs where nothing else can be pinned on both engines.
 
+## Twenty-sixth measurement — 2026-09-09, Italian, and six readings on bridging
+
+Taken to decide Italian (ADR 0039). Same script, same metric, 1000 sentences of the
+publisher's own `it-en` test set, load average 8 to 12 on four cores.
+
+| pair | theirs (beam 6) | ours (greedy) | greedy costs | p50 | p95 |
+| --- | --- | --- | --- | --- | --- |
+| `it→en` | 80.44 | 79.85 | 0.59 | 177 ms | 339 ms |
+
+**Both engines:** CTranslate2 79.85 against ONNX 79.66, −0.19, with ONNX p50 432 ms against
+177 ms — the widest latency ratio measured between the two, 2.4x, on the fastest pair.
+
+**79.85 is the highest chrF2 in this file and the least comparable number in it.** Every row
+above it is a different test set, and chrF2 across pairs measures the sentences as much as the
+model. The comparable figures are the 0.59 against the publisher's own output on identical
+text — the smallest greedy cost recorded here — and the 177 ms.
+
+**The bridge, measured for the third pair.** Italian into French and German, against each
+direct model's own output:
+
+| direction | direct model | via English | difference |
+| --- | --- | --- | --- |
+| `it→fr` | 79.07 | 69.17 | −9.90 |
+| `it→de` | 66.60 | 64.28 | −2.32 |
+
+Six readings now, and they resolve into one statement. What a bridge **scores** moves with the
+pair. What it **loses** moves with the strength of the direct model it is being compared to:
+
+| direct model's score | bridge's loss |
+| --- | --- |
+| 57.27 (`fr→ru`) | **+5.44** — the bridge wins |
+| 65.99 (`ru→fr`) | −4.94 |
+| 66.60 (`it→de`) | −2.32 |
+| 67.00 (`de→fr`) | −4.52 |
+| 68.07 (`fr→de`) | −3.66 |
+| 79.07 (`it→fr`) | −9.90 |
+
+The largest loss measured is against the strongest direct model measured, which is the same
+fact stated twice. Bridging is a route to a pair that has none; it is not a reason to skip
+pinning a direct model wherever one can be pinned on both engines.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
@@ -1380,8 +1421,8 @@ controlled load environment. `ru→en` has a real distribution on spontaneous sp
 closed the gap the seventh measurement recorded, and the pair count closed with it — the
 sixteenth and seventeenth measurements cover **four** pairs on two engines, where this line
 once said two, the twenty-fourth adds the remaining two by bridging them (ADR 0037), and the
-twenty-fifth adds German (ADR 0038) — twelve ordered pairs among four languages, six pinned
-and six bridged. One remaining gap is a product decision, one is hardware, and one — a quiet
+twenty-fifth adds German (ADR 0038) and the twenty-sixth Italian in one direction (ADR 0039)
+— sixteen ordered pairs among five languages, seven pinned and nine bridged. One remaining gap is a product decision, one is hardware, and one — a quiet
 machine — is what the eighth measurement shows matters most.
 
 The fifteenth measurement adds a caution rather than a number: every accuracy figure in this

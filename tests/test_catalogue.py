@@ -113,12 +113,28 @@ def test_translation_targets_come_from_the_pinned_pairs() -> None:
     assert [lang.code for lang in translation_targets("ru")] == ["en", "fr", "de"]
     assert [lang.code for lang in translation_targets("fr")] == ["en", "de", "ru"]
     assert [lang.code for lang in translation_targets("de")] == ["en", "fr", "ru"]
+    assert [lang.code for lang in translation_targets("it")] == ["en", "fr", "de", "ru"]
 
 
 def test_a_source_with_no_pinned_pair_offers_no_targets() -> None:
     """Spanish is recognised at the batch tier and translated by nothing. German was here
     until ADR 0038, and the difference between them is a pinned artefact, not a tier."""
     assert translation_targets("es") == ()
+
+
+def test_italian_can_be_translated_from_and_not_into() -> None:
+    """The asymmetry is the decision, not an oversight (ADR 0039).
+
+    `en-it` publishes a sentencepiece archive that would convert here; what it has no usable
+    ONNX export of is the other engine, so pinning it would serve the pair on the desktop and
+    never on a phone. German is the mirror image — a target that cannot be a source — and
+    between them they are why the two questions are asked separately.
+    """
+    assert "en" in {lang.code for lang in translation_targets("it")}
+    for source in ("en", "fr", "de", "ru"):
+        assert "it" not in {lang.code for lang in translation_targets(source)}, (
+            f"{source}->it is offered and nothing pins it"
+        )
 
 
 def test_a_language_is_never_a_translation_target_for_itself() -> None:
@@ -157,6 +173,9 @@ def test_the_onnx_engine_is_asked_about_its_own_artefacts() -> None:
         ("ru", "de"),
         ("de", "fr"),
         ("fr", "de"),
+        ("it", "fr"),
+        ("it", "de"),
+        ("it", "ru"),
     }, "everything that does not touch English, and nothing that does"
 
 

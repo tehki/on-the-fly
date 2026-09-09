@@ -365,6 +365,55 @@ ONNX_OPUS_MT_EN_DE = OnnxTranslationModel(
 )
 
 
+# Italian into English (ADR 0039). The chain was followed on 2026-09-09 as ADR 0033 requires:
+# `onnx-community` names `Helsinki-NLP/opus-mt-it-en` as its base model, and that checkpoint
+# names `it-en/opus-2019-12-18.zip` — the sentencepiece release, not the BPE one — as its
+# original weights.
+#
+# **The other direction was refused, and it is the interesting half.**
+# `onnx-community/opus-mt-en-it` exists, in the organisation ADR 0018 admitted, and is a bare
+# upload: no README, no card metadata, no declared licence, no declared base model. ADR 0018's
+# admission rested on the *repository* declaring `cc-by-4.0` and naming its weights, which is
+# evidence about an artefact rather than trust in a namespace; an export inside the same
+# organisation that declares neither is refused the same way `Xenova` was. So Italian is a
+# source and not a target.
+_IT_EN_FILES = {
+    "onnx/encoder_model_int8.onnx": (
+        "f7e1727c4d1385edc24e3ca157f156425aa9a5a3fffbe378d963c1a6b80104b6"
+    ),
+    "onnx/decoder_model_int8.onnx": (
+        "428c02f20796fbc96494c42e574a9ca1d3aaecd80a6e9853922d84845818e918"
+    ),
+    "onnx/decoder_with_past_model_int8.onnx": (
+        "e801e3d97380c518100358754ccb0abcab9661a33581674d1e96773b24fd31d7"
+    ),
+    "source.spm": "1bd307e2756991d470e4b40172147f7889b46a323b1a9a2150e66274825b1f21",
+    "target.spm": "5d0ea845f1daa59c379e797de366607b75594935f7c6d476c933e527bf25e0a8",
+    "vocab.json": "08e5b03ab20b2b9b85d41aed1b36dce2650afcb6e96274a06b7869b2e06884d5",
+    "config.json": "359f50ea011d91e689fc08a4e530904f2161a3f013821d91e16c962384bc80a1",
+    "generation_config.json": ("b410426ea76fd01de6043eddfc40131b5a904c325f7fa7978110f9c5c40643a7"),
+}
+
+ONNX_OPUS_MT_IT_EN = OnnxTranslationModel(
+    name="onnx-opus-mt-it-en",
+    pin=ModelPin(
+        name="onnx-opus-mt-it-en",
+        repo_id="onnx-community/opus-mt-it-en",
+        revision="3269f6d8f9200fe822744a65ccc9391763f24aa8",
+        licence="CC-BY-4.0",
+        digests=_IT_EN_FILES,
+    ),
+    source_language="it",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "Italian-English translation by OPUS-MT (Helsinki-NLP), model opus-2019-12-18, "
+        "licensed CC-BY-4.0. ONNX conversion by onnx-community. "
+        "https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+)
+
+
 KNOWN_ONNX_MODELS: dict[str, OnnxTranslationModel] = {
     ONNX_OPUS_MT_EN_RU.name: ONNX_OPUS_MT_EN_RU,
     ONNX_OPUS_MT_RU_EN.name: ONNX_OPUS_MT_RU_EN,
@@ -372,6 +421,7 @@ KNOWN_ONNX_MODELS: dict[str, OnnxTranslationModel] = {
     ONNX_OPUS_MT_FR_EN.name: ONNX_OPUS_MT_FR_EN,
     ONNX_OPUS_MT_DE_EN.name: ONNX_OPUS_MT_DE_EN,
     ONNX_OPUS_MT_EN_DE.name: ONNX_OPUS_MT_EN_DE,
+    ONNX_OPUS_MT_IT_EN.name: ONNX_OPUS_MT_IT_EN,
 }
 
 
