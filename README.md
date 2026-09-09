@@ -79,8 +79,18 @@ times out of five, where the log probability everyone quotes separates them once
 The text is printed either way. A reader who knows the language judges a transcript better than
 a threshold does, and a product that quietly dropped what it was unsure about would be hiding
 its own failures. What changes is that nobody is left alone with a fluent sentence and no
-reason to doubt it. It covers `transcribe` and not the live captions: the streaming transducer
-emits no comparable signal, and ADR 0021's gap is closed on one side only.
+reason to doubt it.
+
+**The streaming side reports a number and refuses to judge it**
+([ADR 0043](docs/adr/0043-what-the-streaming-recogniser-thought.md)). sherpa-onnx does report a
+log probability per token, so `stream` and `listen` now print
+`confidence -0.35 median over 3 final(s)`. What it will not do is warn on it: measured across
+five clips decoded by the right model and the wrong one, the worst correct run scores -0.827
+and the best wrong one -0.875, and the clip responsible is the one Whisper also fails on —
+hard audio, recognised correctly, scoring like a mismatched model. An earlier draft warned at
+-0.75 and told a user their French was not French while transcribing it correctly. The
+strongest signal in that table is not a score at all: **the French model emitted nothing
+whatever on English audio**, twice.
 
 Russian, measured the same day, does the opposite: `tiny` differs from the pinned Russian
 model by **2 words in 12**, and both are spellings rather than misrecognitions. Two

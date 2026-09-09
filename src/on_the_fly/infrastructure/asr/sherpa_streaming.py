@@ -149,6 +149,47 @@ class StreamingRecognitionError(Exception):
     """The streaming recogniser could not load, or could not process its audio."""
 
 
+# There is no threshold here, and that is the finding rather than an omission.
+#
+# Measured 2026-09-09 through the shipped pipeline, five published clips, each decoded by its
+# own language's model and by the other one, taking the median of the run's finals (ADR 0043):
+#
+#     right model   -0.249  -0.311  -0.351  -0.435  -0.827
+#     wrong model                           -0.875  -1.114  -1.376
+#
+# The populations touch. The worst correct run and the best wrong one are 0.05 apart, and the
+# clip responsible is the one Whisper also fails on — genuinely hard audio, correctly
+# recognised, scoring like a mismatched model. A line drawn between them would be drawn
+# through a gap this sample does not have.
+#
+# So the number is reported and nothing is inferred from it. What it is good for is the next
+# measurement, which is what it was collected for.
+
+
+def _mean_token_confidence(recognizer: Any, stream: Any) -> float | None:
+    """The mean log probability of the tokens this utterance emitted, or `None`.
+
+    sherpa-onnx reports one per emitted token. Measured on the five published clips this
+    project holds references for, and on the same audio put through the wrong language's
+    model (ADR 0043): recognition that is right scores -0.25 to -0.57, and the confident
+    nonsense a mismatched model produces scores -0.88 to -1.47.
+
+    `None` rather than a number when nothing was emitted or the runtime does not report
+    probabilities — an older sherpa-onnx has no `ys_probs`, and a recogniser that cannot say
+    is entitled not to rather than to be given a default that reads as certainty.
+    """
+    probabilities = getattr(recognizer, "ys_probs", None)
+    if probabilities is None:  # pragma: no cover - present since sherpa-onnx 1.9
+        return None
+    try:
+        values = [float(value) for value in probabilities(stream)]
+    except Exception:  # pragma: no cover - a runtime that reports nothing usable
+        return None
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
 class SherpaStreamingRecognizer:
     """A streaming transducer that emits partial and final results."""
 
@@ -287,7 +328,17 @@ class SherpaStreamingRecognizer:
         if is_endpoint:
             if text:
                 self._utterances += 1
-                events.append(self._event(text, is_final=True, end_reason=self._why_it_ended()))
+                # Read before `reset`, which clears the stream's decoded tokens along with
+                # everything else.
+                confidence = _mean_token_confidence(recognizer, stream)
+                events.append(
+                    self._event(
+                        text,
+                        is_final=True,
+                        end_reason=self._why_it_ended(),
+                        confidence=confidence,
+                    )
+                )
             else:
                 # An endpoint with nothing decoded in it. Invisible to a caller before this
                 # was counted, which made a long silence and a broken ceiling look identical
@@ -344,7 +395,14 @@ class SherpaStreamingRecognizer:
             return ()
 
         self._utterances += 1
-        return (self._event(text, is_final=True, end_reason=EndReason.FLUSH),)
+        return (
+            self._event(
+                text,
+                is_final=True,
+                end_reason=EndReason.FLUSH,
+                confidence=_mean_token_confidence(recognizer, stream),
+            ),
+        )
 
     def reset(self) -> None:
         """Discard in-flight state. The loaded model is kept; reloading costs seconds."""
@@ -358,7 +416,12 @@ class SherpaStreamingRecognizer:
         self._utterance_started_at = 0.0
 
     def _event(
-        self, text: str, *, is_final: bool, end_reason: EndReason | None = None
+        self,
+        text: str,
+        *,
+        is_final: bool,
+        end_reason: EndReason | None = None,
+        confidence: float | None = None,
     ) -> TranscriptEvent:
         duration = self._audio_seconds - self._utterance_started_at
         return TranscriptEvent(
@@ -372,6 +435,7 @@ class SherpaStreamingRecognizer:
             latency_seconds=0.0,
             duration_seconds=duration if is_final else None,
             end_reason=end_reason,
+            confidence=confidence,
         )
 
     def _why_it_ended(self) -> EndReason:

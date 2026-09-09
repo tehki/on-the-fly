@@ -7,9 +7,12 @@ skip when it is absent, so a clone with no model cache still runs the whole suit
 
 from __future__ import annotations
 
+import sys
 import tempfile
+import types
 import wave
 from array import array
+from collections.abc import Iterable
 from itertools import pairwise
 from pathlib import Path
 
@@ -32,6 +35,7 @@ from on_the_fly.infrastructure.asr.sherpa_streaming import (
     MAX_UTTERANCE_SECONDS,
     SILENCE_AFTER_SPEECH_SECONDS,
     SILENCE_BEFORE_ANY_SPEECH_SECONDS,
+    StreamingLayout,
 )
 from on_the_fly.infrastructure.model_store import ModelStore, ModelStoreError
 
@@ -622,3 +626,130 @@ def test_the_recogniser_itself_defaults_to_one_thread() -> None:
     the desktop worker does — never passes through argparse.
     """
     assert SherpaStreamingRecognizer(Path("unused"))._num_threads == 1
+
+
+# ---------------------------------------------------------------------------------------
+# What the recogniser thought of a final (ADR 0043)
+#
+# sherpa-onnx reports a log probability per emitted token and this project was discarding
+# them. The number is reported; nothing is inferred from it, because the measured populations
+# for "right model" and "wrong model" overlap.
+#
+# Fake runtime rather than the real model: what is asserted is the plumbing and the handling
+# of a runtime that says nothing, and neither needs 73 MB of weights to demonstrate.
+# ---------------------------------------------------------------------------------------
+
+
+class FakeStream:
+    def __init__(self) -> None:
+        self.samples: list[float] = []
+
+    def accept_waveform(self, rate: int, samples: Iterable[float]) -> None:
+        self.samples.extend(samples)
+
+    def input_finished(self) -> None: ...
+
+
+class FakeOnlineRecognizer:
+    """Enough of sherpa-onnx's surface to drive `accept` and `finish`."""
+
+    def __init__(self, text: str, probabilities: list[float] | None) -> None:
+        self._text = text
+        self._probabilities = probabilities
+        self.endpoint = False
+        self.resets = 0
+        if probabilities is None:
+            # An older sherpa-onnx: no `ys_probs` attribute at all.
+            del FakeOnlineRecognizer.ys_probs
+
+    def create_stream(self) -> FakeStream:
+        return FakeStream()
+
+    def is_ready(self, stream: FakeStream) -> bool:
+        return False
+
+    def decode_stream(self, stream: FakeStream) -> None: ...
+
+    def get_result(self, stream: FakeStream) -> str:
+        return self._text
+
+    def is_endpoint(self, stream: FakeStream) -> bool:
+        return self.endpoint
+
+    def reset(self, stream: FakeStream) -> None:
+        self.resets += 1
+
+    def ys_probs(self, stream: FakeStream) -> list[float]:
+        return list(self._probabilities or [])
+
+
+def streaming_with(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    text: str,
+    probabilities: list[float] | None,
+) -> tuple[SherpaStreamingRecognizer, FakeOnlineRecognizer]:
+    fake = FakeOnlineRecognizer(text, probabilities)
+    module = types.ModuleType("sherpa_onnx")
+    module.OnlineRecognizer = types.SimpleNamespace(  # type: ignore[attr-defined]
+        from_transducer=lambda **kwargs: fake
+    )
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", module)
+
+    layout = StreamingLayout(
+        encoder="encoder.onnx", decoder="decoder.onnx", joiner="joiner.onnx", tokens="tokens.txt"
+    )
+    for name in (layout.encoder, layout.decoder, layout.joiner, layout.tokens):
+        (tmp_path / name).write_bytes(b"x")
+    return SherpaStreamingRecognizer(tmp_path, layout=layout), fake
+
+
+def one_final(
+    recognizer: SherpaStreamingRecognizer, fake: FakeOnlineRecognizer
+) -> list[TranscriptEvent]:
+    """Feed a frame, then a frame the fake calls an endpoint."""
+    frame = b"\x00\x00" * 160
+    events = list(recognizer.accept(frame))
+    fake.endpoint = True
+    return events + list(recognizer.accept(frame))
+
+
+def test_a_final_carries_what_the_recogniser_thought_of_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The mean of the token probabilities, read before `reset` clears them."""
+    recognizer, fake = streaming_with(monkeypatch, tmp_path, "hello there", [-0.2, -0.4])
+
+    finals = [event for event in one_final(recognizer, fake) if event.is_final]
+
+    assert finals and finals[0].confidence == pytest.approx(-0.3)
+    assert fake.resets == 1, "the confidence must be read before the stream is reset"
+
+
+def test_a_partial_carries_no_confidence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """It has not ended, so there is nothing to have an opinion about yet."""
+    recognizer, _ = streaming_with(monkeypatch, tmp_path, "partial text", [-0.2])
+
+    partials = [event for event in recognizer.accept(b"\x00\x00" * 160) if not event.is_final]
+
+    assert partials and all(event.confidence is None for event in partials)
+
+
+def test_a_runtime_that_reports_nothing_is_not_treated_as_certain(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An older sherpa-onnx has no `ys_probs`. `None` says the recogniser did not say;
+    defaulting to a number would say it was sure."""
+    recognizer, fake = streaming_with(monkeypatch, tmp_path, "hello", None)
+
+    finals = [event for event in one_final(recognizer, fake) if event.is_final]
+
+    assert finals and finals[0].confidence is None
+
+
+def test_no_tokens_means_no_confidence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    recognizer, fake = streaming_with(monkeypatch, tmp_path, "hello", [])
+
+    finals = [event for event in one_final(recognizer, fake) if event.is_final]
+
+    assert finals and finals[0].confidence is None

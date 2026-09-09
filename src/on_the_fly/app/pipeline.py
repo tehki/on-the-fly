@@ -15,6 +15,7 @@ Everything this returns is metadata. Utterance audio stays in the store and expi
 
 from __future__ import annotations
 
+import statistics
 import time
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
@@ -329,6 +330,21 @@ class StreamingStats:
     first_text_after_seconds: float | None
     final_reap: ReapReport
     entries_remaining: int
+    # The recogniser's own confidence in each final, in order, for the finals where it said.
+    # A run's worth of them is what the wrong source language looks like from outside
+    # (ADR 0043); one is too small a thing to act on.
+    confidences: tuple[float, ...] = ()
+
+    @property
+    def median_confidence(self) -> float | None:
+        """The middle of them, or `None` when the recogniser reported none.
+
+        The median and not the mean: one hard utterance in a good run should not drag the
+        figure, and one lucky utterance in a bad run should not rescue it.
+        """
+        if not self.confidences:
+            return None
+        return statistics.median(self.confidences)
 
     @property
     def real_time_factor(self) -> float:
@@ -411,6 +427,7 @@ class StreamingRun:
         audio_seconds = 0.0
         partials = 0
         finals = 0
+        confidences: list[float] = []
         first_text_after: float | None = None
         started = time.monotonic()
 
@@ -424,6 +441,8 @@ class StreamingRun:
                         first_text_after = audio_seconds
                     if event.is_final:
                         finals += 1
+                        if event.confidence is not None:
+                            confidences.append(event.confidence)
                         self._final_handles.append(
                             self._store.put(event.text, label="speech_recognition_transcript")
                         )
@@ -434,6 +453,8 @@ class StreamingRun:
             for event in self._recognizer.finish():
                 if event.is_final:
                     finals += 1
+                    if event.confidence is not None:
+                        confidences.append(event.confidence)
                     self._final_handles.append(
                         self._store.put(event.text, label="speech_recognition_transcript")
                     )
@@ -453,4 +474,5 @@ class StreamingRun:
                 first_text_after_seconds=first_text_after,
                 final_reap=reap,
                 entries_remaining=len(self._store),
+                confidences=tuple(confidences),
             )
