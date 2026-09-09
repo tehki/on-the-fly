@@ -16,7 +16,9 @@ Live speech translation. Speak without bounds with anyone worldwide.
 > ([ADR 0037](docs/adr/0037-french-and-russian-through-english.md)). **German joined as a
 > translation target** ([ADR 0038](docs/adr/0038-german-translation.md)) — it does not stream,
 > and it does not have to: twelve of the twelve ordered pairs among English, Russian, French
-> and German now resolve, half pinned and half bridged.
+> and German now resolve, half pinned and half bridged. **Italian is the mirror**
+> ([ADR 0039](docs/adr/0039-italian-one-way.md)) — a source that is not a target, four more
+> pairs, and the only one of the remaining three languages that could be taken at all.
 >
 > **Three of the seven languages stream**, using sherpa-onnx with pinned Apache-2.0 models
 > ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md),
@@ -173,6 +175,33 @@ the publisher's own manifest calls it `normalization + tokenization + BPE`, wher
 artefact here tokenises with sentencepiece. German publishes three releases per direction and
 two of them are the same trap; the pin is an exact URL and a test reads the year out of it. The
 largest of the four remaining languages is blocked on a release somebody else has not made.
+
+**Italian goes the other way: a source that is not a target**
+([ADR 0039](docs/adr/0039-italian-one-way.md)). Somebody speaking Italian can be understood in
+English, French, German or Russian; nobody can be answered in Italian. `en-it` publishes a
+sentencepiece archive that would convert here — what it has no usable ONNX export of is the
+other engine, and a pair served on the desktop and never on a phone is the invariant ADR 0033
+bought.
+
+| | theirs (beam 6) | ours (greedy) | p50 | CTranslate2 vs ONNX |
+| --- | --- | --- | --- | --- |
+| **`it→en`** | 80.44 | **79.85** | **177 ms** | 79.85 / 79.66 |
+
+That 79.85 is the highest score in this project and the one to be most careful with: these are
+different sentences from every other row, and chrF2 across pairs is not comparable. What is
+comparable is the 0.59 behind the publisher's own output **on identical text** — the smallest
+greedy cost measured here — and the 177 ms, which makes it the fastest pair served.
+
+**The refusal is the interesting half.** `onnx-community/opus-mt-en-it` exists, in the
+organisation ADR 0018 admitted, and is a bare upload: no README, no card metadata, no licence,
+no base model. That admission was never about a name — it rested on a repository declaring
+`cc-by-4.0` and naming the checkpoint it converted, which is evidence about an artefact.
+Treating it as a namespace would make the review a formality performed once.
+
+**Portuguese cannot be taken at all.** Its only OPUS-MT releases are BPE in both directions.
+There are sentencepiece Portuguese models in the Tatoeba-MT-models bucket, and no ONNX export
+of them exists — `onnx-community` has exported two `opus-mt-tc-big-*` models and both are
+Turkish. That road ends at a desktop-only pair.
 
 **The other four do not stream, and that is not waiting on effort.** They are waiting on two
 specific things, both somebody else's to fix — one commit adding a real licence file would make

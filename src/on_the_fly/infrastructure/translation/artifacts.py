@@ -269,6 +269,37 @@ OPUS_MT_EN_DE = MarianArtifact(
 )
 
 
+# Italian, in one direction only, and the asymmetry is the decision (ADR 0039). Somebody
+# speaking Italian can be understood; nobody can be answered in it. `en-it` publishes a
+# sentencepiece archive that would convert here — what it has no usable export of is ONNX,
+# so pinning it would serve the pair on CTranslate2 and never on a phone.
+#
+# `it-en` publishes two releases and only this one is sentencepiece: 2019-12-05 is
+# `normalization + tokenization + BPE`, the third time that trap has appeared (ADR 0032 for
+# French, ADR 0038 for German and Spanish). Verified 2026-09-09: HTTP 200, content-length
+# 318099514, last modified 2019-12-18, CC-BY-4.0 inside the archive as `LICENSE`.
+OPUS_MT_IT_EN = MarianArtifact(
+    name="opus-mt-it-en",
+    url="https://object.pouta.csc.fi/OPUS-MT-models/it-en/opus-2019-12-18.zip",
+    sha256="0f91e273d0c804c211c26f35cdb8baa3a5f32eadbfca4efe3d3340e3a8778df7",
+    source_language="it",
+    target_language="en",
+    licence="CC-BY-4.0",
+    attribution=(
+        "Italian-English translation by OPUS-MT (Helsinki-NLP), model opus-2019-12-18, "
+        "licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT"
+    ),
+    members=(
+        "decoder.yml",
+        "opus.spm32k-spm32k.transformer-align.model1.npz.best-perplexity.npz",
+        "opus.spm32k-spm32k.vocab.yml",
+        "source.spm",
+        "target.spm",
+        "LICENSE",
+    ),
+)
+
+
 KNOWN_ARTIFACTS: dict[str, MarianArtifact] = {
     OPUS_MT_EN_RU.name: OPUS_MT_EN_RU,
     OPUS_MT_RU_EN.name: OPUS_MT_RU_EN,
@@ -276,6 +307,7 @@ KNOWN_ARTIFACTS: dict[str, MarianArtifact] = {
     OPUS_MT_FR_EN.name: OPUS_MT_FR_EN,
     OPUS_MT_DE_EN.name: OPUS_MT_DE_EN,
     OPUS_MT_EN_DE.name: OPUS_MT_EN_DE,
+    OPUS_MT_IT_EN.name: OPUS_MT_IT_EN,
 }
 
 

@@ -37,6 +37,7 @@ from on_the_fly.infrastructure.translation.artifacts import (
     OPUS_MT_EN_FR,
     OPUS_MT_EN_RU,
     OPUS_MT_FR_EN,
+    OPUS_MT_IT_EN,
     OPUS_MT_RU_EN,
     file_digest,
 )
@@ -416,6 +417,29 @@ def test_german_translates_without_being_recognisable_here() -> None:
     """
     assert resolve(("en", "de")) is OPUS_MT_EN_DE
     assert resolve(("de", "en")) is OPUS_MT_DE_EN
+
+
+def test_the_pinned_italian_artefact_is_declared_correctly() -> None:
+    assert OPUS_MT_IT_EN.pair == ("it", "en")
+    assert OPUS_MT_IT_EN.licence == "CC-BY-4.0"
+    assert len(OPUS_MT_IT_EN.sha256) == 64
+    assert OPUS_MT_IT_EN.url.startswith("https://")
+
+
+def test_the_sentencepiece_italian_release_is_the_pinned_one() -> None:
+    """`it-en` publishes two releases and the earlier one is BPE — the third pair where that
+    is true, after French (ADR 0032) and German (ADR 0038)."""
+    assert "opus-2019-12-18" in OPUS_MT_IT_EN.url
+    assert "2019-12-05" not in OPUS_MT_IT_EN.url
+
+
+def test_italian_is_pinned_in_one_direction_only() -> None:
+    """Deliberate (ADR 0039): the ONNX export of `en-it` declares no licence and no base
+    model, so pinning the archive would serve that pair on one engine. Asserted here so the
+    missing direction reads as a decision rather than as something nobody got to."""
+    assert resolve(("it", "en")) is OPUS_MT_IT_EN
+    with pytest.raises(TranslationArtifactError, match="no pinned translation model"):
+        resolve(("en", "it"))
 
 
 def test_every_pinned_artefact_expects_sentencepiece() -> None:
