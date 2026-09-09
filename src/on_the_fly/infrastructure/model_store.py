@@ -40,7 +40,10 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
+
+from on_the_fly.infrastructure import parallel
 
 # Read in chunks: a model file is hundreds of megabytes and hashing it must not become a
 # memory decision (handbook 64I).
@@ -179,9 +182,22 @@ class ModelStore:
         return target.is_dir() and all((target / name).is_file() for name in pin.digests)
 
     def verify(self, pin: ModelPin, directory: Path) -> None:
-        """Check every pinned file. Raises `ModelIntegrityError` on the first mismatch."""
+        """Check every pinned file. Raises `ModelIntegrityError` on the first mismatch.
+
+        Every file is digested, on every call, on every start — that is the control, and it
+        is why an ONNX export costs 2.4 s of every launch. What changed is only *how*: the
+        cheap checks stay in declared order, then the files are hashed several at a time,
+        because hashing releases the GIL and a 178 MB decoder does not need the other two
+        graphs to wait for it.
+
+        Nothing about what is checked, or about which mismatch is reported, is different. The
+        one behavioural difference is in the failing case: every file is now hashed before the
+        first mismatch is raised, rather than stopping at it. A run that is about to refuse to
+        start can afford that.
+        """
         resolved = directory.resolve()
-        for filename, expected in pin.digests.items():
+        paths: dict[str, Path] = {}
+        for filename in pin.digests:
             path = (resolved / filename).resolve()
             if not path.is_relative_to(resolved):
                 raise ModelIntegrityError(
@@ -189,8 +205,11 @@ class ModelStore:
                 )
             if not path.is_file():
                 raise ModelIntegrityError(f"model {pin} is missing {filename!r} at {path}")
+            paths[filename] = path
 
-            actual = file_digest(path)
+        digests = parallel.each([partial(file_digest, path) for path in paths.values()])
+        for (filename, expected), actual in zip(pin.digests.items(), digests, strict=True):
+            path = paths[filename]
             if actual != expected:
                 # Left in place on purpose. Deleting it would destroy the evidence of what
                 # may be a supply-chain event, and re-downloading over it would hide that

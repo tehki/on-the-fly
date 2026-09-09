@@ -75,9 +75,18 @@ numbers are extreme.
 ## What this does not do
 
 - **It does not bring startup inside the budget.** 16.9 s against a 6 s hard limit is still
-  nearly three times over. What it removes is the part that was pure serialisation; what
-  remains is ONNX Runtime building sessions, which is 3.5 s of digest verification and about
-  8 s of session construction per model on this machine.
+  nearly three times over. What it removes is the part that was pure serialisation.
+
+  > **What remains, measured rather than inferred (2026-09-09).** This ADR first said "3.5 s
+  > of digest verification and about 8 s of session construction per model", which was
+  > arithmetic on a total rather than a measurement. Taken directly, for one ONNX export:
+  > **2.4 s of digest verification** and **3.5 s to 7.6 s to build the three graphs**, the
+  > spread depending on what is already resident — the second model built in a process is
+  > consistently slower than the first. Session construction alone, all three graphs, is
+  > 2.7 s at `ORT_ENABLE_ALL` and 1.3 s at `ORT_DISABLE_ALL`, so about half of it is
+  > optimisation performed at load time on every launch. The verification half is now
+  > **1.4 s**: the files are digested several at a time, which changes nothing about what is
+  > checked.
 - **It does not thread the running application.** Recognition and translation stay on exactly
   the path they were measured on, and ADR 0014's thread settings are untouched. This finishes
   before the first frame of audio is read.

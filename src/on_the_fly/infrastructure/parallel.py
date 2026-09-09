@@ -19,8 +19,12 @@ read.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+
+# Hashing is a chunked read and a C digest, both of which release the GIL, so more than a few
+# threads stops buying anything and starts competing with whatever else is loading.
+DEFAULT_WORKERS = 3
 
 
 def both[First, Second](
@@ -46,3 +50,32 @@ def both[First, Second](
         if second_error is not None:
             raise second_error
         return running_first.result(), running_second.result()
+
+
+def each[Result](
+    calls: Sequence[Callable[[], Result]], *, workers: int = DEFAULT_WORKERS
+) -> list[Result]:
+    """Run all of them, wait for all, return the results in the order they were given.
+
+    `both` for a list, with the same discipline: every call is finished before anything is
+    raised, and the failure reported is the earliest one in the given order rather than the
+    first to happen — so an error names the file a reader would look at first.
+
+    Used to digest a model's files, which is 2.4 s of a startup for one ONNX export and is
+    otherwise one file after another while three cores wait.
+    """
+    if not calls:
+        return []
+    if len(calls) == 1:
+        return [calls[0]()]
+
+    with ThreadPoolExecutor(
+        max_workers=min(len(calls), workers), thread_name_prefix="each"
+    ) as pool:
+        running = [pool.submit(call) for call in calls]
+        errors = [task.exception() for task in running]
+
+    for error in errors:
+        if error is not None:
+            raise error
+    return [task.result() for task in running]
