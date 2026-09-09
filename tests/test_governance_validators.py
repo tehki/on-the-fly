@@ -2017,6 +2017,44 @@ def test_a_validator_that_stopped_being_protected_is_refused() -> None:
     assert any("validate_repository_governance.py" in error for error in errors)
 
 
+def test_no_measurement_script_runs_a_shell() -> None:
+    """`measure_memory` starts the shipped command as a subprocess, which is new for this
+    family, and the manifest says it builds argv itself with no shell. A shell would make the
+    audio path an argument to `sh` — and the paths these tools take come from a caller."""
+    for script in sorted((governance_validator.REPO_ROOT / "scripts").glob("measure_*.py")):
+        for node in ast.walk(ast.parse(script.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "shell":
+                    assert isinstance(keyword.value, ast.Constant), f"{script.name}: shell=?"
+                    assert keyword.value.value is False, f"{script.name} runs a shell"
+
+
+def test_the_measured_run_prints_nothing_it_translated() -> None:
+    """The manifest's claim about `measure_memory`, which is the one with privacy in it: the
+    child is the real application over real audio, and its transcript is discarded rather than
+    read. Asserted because "it does not print it" is a property of one keyword argument.
+    """
+    source = (governance_validator.REPO_ROOT / "scripts" / "measure_memory.py").read_text(
+        encoding="utf-8"
+    )
+    popens = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Popen"
+    ]
+
+    assert popens, "measure_memory no longer starts the shipped command"
+    for call in popens:
+        stdout = next((k.value for k in call.keywords if k.arg == "stdout"), None)
+        assert isinstance(stdout, ast.Attribute) and stdout.attr == "DEVNULL", (
+            "the measured run's stdout is no longer discarded"
+        )
+
+
 def test_the_measurement_tools_are_reviewed_rather_than_protected() -> None:
     """A decision, recorded, not an omission: they make no trust decision, hold no secret,
     are imported by nothing shipped, and write no files — so nothing they read outlives the
@@ -2027,10 +2065,23 @@ def test_the_measurement_tools_are_reviewed_rather_than_protected() -> None:
     reviewed = set(section["reviewed_not_sensitive"])
     protected = set(section["paths"])
 
-    for name in ("latency", "pauses", "recognition", "room", "translation"):
+    for name in ("latency", "pauses", "recognition", "room", "translation", "memory"):
         path = f"/scripts/measure_{name}.py"
         assert path in reviewed, f"{path} is not classified"
         assert path not in protected, f"{path} is in both lists"
+
+
+def streams(call: ast.Call) -> bool:
+    """`sys.stdout.write(...)` or `sys.stderr.write(...)`, and nothing else."""
+    target = call.func
+    if not isinstance(target, ast.Attribute) or not isinstance(target.value, ast.Attribute):
+        return False
+    receiver = target.value
+    return (
+        isinstance(receiver.value, ast.Name)
+        and receiver.value.id == "sys"
+        and receiver.attr in {"stdout", "stderr"}
+    )
 
 
 def test_no_measurement_script_writes_anything() -> None:
@@ -2045,7 +2096,16 @@ def test_no_measurement_script_writes_anything() -> None:
     """
     writing_calls = {"write_text", "write_bytes", "write", "mkdir", "TemporaryDirectory"}
     scripts = sorted((governance_validator.REPO_ROOT / "scripts").glob("measure_*.py"))
-    assert len(scripts) == 5, "the five this manifest waves through"
+    waved_through = {
+        path
+        for path in classification_manifest()["security_sensitive_paths"]["reviewed_not_sensitive"]
+        if path.startswith("/scripts/measure_")
+    }
+
+    # Derived from the manifest rather than counted. A hard-coded number here said "five" and
+    # went stale the first time a sixth measurement tool was written, which is the failure
+    # mode this whole file exists to catch.
+    assert {f"/scripts/{script.name}" for script in scripts} == waved_through
 
     for script in scripts:
         for node in ast.walk(ast.parse(script.read_text(encoding="utf-8"))):
@@ -2056,6 +2116,14 @@ def test_no_measurement_script_writes_anything() -> None:
             elif isinstance(node.func, ast.Name):
                 name = node.func.id
             else:
+                continue
+
+            if name == "write" and streams(node):
+                # `sys.stderr.write(...)` is not a file. The rule is that nothing these
+                # tools read outlives the process, and a stream the caller is already
+                # watching does not. Spelled out rather than left to the name, because the
+                # alternative — rewriting it as `print(file=sys.stderr)` — passes this check
+                # by evading it, and the next person to do that will have a worse reason.
                 continue
 
             assert name not in writing_calls, f"{script.name} calls {name}()"
