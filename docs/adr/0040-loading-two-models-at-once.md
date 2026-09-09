@@ -87,6 +87,17 @@ numbers are extreme.
   > optimisation performed at load time on every launch. The verification half is now
   > **1.4 s**: the files are digested several at a time, which changes nothing about what is
   > checked.
+- **It does not pre-optimise the ONNX graphs, and that was measured before being refused.**
+  About half of ONNX session construction is graph optimisation performed at load time, and
+  ONNX Runtime can save the optimised graph and skip it next time. Measured 2026-09-09, all
+  three graphs of one export: **3.26 s to build normally, 1.72 s to load a pre-optimised
+  copy** — 1.5 s a model. It is not taken, for two reasons that are the same reason. It costs
+  **404 MB a model on disk**, and the twenty-eighth measurement had just removed 2.09 GB of
+  files nobody reads; and ONNX Runtime warns that a graph optimised above
+  `ORT_ENABLE_EXTENDED` *"may contain hardware specific optimizations, and should only be used
+  in the same environment"* — which is a poor fit for the engine that exists because it runs
+  somewhere else. Recorded so the experiment is not repeated.
+
 - **It does not thread the running application.** Recognition and translation stay on exactly
   the path they were measured on, and ADR 0014's thread settings are untouched. This finishes
   before the first frame of audio is read.
