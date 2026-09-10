@@ -86,8 +86,18 @@ Three consequences fall out without code changes, because the machinery was alre
   applies unchanged: claiming a language is not performing in it.
 - **It does not give them translation.** No OPUS-MT artefact is pinned for any of the four,
   in either direction, so they transcribe and stop.
+
+  > **Two of them have it now** ([ADR 0038](0038-german-translation.md),
+  > [ADR 0039](0039-italian-one-way.md)): German translates in both directions and Italian
+  > into English, both still recognised an utterance at a time. Spanish and Portuguese are
+  > blocked on the publisher's tokeniser rather than on effort.
 - **It does not close the door.** One commit by `Banafo` adding a real licence file would
   make four languages evaluable again, and the tier is the first thing that would change.
+
+  > **Re-verified 2026-09-10 and no longer true as written** — see the note in
+  > [ADR 0007](0007-supported-languages.md). The licence file is still empty, and the
+  > loadable artefacts have since moved behind a token, so it would now take a licence *and*
+  > a public model in a form this project can load.
 
 ## Review trigger
 

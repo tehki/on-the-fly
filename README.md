@@ -291,13 +291,23 @@ of them exists — `onnx-community` has exported two `opus-mt-tc-big-*` models a
 Turkish. That road ends at a desktop-only pair.
 
 **The other four do not stream, and that is not waiting on effort.** They are waiting on two
-specific things, both somebody else's to fix — one commit adding a real licence file would make
-four languages evaluable again:
+specific things, both somebody else's to fix:
 
 | | |
 | --- | --- |
-| The `kroko` family — `es`, `it`, `de`, `pt` and also `fr`, from one publisher, and ADR 0007's strongest lead | Its republications say only *"See license at Banafo/Kroko-ASR"*. That repository declares `license: other`, `license_name: test`, `license_link: LICENSE` — and **the LICENSE file is empty**, zero bytes, unchanged since 2025-01-29. A README saying "our community models are CC-BY-SA" is prose, not a grant. ADR 0007's own rule, written about Tajik: *no licence is not permission.* |
+| The `kroko` family — `es`, `it`, `de`, `pt` and also `fr`, from one publisher, and ADR 0007's strongest lead | Its republications say only *"See license at Banafo/Kroko-ASR"*. That repository declares `license: other`, `license_name: test`, `license_link: LICENSE` — and **the LICENSE file is empty**, zero bytes. A README saying "our community models are CC-BY-SA" is prose, not a grant. ADR 0007's own rule, written about Tajik: *no licence is not permission.* |
 | `bookbot/…-streaming-robust-es-v0` — genuinely Apache-2.0, and the smallest model found | It is a **phoneme recogniser**. Its vocabulary is 37 IPA symbols where the English pin has 502 word-pieces; it emits `["w", "ɑ", "ʃ", "i", "ɑ"]`, not words. Unreadable as a caption and untranslatable as input. |
+
+**Re-verified 2026-09-10, and the lead has moved away rather than closer.** The `Banafo`
+repository changed on 2025-10-06 — the models were replaced on 2025-09-25 — and the licence
+file is still zero bytes. What did change is what it publishes: one `.data` file per model, a
+length-prefixed JSON header followed by a quantised ONNX graph, where sherpa-onnx wants an
+encoder, a decoder, a joiner and a `tokens.txt`. The publisher's own `decode_file.py` fetches
+those four from `Banafo/test-onnx`, which its `--hf-token` argument calls a *private model
+repository*. So a licence file alone would no longer be enough; it would take a licence **and**
+a public artefact in a loadable form. The container is not obscure and unwrapping it is
+deliberately not attempted — that would be repackaging somebody's models to use weights they
+have not granted, which is the line ADR 0007 exists to hold rather than to route around.
 
 **Tajik was the eighth and has been removed** ([ADR 0010](docs/adr/0010-drop-tajik.md)). It
 had no streaming model anywhere, no licence-clean batch model this project could load
