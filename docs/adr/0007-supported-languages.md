@@ -128,6 +128,27 @@ written on.
   eighth.
 - `sherpa-onnx` is confirmed as the streaming engine target: it publishes models for all
   seven, including the `kroko` family covering five of them from one publisher.
+
+  > **Re-verified 2026-09-10, and the lead has moved away rather than closer.** The
+  > `Banafo/Kroko-ASR` repository was last changed on 2025-10-06 — so the README's
+  > "unchanged since 2025-01-29" was wrong about the repository, and right about the only
+  > thing that matters: `LICENSE` is **still zero bytes**, and the card still declares
+  > `license: other`, `license_name: test`.
+  >
+  > What did change is the artefacts. The models were replaced on 2025-09-25 and the
+  > repository now publishes one `.data` file per model — a length-prefixed JSON header
+  > (`{"id": …, "type": "zipformer2", "free": true, "language": {…}}`) followed by a
+  > quantised ONNX graph, 156 MB for the Spanish 64-L — rather than the encoder, decoder,
+  > joiner and `tokens.txt` sherpa-onnx loads. The publisher's own `decode_file.py` fetches
+  > those from `Banafo/test-onnx`, which its `--hf-token` argument describes as a *"private
+  > model repository"*.
+  >
+  > So "one commit adding a real licence file would make these evaluable again" has stopped
+  > being true. It would now take a licence **and** a public artefact in a form this project
+  > loads. The container is not obscure — the ONNX graph is plainly visible inside it — and
+  > unwrapping it is deliberately not attempted: that would be repackaging a publisher's
+  > models to use weights whose licence they have not granted, which is the line ADR 0007
+  > exists to hold rather than to route around.
 - Whisper stays. It is not the live path, but it is the fallback that makes Tajik possible at
   all — so ADR 0005's dependency is not superseded, it is repositioned.
 - Portuguese has exactly one published streaming model. Thin, and worth noting before anyone
