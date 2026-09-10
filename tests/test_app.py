@@ -657,3 +657,29 @@ def test_without_the_flag_the_rate_is_left_alone(
     output = capsys.readouterr().out
     assert "44100 Hz" in output
     assert "resampled" not in output
+
+
+def test_a_file_at_an_awkward_rate_is_refused_rather_than_read_as_silence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The user-visible half of the frame-size bug (ADR 0046's follow-up).
+
+    An 11.025 kHz recording — an old voice memo — used to produce no frames and no error:
+    `segment` reported no utterances for a file full of speech, and since #140 a stream would
+    have blamed the language. It now says which frame size to use instead.
+    """
+    path = write_wav(tmp_path / "memo.wav", [0] * 11_025, rate=11_025)
+
+    assert main(["segment", str(path)]) == 1
+
+    assert "try --frame-ms 40" in capsys.readouterr().err
+
+
+def test_the_frame_size_it_suggests_actually_reads_the_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_wav(tmp_path / "memo.wav", samples_of(1.0, 9000), rate=11_025)
+
+    assert main(["segment", str(path), "--frame-ms", "40"]) == 0
+
+    assert "11025 Hz mono 16-bit" in capsys.readouterr().out

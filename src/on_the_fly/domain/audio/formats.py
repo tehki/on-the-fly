@@ -69,16 +69,34 @@ class AudioFormat:
         Raises when the duration does not land on a whole number of samples, because a
         partial sample would shift every subsequent sample by one byte and turn speech
         into noise.
+
+        **Samples, not bytes.** This counted bytes until 2026-09-10, which is the same
+        question only while the sample count is even. At 11.025 kHz a 20 ms frame is 220.5
+        samples — 441 bytes, a whole number, and half a sample. `WavFileSource` then read 220
+        samples, found 440 bytes where it expected 441, and stopped: **a file full of speech
+        produced no audio at all and no error**. The check said "a whole number of samples"
+        and asked about bytes.
         """
         if milliseconds <= 0:
             raise ValueError(f"frame duration must be positive, got {milliseconds}ms")
-        exact = self.bytes_per_second * milliseconds
-        if exact % 1000 != 0:
+        samples = self.sample_rate_hz * milliseconds
+        if samples % 1000 != 0:
             raise ValueError(
                 f"a {milliseconds}ms frame is not a whole number of samples at "
-                f"{self.sample_rate_hz}Hz; choose a duration that divides evenly"
+                f"{self.sample_rate_hz}Hz; {self._workable_frame_ms()}"
             )
-        return exact // 1000
+        return samples // 1000 * self.channels * self.sample_width_bytes
+
+    def _workable_frame_ms(self) -> str:
+        """A duration that does divide, so the message names a way out rather than a rule.
+
+        Searched rather than derived: the smallest whole millisecond up to 200 ms that lands
+        on a whole sample. Every rate consumer hardware produces has one well below that.
+        """
+        for candidate in range(1, 201):
+            if (self.sample_rate_hz * candidate) % 1000 == 0:
+                return f"try --frame-ms {candidate}"
+        return "choose a duration that divides evenly"  # pragma: no cover - no such rate
 
     def duration_seconds(self, byte_count: int) -> float:
         """How long `byte_count` bytes of this format last."""

@@ -97,9 +97,18 @@ costs nothing measurable on this clip.
 - **It does not make 44.1 kHz the tested rate.** Every accuracy figure in this project is
   measured on 16 kHz audio. The one clip above says a conversion is not obviously destructive;
   it does not establish a word error rate for resampled input.
-- **It does not upsample sensibly.** 8 kHz audio would be accepted and converted, and nothing
-  here warns that a model trained on 16 kHz speech is being fed interpolation. That is worth a
-  measurement before it is worth a message.
+- ~~**It does not upsample sensibly.**~~ **Measured 2026-09-10, and no message is warranted.**
+  Both published test sets at 8 000, 22 050, 32 000, 44 100 and 48 000 Hz, read back through
+  `--resample`, score **exactly what the untouched 16 kHz files score** — 0.0% English and
+  14.3% French, the same transcripts word for word. A warning about interpolation would be
+  describing a cost that did not appear (thirty-second measurement). Five clips of clean read
+  speech is what that rests on; 8 kHz telephone audio carries codec artefacts this did not
+  reproduce.
+
+  > The measurement also found that **11.025 kHz could not be read at all**:
+  > `AudioFormat.frame_bytes` counted bytes where it said samples, so a 20 ms frame at that
+  > rate — 220.5 samples, 441 bytes — passed the check and then produced no frames and no
+  > error. Fixed to count samples, with the refusal naming a frame size that works.
 
 ## Review trigger
 

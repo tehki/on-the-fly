@@ -151,6 +151,39 @@ def test_audio_format_rejects_a_frame_duration_that_is_not_whole_samples() -> No
         odd.frame_bytes(1)
 
 
+def test_half_a_sample_is_not_a_whole_number_of_samples() -> None:
+    """The bug this check had until 2026-09-10: it counted bytes.
+
+    At 11.025 kHz a 20 ms frame is 220.5 samples — 441 bytes, which is a whole number of
+    bytes and half a sample. The check passed, `WavFileSource` asked for 220 samples, found
+    440 bytes where it expected 441, and stopped. A file full of speech produced no audio at
+    all and no error.
+    """
+    voice_memo = AudioFormat(sample_rate_hz=11_025)
+
+    with pytest.raises(ValueError, match="whole number of samples"):
+        voice_memo.frame_bytes(20)
+
+
+def test_the_refusal_names_a_duration_that_works() -> None:
+    """A rule the reader has to solve is worse than an answer, and every rate consumer
+    hardware produces has one."""
+    voice_memo = AudioFormat(sample_rate_hz=11_025)
+
+    with pytest.raises(ValueError, match=r"try --frame-ms (\d+)") as raised:
+        voice_memo.frame_bytes(20)
+
+    suggested = int(str(raised.value).split("--frame-ms ")[1])
+    assert voice_memo.frame_bytes(suggested) == 11_025 * suggested // 1000 * 2
+
+
+@pytest.mark.parametrize("rate", [8_000, 16_000, 22_050, 32_000, 44_100, 48_000])
+def test_the_rates_that_already_worked_are_unchanged(rate: int) -> None:
+    """The fix must not start refusing what it accepted: every rate consumer hardware and
+    every published test set uses lands on a whole sample at 20 ms."""
+    assert AudioFormat(sample_rate_hz=rate).frame_bytes(20) == rate * 20 // 1000 * 2
+
+
 def test_audio_format_rejects_a_truncated_frame() -> None:
     FORMAT.validate_frame(SILENT_FRAME)
     with pytest.raises(ValueError, match="whole number"):
