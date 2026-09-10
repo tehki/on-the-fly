@@ -257,11 +257,21 @@ publishes no `de-fr` export and its `fr-de` export declares no licence. A bridge
 second leg whatever the pair: it beats a weak direct model and loses to a strong one, and both
 results are written down.
 
-**Spanish is the one that cannot be taken.** `es-en` and `en-es` publish one release each and
-the publisher's own manifest calls it `normalization + tokenization + BPE`, where every
-artefact here tokenises with sentencepiece. German publishes three releases per direction and
-two of them are the same trap; the pin is an exact URL and a test reads the year out of it. The
-largest of the four remaining languages is blocked on a release somebody else has not made.
+**Spanish is the one that cannot be taken, and the reason changed when it was re-checked.**
+In the bucket German comes from, `es-en` and `en-es` publish one release each and the
+publisher's own manifest calls it `normalization + tokenization + BPE`, where every artefact
+here tokenises with sentencepiece. German publishes three releases per direction and two of
+them are the same trap; the pin is an exact URL and a test reads the year out of it.
+
+That was written down as *"blocked on a release somebody else has not made"*, and on
+2026-09-10 that turned out to be wrong. There **is** a sentencepiece Spanish release —
+`Tatoeba-MT-models/spa-eng/opus-2021-02-19.zip` — and `onnx-community` publishes exports
+declaring `cc-by-4.0` with `source.spm` in them. What fails is the chain
+[ADR 0033](docs/adr/0033-french-on-onnx.md) requires: those exports derive from
+`opus-2020-08-18.zip`, and **that file is gone — HTTP 404**. Pinning a different release for
+CTranslate2 would put two different models behind one pair, which is the thing the chain check
+exists to prevent. Spanish now needs one dead link to come back, rather than a model nobody has
+trained.
 
 **Italian goes the other way: a source that is not a target**
 ([ADR 0039](docs/adr/0039-italian-one-way.md)). Somebody speaking Italian can be understood in
