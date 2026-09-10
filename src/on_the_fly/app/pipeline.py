@@ -334,6 +334,10 @@ class StreamingStats:
     # A run's worth of them is what the wrong source language looks like from outside
     # (ADR 0043); one is too small a thing to act on.
     confidences: tuple[float, ...] = ()
+    # How much of the audio a voice activity detector called speech. Not used to segment
+    # anything on this path — the transducer does that — but it is what makes "speech went in
+    # and no text came out" a statement rather than a guess (ADR 0044).
+    speech_seconds: float = 0.0
 
     @property
     def median_confidence(self) -> float | None:
@@ -395,11 +399,16 @@ class StreamingRun:
         *,
         project_id: str = DEFAULT_PROJECT_ID,
         store: EphemeralStore | None = None,
+        detector: VoiceActivityDetector | None = None,
     ) -> None:
         self._source = source
         self._recognizer = recognizer
         self._store = store if store is not None else build_store(project_id)
         self._format = source.audio_format
+        # The same detector the batch path segments with, used here only to count. A
+        # transducer does its own endpointing and does not need one — but "there was speech
+        # and nothing came out" is a thing only something like this can say (ADR 0044).
+        self._detector = detector if detector is not None else EnergyVoiceActivityDetector()
         self._final_handles: list[TransientHandle] = []
         self._stats: StreamingStats | None = None
 
@@ -428,13 +437,17 @@ class StreamingRun:
         partials = 0
         finals = 0
         confidences: list[float] = []
+        speech_seconds = 0.0
         first_text_after: float | None = None
         started = time.monotonic()
 
         try:
             for frame in self._source.frames():
                 frames += 1
-                audio_seconds += self._format.duration_seconds(len(frame))
+                frame_seconds = self._format.duration_seconds(len(frame))
+                audio_seconds += frame_seconds
+                if self._detector.is_speech(frame):
+                    speech_seconds += frame_seconds
 
                 for event in self._recognizer.accept(frame):
                     if first_text_after is None:
@@ -475,4 +488,5 @@ class StreamingRun:
                 final_reap=reap,
                 entries_remaining=len(self._store),
                 confidences=tuple(confidences),
+                speech_seconds=speech_seconds,
             )
