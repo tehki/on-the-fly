@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import math
 import struct
+import wave
+from pathlib import Path
 
 import pytest
 
 from on_the_fly.infrastructure.audio.backend import AudioDeviceError
+from on_the_fly.infrastructure.audio.resampled_source import ResampledSource
 from on_the_fly.infrastructure.audio.resampling import CANDIDATE_RATES, Resampler
+from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
 
 FRAME_BYTES = 640  # 20 ms of 16 kHz mono int16
 
@@ -323,3 +327,90 @@ def test_reset_releases_the_converter_so_a_new_stream_starts_clean() -> None:
     resampler.reset()
 
     assert resampler._resampler is None
+
+
+# ---------------------------------------------------------------------------------------
+# A file at the rate the models take, when the caller asks (ADR 0046)
+#
+# `WavFileSource` refuses to resample and is right to. This is the caller deciding, out
+# loud, using the same path every microphone has gone through since ADR 0013.
+# ---------------------------------------------------------------------------------------
+
+
+def tone_wav(path: Path, *, rate: int, seconds: float = 1.0, hz: int = 220) -> Path:
+    count = int(rate * seconds)
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(rate)
+        writer.writeframes(
+            struct.pack(
+                f"<{count}h",
+                *(int(9000 * math.sin(2 * math.pi * hz * i / rate)) for i in range(count)),
+            )
+        )
+    return path
+
+
+def test_it_yields_frames_at_the_target_rate(tmp_path: Path) -> None:
+    source = ResampledSource(WavFileSource(tone_wav(tmp_path / "a.wav", rate=44100)))
+
+    frames = list(source.frames())
+
+    assert source.audio_format.sample_rate_hz == 16_000
+    assert source.source_rate_hz == 44_100
+    assert {len(frame) for frame in frames} == {640}, "20 ms of 16 kHz mono int16"
+
+
+def test_a_second_of_audio_comes_out_as_about_a_second(tmp_path: Path) -> None:
+    """Give or take the partial frame still in the buffer, which is the design."""
+    source = ResampledSource(WavFileSource(tone_wav(tmp_path / "a.wav", rate=44100)))
+
+    seconds = sum(len(frame) for frame in source.frames()) / 2 / 16_000
+
+    assert seconds == pytest.approx(1.0, abs=0.03)
+
+
+def test_the_tone_survives_the_conversion(tmp_path: Path) -> None:
+    """The point of using libswresample rather than arithmetic: a 220 Hz tone downsampled
+    without an anti-aliasing filter comes back as something else, quietly."""
+    source = ResampledSource(WavFileSource(tone_wav(tmp_path / "a.wav", rate=44100, hz=220)))
+
+    audio = b"".join(source.frames())
+
+    assert dominant_frequency(audio, 16_000) == pytest.approx(220, abs=8)
+
+
+def test_it_refuses_to_decide_which_voice_to_keep(tmp_path: Path) -> None:
+    """Mixing channels is a decision about content, not a conversion, so it is refused
+    rather than performed."""
+    path = tmp_path / "stereo.wav"
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(2)
+        writer.setsampwidth(2)
+        writer.setframerate(44100)
+        writer.writeframes(struct.pack("<4h", 1, 1, 2, 2))
+
+    with pytest.raises((ValueError, WavSourceError)):
+        ResampledSource(WavFileSource(path))
+
+
+def test_it_reports_the_file_underneath_rather_than_itself(tmp_path: Path) -> None:
+    """A run names the recording. The wrapper is an implementation detail of reading it."""
+    path = tone_wav(tmp_path / "recording.wav", rate=44100)
+    source = ResampledSource(WavFileSource(path))
+
+    assert source.path == path
+    assert not source.is_truncated
+
+
+def test_closing_it_closes_the_file(tmp_path: Path) -> None:
+    """A closed `WavFileSource` refuses to be read again, which is how this is observed."""
+    inner = WavFileSource(tone_wav(tmp_path / "a.wav", rate=44100))
+    source = ResampledSource(inner)
+    list(source.frames())
+
+    source.close()
+
+    with pytest.raises(WavSourceError, match="closed"):
+        list(inner.frames())

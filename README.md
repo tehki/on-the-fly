@@ -488,6 +488,24 @@ this is a much better place to find that out. On this machine a translation mode
 minutes to arrive and about 13 seconds to convert on first use — which is a bad thing to
 discover once somebody is already talking.
 
+**A recording that is not a 16 kHz mono WAV**
+([ADR 0046](docs/adr/0046-a-file-at-the-rate-the-models-take.md)) used to get *"file does not
+start with RIFF id"*, which is true and useless. It now gets named, with the command that fixes
+it:
+
+```text
+error: not a readable WAV file: file does not start with RIFF id. It looks like an MP4
+       container — M4A, AAC or a video. Convert it first:
+         ffmpeg -i interview.m4a -ac 1 -ar 16000 interview.wav
+```
+
+And a WAV at the wrong *rate* no longer needs to leave: `--resample` puts it through the same
+libswresample path every microphone here has used since
+[ADR 0013](docs/adr/0013-capture-rate-negotiation.md), and says so. It is off by default,
+because the file reader's refusal to convert silently is right and this is only the caller
+deciding out loud. The published English clip, upsampled to 44.1 kHz and streamed back through
+it, comes out word-perfect at **−0.25** confidence — the same figure the 16 kHz original gives.
+
 ## Listening, without a window
 
 ```bash

@@ -42,6 +42,49 @@ class WavSourceError(Exception):
     """The file could not be opened, or is not audio this pipeline can use."""
 
 
+# The first bytes of the containers somebody is most likely to have a recording in. A user
+# who points this at `interview.m4a` gets "does not start with RIFF id", which is true and
+# tells them nothing they can act on — so the file is sniffed and the message says what it
+# looks like and the one command that converts it (ADR 0046).
+_SIGNATURES: tuple[tuple[bytes, int, str], ...] = (
+    (b"ID3", 0, "an MP3 with an ID3 tag"),
+    (b"\xff\xfb", 0, "an MP3"),
+    (b"\xff\xf3", 0, "an MP3"),
+    (b"OggS", 0, "an Ogg container — Opus or Vorbis"),
+    (b"fLaC", 0, "a FLAC file"),
+    (b"ftyp", 4, "an MP4 container — M4A, AAC or a video"),
+    (b"FORM", 0, "an AIFF file"),
+    (b"\x1aE\xdf\xa3", 0, "a Matroska container — MKV or WebM"),
+)
+
+# The conversion, spelled out. `-ac 1` because the pipeline is mono and mixing channels is a
+# decision about which voice to keep; `-ar 16000` because that is what every pinned model
+# takes, and doing it here saves a second conversion later.
+_FFMPEG_HINT = "ffmpeg -i {name} -ac 1 -ar 16000 {stem}.wav"
+
+
+def _what_it_looks_like(path: Path) -> str:
+    """A sentence naming the format and how to convert it, or nothing when it is a mystery.
+
+    Reads 12 bytes. A file that cannot be read at all says nothing extra rather than raising
+    a second error on top of the first.
+    """
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(12)
+    except OSError:  # pragma: no cover - the file was readable a moment ago
+        return ""
+
+    for signature, offset, description in _SIGNATURES:
+        if head[offset : offset + len(signature)] == signature:
+            command = _FFMPEG_HINT.format(name=path.name, stem=path.stem)
+            return f" It looks like {description}. Convert it first:\n  {command}"
+
+    if head[:4] == b"RIFF":
+        return " The file is a RIFF container but not WAVE audio."
+    return " This reader takes WAV only; convert other formats with ffmpeg first."
+
+
 class WavFileSource:
     """Reads PCM frames from a WAV file."""
 
@@ -100,7 +143,9 @@ class WavFileSource:
                 # confusing them is how a truncation check ends up measuring nothing.
                 self._declared_samples = declared_frames
         except wave.Error as exc:
-            raise WavSourceError(f"not a readable WAV file: {exc}") from exc
+            raise WavSourceError(
+                f"not a readable WAV file: {exc}.{_what_it_looks_like(self._path)}"
+            ) from exc
         except OSError as exc:
             raise WavSourceError(f"could not open the file: {exc}") from exc
 
