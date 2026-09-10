@@ -11,6 +11,7 @@ living as a local variable that nothing accounts for.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import struct
 import wave
@@ -423,3 +424,11 @@ def utterance_wav(path: Path) -> Path:
         writer.setframerate(RATE)
         writer.writeframes(struct.pack(f"<{len(samples)}h", *samples))
     return path
+
+
+def test_a_translated_event_cannot_be_rewritten() -> None:
+    """It carries the caption and its translation to a window and a formatter in turn."""
+    translated = drain([event("hello", is_final=True)], FakeTranslator())[0]
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        translated.translation = "something else"  # type: ignore[misc]
