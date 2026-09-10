@@ -554,3 +554,106 @@ def test_the_help_text_states_the_default_it_actually_uses(
         build_parser().parse_args(["segment", "--help"])
 
     assert f"default: {DEFAULT_FRAME_MS}" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------------------
+# What a file that is not a WAV is told (ADR 0046)
+#
+# "does not start with RIFF id" is true and useless. Somebody pointing this at an m4a needs
+# to know what it looks like and the one command that converts it.
+# ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("name", "head", "expected"),
+    [
+        ("interview.m4a", b"\x00\x00\x00\x20ftypM4A ", "MP4 container"),
+        ("song.mp3", b"ID3\x04\x00\x00", "MP3"),
+        ("stream.mp3", b"\xff\xfb\x90\x00", "MP3"),
+        ("voice.ogg", b"OggS\x00\x02\x00\x00", "Ogg container"),
+        ("master.flac", b"fLaC\x00\x00\x00\x22", "FLAC"),
+        ("old.aiff", b"FORM\x00\x00\x00\x00", "AIFF"),
+        ("clip.webm", b"\x1aE\xdf\xa3\x00\x00\x00\x00", "Matroska"),
+    ],
+)
+def test_a_recording_in_another_container_is_named_and_the_fix_is_given(
+    tmp_path: Path, name: str, head: bytes, expected: str
+) -> None:
+    path = tmp_path / name
+    path.write_bytes(head + b"\x00" * 64)
+
+    with pytest.raises(WavSourceError) as raised:
+        WavFileSource(path)
+
+    message = str(raised.value)
+    assert expected in message
+    assert f"ffmpeg -i {name}" in message
+    assert "-ar 16000" in message, "the conversion must land on the rate the models take"
+
+
+def test_a_riff_file_that_is_not_wave_says_which_half_is_wrong(tmp_path: Path) -> None:
+    path = tmp_path / "video.avi"
+    path.write_bytes(b"RIFF\x00\x00\x00\x00AVI LIST" + b"\x00" * 32)
+
+    with pytest.raises(WavSourceError, match="RIFF container but not WAVE"):
+        WavFileSource(path)
+
+
+def test_a_file_of_no_known_kind_still_says_what_this_reads(tmp_path: Path) -> None:
+    """Guessing wrongly would be worse than not guessing, so an unknown file gets the rule
+    rather than a diagnosis."""
+    path = tmp_path / "notes.txt"
+    path.write_bytes(b"hello there, this is not audio at all")
+
+    with pytest.raises(WavSourceError, match="takes WAV only"):
+        WavFileSource(path)
+
+
+def test_the_file_commands_all_offer_the_conversion(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`segment`, `transcribe` and `stream` read files. A flag on one of them and not the
+    others is a flag a user finds by accident."""
+    parser = build_parser()
+
+    for command in ("segment", "transcribe", "stream"):
+        args = parser.parse_args([command, "x.wav", "--resample"])
+
+        assert args.resample is True, f"{command} does not offer --resample"
+
+
+def test_a_file_already_at_the_right_rate_is_not_put_through_the_resampler(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Converting 16 kHz to 16 kHz is a filter applied for nothing, and a line of output
+    claiming a conversion that did not happen."""
+    path = write_wav(tmp_path / "a.wav", samples_of(1.0, 9000), rate=16_000)
+
+    assert main(["segment", str(path), "--resample"]) == 0
+
+    assert "resampled" not in capsys.readouterr().out
+
+
+def test_a_file_at_another_rate_says_what_it_converted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Out loud, because ADR 0046's whole argument is that the caller chose this."""
+    path = write_wav(tmp_path / "a.wav", [0] * 44_100, rate=44_100)
+
+    assert main(["segment", str(path), "--resample"]) == 0
+
+    assert "resampled     44100 Hz -> 16000 Hz" in capsys.readouterr().out
+
+
+def test_without_the_flag_the_rate_is_left_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The refusal `WavFileSource` documents stays the default: a file is exposed at its own
+    rate unless somebody says otherwise."""
+    path = write_wav(tmp_path / "a.wav", [0] * 44_100, rate=44_100)
+
+    assert main(["segment", str(path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "44100 Hz" in output
+    assert "resampled" not in output

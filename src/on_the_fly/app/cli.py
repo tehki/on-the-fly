@@ -64,6 +64,10 @@ from on_the_fly.infrastructure.asr import (
 )
 from on_the_fly.infrastructure.audio.backend import AudioDeviceError
 from on_the_fly.infrastructure.audio.microphone import DEFAULT_FRAME_MS, MicrophoneSource
+from on_the_fly.infrastructure.audio.resampled_source import (
+    TARGET_RATE_HZ as RESAMPLE_TARGET_RATE_HZ,
+)
+from on_the_fly.infrastructure.audio.resampled_source import ResampledSource
 from on_the_fly.infrastructure.audio.wav_source import WavFileSource, WavSourceError
 from on_the_fly.infrastructure.model_store import ModelStore, ModelStoreError
 from on_the_fly.infrastructure.translation import (
@@ -105,6 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_FRAME_MS,
         help=f"frame size (default: {DEFAULT_FRAME_MS})",
+    )
+    segment.add_argument(
+        "--resample",
+        action="store_true",
+        help=(
+            "convert the file to 16 kHz before reading it, using the resampler the "
+            "microphone path uses. Off by default: a file is exposed at its own rate "
+            "unless the caller says otherwise (ADR 0046)"
+        ),
     )
     segment.add_argument(
         "--pre-roll-ms",
@@ -175,6 +188,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     transcribe.add_argument("--frame-ms", type=int, default=DEFAULT_FRAME_MS)
+    transcribe.add_argument(
+        "--resample",
+        action="store_true",
+        help=(
+            "convert the file to 16 kHz before reading it, using the resampler the "
+            "microphone path uses. Off by default: a file is exposed at its own rate "
+            "unless the caller says otherwise (ADR 0046)"
+        ),
+    )
+
     transcribe.add_argument("--hangover-ms", type=int, default=DEFAULT_HANGOVER_MS)
     transcribe.add_argument("--json", action="store_true")
 
@@ -346,6 +369,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     stream.add_argument("--frame-ms", type=int, default=DEFAULT_FRAME_MS)
     stream.add_argument(
+        "--resample",
+        action="store_true",
+        help=(
+            "convert the file to 16 kHz before reading it, using the resampler the "
+            "microphone path uses. Off by default: a file is exposed at its own rate "
+            "unless the caller says otherwise (ADR 0046)"
+        ),
+    )
+
+    stream.add_argument(
         "--threads",
         type=int,
         default=1,
@@ -456,7 +489,7 @@ def run_segment(args: argparse.Namespace) -> int:
         max_utterance_ms=args.max_utterance_ms,
     )
 
-    source = WavFileSource(args.path, frame_ms=args.frame_ms, allowed_root=args.allowed_root)
+    source = _open_audio(args, allowed_root=args.allowed_root)
     result = run_capture(source, config=config)
 
     output = format_json(result, source) if args.json else format_human(result, source)
@@ -487,7 +520,7 @@ def run_transcribe(args: argparse.Namespace) -> int:
             raise ValueError(f"source and target are both {target.name}; nothing to translate.")
         choice = resolve_artifact((source_language.code, target.code), args.translation_engine)
 
-    source = WavFileSource(args.path, frame_ms=args.frame_ms)
+    source = _open_audio(args)
     config = SegmenterConfig(frame_ms=args.frame_ms, hangover_ms=args.hangover_ms)
 
     pin = resolve(args.model)
@@ -524,6 +557,27 @@ def run_transcribe(args: argparse.Namespace) -> int:
             purge_failed = True
 
     return EXIT_RETENTION_FAILURE if purge_failed else EXIT_OK
+
+
+def _open_audio(args: argparse.Namespace, **kwargs: object) -> Any:
+    """The file, at the rate the models take when the caller asked for that.
+
+    `WavFileSource` refuses to resample and is right to: doing it invisibly inside a file
+    reader is how a model ends up fed something nobody chose. `--resample` is the caller
+    choosing, out loud, and what it uses is the same libswresample path every microphone this
+    application opens has gone through since ADR 0013 (ADR 0046).
+    """
+    source = WavFileSource(args.path, frame_ms=args.frame_ms, **kwargs)  # type: ignore[arg-type]
+    if not getattr(args, "resample", False):
+        return source
+    if source.audio_format.sample_rate_hz == RESAMPLE_TARGET_RATE_HZ:
+        return source
+
+    resampled = ResampledSource(source, frame_ms=args.frame_ms)
+    print(
+        f"resampled     {resampled.source_rate_hz} Hz -> {resampled.audio_format.sample_rate_hz} Hz"
+    )
+    return resampled
 
 
 def _describe_translation(choice: TranslationChoice) -> None:
@@ -806,7 +860,7 @@ def run_stream(args: argparse.Namespace) -> int:
     """Stream a file through the streaming recogniser, printing text as it appears."""
     language, pin, target, choice = resolve_streaming(args)
 
-    source = WavFileSource(args.path, frame_ms=args.frame_ms)
+    source = _open_audio(args)
 
     # Loading is paid before the clock starts and reported on its own line. Folding it
     # into the streaming measurement would make a recogniser that keeps up comfortably
