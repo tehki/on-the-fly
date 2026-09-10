@@ -1613,6 +1613,48 @@ hallucination-from-noise case could not be reproduced to measure. Real speech am
 the case ADR 0021 measured as costing 0.0% word error, scores **-0.282** against **-0.250** for
 the same audio unamplified: the confidence does not false-positive on loud input.
 
+## Thirty-second measurement - 2026-09-10, what a recording's own rate costs
+
+ADR 0046 added `--resample` on the strength of one clip at one rate, and said what it had not
+established: *"8 kHz audio would be accepted and converted, and nothing here warns that a model
+trained on 16 kHz speech is being fed interpolation. That is worth a measurement before it is
+worth a message."*
+
+Measured. Both published test sets, converted to each rate the way any tool would make a
+recording at it, then read back through `--resample` and scored by the shipped word error
+implementation:
+
+| source rate | English, 66 words | French, 35 words |
+| --- | --- | --- |
+| 8 000 Hz | **0.0%** | **14.3%** |
+| 22 050 Hz | 0.0% | 14.3% |
+| 32 000 Hz | 0.0% | 14.3% |
+| 44 100 Hz | 0.0% | 14.3% |
+| 48 000 Hz | 0.0% | 14.3% |
+| **16 000 Hz, untouched** | **0.0%** | **14.3%** |
+
+**Identical at every rate, including 8 kHz.** Not "close" — the same transcripts, word for
+word, as the native files. On this evidence a round trip through another sample rate costs
+nothing measurable, and **no warning is added**: a message about interpolation would be
+describing a cost that did not appear.
+
+Two cautions, because five clips are five clips. These are clean read speech from published
+model releases, and 8 kHz telephone audio in the wild carries codec artefacts this test does
+not reproduce — what was measured is the resampling, not the telephone. And a word error rate
+that is already 14.3% at 16 kHz has room to hide a small degradation.
+
+**The 11.025 kHz row is missing because the pipeline could not read it at all**, which is what
+this measurement actually found. `AudioFormat.frame_bytes` checked that a frame was a whole
+number of *bytes* while its docstring and its error message both said *samples*: at 11.025 kHz
+a 20 ms frame is 220.5 samples, which is 441 bytes and passes a byte check. `WavFileSource`
+then asked for 220 samples, found 440 bytes where it expected 441, and stopped — **a file full
+of speech produced no frames and no error**. Since the thirty-first measurement's finding
+shipped, a stream would additionally have blamed the language for it.
+
+Fixed to count samples, with the error naming a frame size that works. 11.025 kHz reads
+correctly at `--frame-ms 40`, scoring **-0.24** median confidence against -0.25 for the same
+clip at 16 kHz.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
