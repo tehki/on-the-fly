@@ -92,6 +92,25 @@ hard audio, recognised correctly, scoring like a mismatched model. An earlier dr
 strongest signal in that table is not a score at all: **the French model emitted nothing
 whatever on English audio**, twice.
 
+**So that is what the product says instead**
+([ADR 0044](docs/adr/0044-speech-went-in-and-nothing-came-out.md)). Every other check here is
+about the audio — too loud, too quiet, clipped, a room amplified into speech-like energy. This
+one is about the model:
+
+```text
+events        0 partial, 0 final
+no text       10.8s of this audio is speech and none of it was recognised.
+              If it is not French, --language is the thing to check.
+```
+
+The trap is that ten seconds of silence also produces nothing, as does room noise, as does
+noise amplified to peak 0.3 — each of them firing the endpointer three times with nothing in
+between. What separates them is whether there was speech, and the energy detector the batch
+path segments with answers that cleanly: **0 speech frames of 500 for silence and every kind
+of noise tried, 151 to 542 for real speech**. So the finding needs both, and half a second of
+speech at minimum, because accusing a model on the strength of one frame is worse than saying
+nothing.
+
 Russian, measured the same day, does the opposite: `tiny` differs from the pinned Russian
 model by **2 words in 12**, and both are spellings rather than misrecognitions. Two
 high-resource languages on clean read speech, a factor of four apart.

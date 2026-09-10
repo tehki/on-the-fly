@@ -705,6 +705,34 @@ def _load_both(
     return parallel.both(recogniser, translation)
 
 
+# Half a second. Below this a "there was speech" claim rests on a frame or two, and accusing a
+# model on that basis is worse than saying nothing (ADR 0044).
+SPEECH_BEFORE_SILENCE_IS_A_FINDING_SECONDS = 0.5
+
+
+def _nothing_recognised_lines(stats: StreamingStats, language: Any) -> list[str]:
+    """Said when audible speech went in and no text came out.
+
+    The one case where this project can tell a user something about the *model* rather than
+    about the audio. Measured (ADR 0044): the French model produces nothing at all on English
+    speech — no partials, no finals, six endpoints with nothing in them — while the level
+    monitor reports `ok` throughout, and the same audio through the English model produces
+    three finals. Silence, room noise and amplified noise produce no speech seconds at all, so
+    they cannot reach this.
+
+    It does not fire when the model is merely *wrong*: English audio through the French model
+    is caught, and French audio through the English model comes back as confident nonsense
+    with finals, which nothing here detects (ADR 0043).
+    """
+    if stats.finals or stats.speech_seconds < SPEECH_BEFORE_SILENCE_IS_A_FINDING_SECONDS:
+        return []
+    return [
+        f"no text       {stats.speech_seconds:.1f}s of this audio is speech and none of it "
+        "was recognised.",
+        f"              If it is not {language.name}, --language is the thing to check.",
+    ]
+
+
 def _confidence_lines(stats: StreamingStats) -> list[str]:
     """What the recogniser thought of the run. A number, and no verdict on it.
 
@@ -800,6 +828,8 @@ def run_stream(args: argparse.Namespace) -> int:
         print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
     print(f"events        {stats.partials} partial, {stats.finals} final")
     for line in _confidence_lines(stats):
+        print(line)
+    for line in _nothing_recognised_lines(stats, language):
         print(line)
     if translator is not None:
         if translation_times:
@@ -954,6 +984,8 @@ def run_listen(args: argparse.Namespace) -> int:
         print(f"first text    {stats.first_text_after_seconds:.2f}s into the audio")
     print(f"events        {stats.partials} partial, {stats.finals} final")
     for line in _confidence_lines(stats):
+        print(line)
+    for line in _nothing_recognised_lines(stats, language):
         print(line)
     silent = getattr(recognizer, "silent_endpoints", None)
     if silent is not None:

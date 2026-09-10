@@ -1600,8 +1600,12 @@ the number is reported and no threshold is set. An earlier draft warned at -0.75
 that clip with the correct language selected.
 
 The stronger signal in this table is not a score. **The French model emitted nothing at all on
-English audio, twice** — a run that produces no finals from audible speech may be a better
-wrong-language detector than any threshold, and it is not built.
+English audio, twice** — no partials, no finals, while its endpointer fired six times on
+utterances it could not decode. Built in ADR 0044, once one more thing had been measured:
+endpoints-with-nothing-in-them alone is not the signal, because ten seconds of silence produces
+three of them, as does room noise, as does noise amplified to peak 0.3. What separates them is
+the energy detector the batch path segments with — **0 speech frames of 500 for silence and
+every kind of noise tried, 151 to 542 for real speech**.
 
 Also measured, and the reason ADR 0021's original gap stays open: synthetic noise — white and
 low-passed, at peaks of 0.05, 0.2 and 0.5 — produced **no tokens at all**, so the

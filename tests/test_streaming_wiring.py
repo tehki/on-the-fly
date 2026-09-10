@@ -10,16 +10,18 @@ import math
 import struct
 import wave
 from collections.abc import Iterator, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from on_the_fly.app import StreamingRun
-from on_the_fly.app.cli import main
+from on_the_fly.app.cli import _nothing_recognised_lines, main
 from on_the_fly.app.pipeline import StreamingStats
 from on_the_fly.domain import languages
 from on_the_fly.domain.audio import AudioFormat, TranscriptEvent
 from on_the_fly.domain.languages import Language, RecognitionTier
+from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.domain.retention import ReapReport
 from on_the_fly.infrastructure.audio import WavFileSource
 
@@ -385,3 +387,94 @@ def test_content_awaiting_a_retry_is_not_clean_either() -> None:
 
     assert not pending.ok
     assert not stats(audio=1.0, wall=1.0, remaining=0, reap=pending).retention_clean
+
+
+# ---------------------------------------------------------------------------------------
+# Speech went in and nothing came out (ADR 0044)
+#
+# The one thing this project can say about the *model* rather than about the audio. Measured:
+# the French model produces nothing at all on English speech — no partials, no finals — while
+# the level monitor reports `ok` throughout. Silence and noise produce no speech seconds, so
+# they cannot reach it.
+# ---------------------------------------------------------------------------------------
+
+
+class SilentRecognizer:
+    """A streaming recogniser that hears nothing, whatever it is given."""
+
+    def emits_partials(self) -> bool:
+        return True
+
+    def accept(self, frame: bytes) -> tuple[TranscriptEvent, ...]:
+        return ()
+
+    def finish(self) -> tuple[TranscriptEvent, ...]:
+        return ()
+
+    def reset(self) -> None: ...
+
+    def validate_format(self, audio_format: AudioFormat) -> None: ...
+
+    def warm_up(self) -> None: ...
+
+
+class AlwaysSpeech:
+    def is_speech(self, frame: bytes) -> bool:
+        return True
+
+
+class NeverSpeech:
+    def is_speech(self, frame: bytes) -> bool:
+        return False
+
+
+def stats_for(tmp_path: Path, detector: object) -> StreamingStats:
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        SilentRecognizer(),
+        detector=detector,  # type: ignore[arg-type]
+    )
+    list(run.events())
+    stats = run.stats
+    assert stats is not None
+    return stats
+
+
+def test_a_run_counts_how_much_of_it_was_speech(tmp_path: Path) -> None:
+    stats = stats_for(tmp_path, AlwaysSpeech())
+
+    assert stats.speech_seconds == pytest.approx(stats.audio_seconds)
+
+
+def test_a_run_with_no_speech_in_it_counts_none(tmp_path: Path) -> None:
+    assert stats_for(tmp_path, NeverSpeech()).speech_seconds == 0.0
+
+
+def test_speech_with_no_text_is_reported(tmp_path: Path) -> None:
+    lines = _nothing_recognised_lines(stats_for(tmp_path, AlwaysSpeech()), resolve_language("fr"))
+
+    assert lines, "speech went in, nothing came out, and nothing was said about it"
+    assert "none of it was recognised" in lines[0]
+    assert "French" in lines[1], "the message must name the language that was asked for"
+
+
+def test_silence_with_no_text_is_not_a_finding(tmp_path: Path) -> None:
+    """Which is most of the recordings anyone will ever point this at."""
+    assert (
+        _nothing_recognised_lines(stats_for(tmp_path, NeverSpeech()), resolve_language("en")) == []
+    )
+
+
+def test_a_fraction_of_a_second_of_speech_is_not_enough_to_accuse_a_model(
+    tmp_path: Path,
+) -> None:
+    """A frame or two of energy is not evidence that a model failed."""
+    stats = replace(stats_for(tmp_path, NeverSpeech()), speech_seconds=0.2)
+
+    assert _nothing_recognised_lines(stats, resolve_language("en")) == []
+
+
+def test_text_that_was_recognised_is_never_a_finding(tmp_path: Path) -> None:
+    stats = replace(stats_for(tmp_path, AlwaysSpeech()), finals=1)
+
+    assert _nothing_recognised_lines(stats, resolve_language("en")) == []
