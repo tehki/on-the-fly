@@ -478,3 +478,63 @@ def test_text_that_was_recognised_is_never_a_finding(tmp_path: Path) -> None:
     stats = replace(stats_for(tmp_path, AlwaysSpeech()), finals=1)
 
     assert _nothing_recognised_lines(stats, resolve_language("en")) == []
+
+
+# ---------------------------------------------------------------------------------------
+# A caller that only hears about events hears nothing from a recogniser producing none
+# (ADR 0045)
+#
+# The window drove its input-quality warnings from the event loop. A run that produces no
+# events produces no iterations of that loop, so a wrong-language run went by with the window
+# saying "listening" and not even its level warnings updating.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_run_reports_every_frame_even_when_nothing_is_recognised(tmp_path: Path) -> None:
+    calls: list[float] = []
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        SilentRecognizer(),
+        detector=AlwaysSpeech(),  # type: ignore[arg-type]
+        on_frame=lambda: calls.append(run.speech_seconds),
+    )
+
+    events = list(run.events())
+
+    assert events == [], "the recogniser under test is meant to produce nothing"
+    assert calls, "a run that produced no events reported nothing to its caller"
+    assert len(calls) == run.stats.frames_read if run.stats else False
+    assert calls == sorted(calls), "the speech count must only ever go up"
+    assert calls[-1] == pytest.approx(run.speech_seconds)
+
+
+def test_the_counts_are_readable_while_the_run_is_in_flight(tmp_path: Path) -> None:
+    """The window asks between frames. Waiting for `stats` means waiting for the end of a
+    live capture, which is when the user has already given up."""
+    seen: list[tuple[float, int]] = []
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        SilentRecognizer(),
+        detector=AlwaysSpeech(),  # type: ignore[arg-type]
+        on_frame=lambda: seen.append((run.speech_seconds, run.finals_so_far)),
+    )
+
+    list(run.events())
+
+    assert seen[0][0] > 0.0, "no speech had been counted after the first frame"
+    assert all(finals == 0 for _, finals in seen)
+
+
+def test_a_second_run_of_the_same_object_starts_its_counts_again(tmp_path: Path) -> None:
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        SilentRecognizer(),
+        detector=AlwaysSpeech(),  # type: ignore[arg-type]
+    )
+    list(run.events())
+    first = run.speech_seconds
+
+    run._source = WavFileSource(speech_wav(tmp_path / "b.wav"))
+    list(run.events())
+
+    assert run.speech_seconds == pytest.approx(first), "the second run added to the first"

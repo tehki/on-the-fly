@@ -10,8 +10,14 @@ difference — and it would break the promise `docs/RETENTION_POLICY.md` makes.
 
 from __future__ import annotations
 
+from on_the_fly.app.cli import SPEECH_BEFORE_SILENCE_IS_A_FINDING_SECONDS
 from on_the_fly.domain.audio.levels import InputQuality
-from on_the_fly.ui.caption import Caption, CaptionModel, Status
+from on_the_fly.ui.caption import (
+    SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS,
+    Caption,
+    CaptionModel,
+    Status,
+)
 
 
 def listening_model() -> CaptionModel:
@@ -236,3 +242,47 @@ def test_attribution_survives_across_utterances() -> None:
     model.final("something else")
 
     assert "Helsinki-NLP" in model.state.attribution
+
+
+# ---------------------------------------------------------------------------------------
+# Speech arriving and nothing being recognised (ADR 0045)
+#
+# The command line says this once a run has finished. A window has to say it while the run
+# is going, because that is when somebody is sitting in front of it wondering why the screen
+# is empty.
+# ---------------------------------------------------------------------------------------
+
+
+def test_speech_with_no_text_is_reported_while_it_is_happening() -> None:
+    model = listening_model()
+
+    assert model.note_nothing_recognised(True).nothing_recognised
+
+
+def test_it_clears_the_moment_anything_is_recognised() -> None:
+    """A warning left up after the thing it warned about has stopped is how a user learns to
+    ignore the row it lives in."""
+    model = listening_model()
+    model.note_nothing_recognised(True)
+
+    assert not model.note_nothing_recognised(False).nothing_recognised
+
+
+def test_it_clears_when_the_run_stops() -> None:
+    """Like the input verdict: it describes a run that is no longer happening."""
+    model = listening_model()
+    model.note_nothing_recognised(True)
+
+    assert not model.stopped().nothing_recognised
+
+
+def test_a_listening_window_starts_without_the_finding() -> None:
+    assert not listening_model().state.nothing_recognised
+
+
+def test_the_finding_waits_longer_than_the_command_line_does() -> None:
+    """Five seconds against half a second, and deliberately: the command line's figure is
+    retrospective, and this one interrupts somebody who is still talking. A run that is
+    working shows its first text about 1.1s in."""
+    assert SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS >= 5.0
+    assert SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS > SPEECH_BEFORE_SILENCE_IS_A_FINDING_SECONDS

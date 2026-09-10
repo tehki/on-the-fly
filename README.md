@@ -111,6 +111,16 @@ of noise tried, 151 to 542 for real speech**. So the finding needs both, and hal
 speech at minimum, because accusing a model on the strength of one frame is worse than saying
 nothing.
 
+**The window says it too, and getting it there fixed something else**
+([ADR 0045](docs/adr/0045-the-window-says-it-too.md)). Every report the window made — including
+its input-quality warnings — was driven from the event loop, and a run that produces no events
+produces no iterations of that loop. So a wrong-language run sat on *listening* with nothing
+updating, and a microphone clipping badly during it was a warning nobody saw. Runs now report
+after every **frame**, and the window carries one more row behind the input verdict and the
+dropped-block count: *speech is arriving and nothing is being recognised — is this English?*
+Five seconds there rather than the command line's half, because that figure is retrospective
+and this one interrupts somebody who is still talking.
+
 Russian, measured the same day, does the opposite: `tiny` differs from the pinned Russian
 model by **2 words in 12**, and both are spellings rather than misrecognitions. Two
 high-resource languages on clean read speech, a factor of four apart.

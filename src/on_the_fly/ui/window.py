@@ -297,6 +297,14 @@ def build_window(
                 self.warning_label.setText(
                     f"{state.overflow_count} audio block(s) dropped — some speech was lost"
                 )
+            elif state.nothing_recognised:
+                # Last of the three, because the other two explain it. An input that is too
+                # loud or a run losing blocks is a reason for no text; this row is for when
+                # the audio is fine and the model still has nothing to say (ADR 0045).
+                self.warning_label.setText(
+                    f"speech is arriving and nothing is being recognised — "
+                    f"is this {state.source_language}?"
+                )
             else:
                 self.warning_label.setText("")
 
