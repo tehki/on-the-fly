@@ -538,3 +538,160 @@ def test_a_second_run_of_the_same_object_starts_its_counts_again(tmp_path: Path)
     list(run.events())
 
     assert run.speech_seconds == pytest.approx(first), "the second run added to the first"
+
+
+# ---------------------------------------------------------------------------------------
+# The counts a run reports about itself
+#
+# `events 45 partial, 3 final` is printed by every run and quoted in the budget document,
+# and a mutation sweep found the counters untested: incrementing by two, or starting at one,
+# changed nothing that failed.
+# ---------------------------------------------------------------------------------------
+
+
+class ScriptedRecognizer:
+    """Emits exactly the events it is given, one per frame, then whatever `finish` holds."""
+
+    def __init__(
+        self, script: list[TranscriptEvent], tail: list[TranscriptEvent] | None = None
+    ) -> None:
+        self._script = list(script)
+        self._tail = list(tail or [])
+        self.reset_calls = 0
+
+    def emits_partials(self) -> bool:
+        return True
+
+    def accept(self, frame: bytes) -> tuple[TranscriptEvent, ...]:
+        return (self._script.pop(0),) if self._script else ()
+
+    def finish(self) -> tuple[TranscriptEvent, ...]:
+        return tuple(self._tail)
+
+    def reset(self) -> None:
+        self.reset_calls += 1
+
+    def validate_format(self, audio_format: AudioFormat) -> None: ...
+
+    def warm_up(self) -> None: ...
+
+
+def confident(text: str, *, is_final: bool, confidence: float | None = None) -> TranscriptEvent:
+    return TranscriptEvent(
+        utterance_index=1,
+        text=text,
+        is_final=is_final,
+        audio_offset_seconds=0.0,
+        latency_seconds=0.0,
+        confidence=confidence,
+    )
+
+
+def run_over(tmp_path: Path, script: list[TranscriptEvent]) -> StreamingStats:
+    run = StreamingRun(WavFileSource(speech_wav(tmp_path / "a.wav")), ScriptedRecognizer(script))
+    list(run.events())
+    stats = run.stats
+    assert stats is not None
+    return stats
+
+
+def test_partials_and_finals_are_counted_exactly(tmp_path: Path) -> None:
+    stats = run_over(
+        tmp_path,
+        [
+            confident("one", is_final=False),
+            confident("one two", is_final=False),
+            confident("one two three", is_final=True),
+            confident("four", is_final=True),
+        ],
+    )
+
+    assert (stats.partials, stats.finals) == (2, 2)
+
+
+def test_a_confidence_is_collected_only_when_the_recogniser_reported_one(
+    tmp_path: Path,
+) -> None:
+    """`None` means the recogniser said nothing about its answer, and a run that counted it
+    as a number would report a median of something nobody measured (ADR 0043)."""
+    stats = run_over(
+        tmp_path,
+        [
+            confident("a", is_final=True, confidence=-0.20),
+            confident("b", is_final=True),
+            confident("c", is_final=True, confidence=-0.40),
+        ],
+    )
+
+    assert stats.confidences == (-0.20, -0.40)
+    assert stats.median_confidence == pytest.approx(-0.30)
+
+
+def test_a_run_with_no_confidences_has_no_median(tmp_path: Path) -> None:
+    stats = run_over(tmp_path, [confident("a", is_final=True)])
+
+    assert stats.confidences == ()
+    assert stats.median_confidence is None
+
+
+def test_a_second_run_counts_only_itself(tmp_path: Path) -> None:
+    """The counters live on the run object between `events()` calls, and a run that added to
+    the last one would report a conversation nobody had."""
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        ScriptedRecognizer([confident("a", is_final=True, confidence=-0.2)]),
+    )
+    list(run.events())
+
+    run._source = WavFileSource(speech_wav(tmp_path / "b.wav"))
+    run._recognizer = ScriptedRecognizer([confident("b", is_final=True, confidence=-0.3)])
+    list(run.events())
+
+    assert run.stats is not None
+    assert run.stats.finals == 1
+    assert run.stats.confidences == (-0.3,)
+    assert run.finals_so_far == 1
+
+
+def test_what_the_flush_tail_produces_is_counted_too(tmp_path: Path) -> None:
+    """The real recogniser emits its last utterance from `finish`, not from a frame: a
+    transducer cannot emit a symbol it has no future frames for (ADR 0023). Those events go
+    through a second copy of the counting, and only the first copy was tested.
+    """
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        ScriptedRecognizer(
+            [confident("during", is_final=False)],
+            tail=[confident("at the end", is_final=True, confidence=-0.5)],
+        ),
+    )
+
+    texts = [event.text for event in run.events()]
+
+    assert run.stats is not None
+    assert texts == ["during", "at the end"]
+    assert (run.stats.partials, run.stats.finals) == (1, 1)
+    assert run.stats.confidences == (-0.5,)
+
+
+def test_a_second_run_that_recognises_nothing_says_nothing_was_recognised(
+    tmp_path: Path,
+) -> None:
+    """The live counter has to be cleared, not merely overwritten.
+
+    `finals_so_far` is what the window's "speech went in and nothing came out" finding reads
+    (ADR 0045). A run that kept the previous run's count would never report it — the second
+    run would look like it had already recognised something.
+    """
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        ScriptedRecognizer([confident("something", is_final=True)]),
+    )
+    list(run.events())
+    assert run.finals_so_far == 1
+
+    run._source = WavFileSource(speech_wav(tmp_path / "b.wav"))
+    run._recognizer = ScriptedRecognizer([])
+    list(run.events())
+
+    assert run.finals_so_far == 0, "the second run inherited the first one's finals"

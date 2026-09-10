@@ -8,6 +8,7 @@ binaries in the repository, and nothing to clean up.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import struct
@@ -18,6 +19,7 @@ import pytest
 
 from on_the_fly.app import PipelineResult, run_capture
 from on_the_fly.app.cli import build_parser, main
+from on_the_fly.app.pipeline import StreamingStats, UtteranceRecord
 from on_the_fly.domain.audio import (
     DEFAULT_HANGOVER_MS,
     DEFAULT_MAX_UTTERANCE_MS,
@@ -728,3 +730,90 @@ def test_a_whole_file_says_nothing_about_truncation(
     assert main(["segment", str(speech_like(tmp_path / "whole.wav"))]) == 0
 
     assert "truncated" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------------------
+# What a record is allowed to be
+#
+# Every one of these is handed to a formatter, a JSON encoder and a caller in turn. A record
+# any of them can rewrite is a record that describes the last thing to touch it.
+# ---------------------------------------------------------------------------------------
+
+
+def test_utterances_are_numbered_from_one(tmp_path: Path) -> None:
+    """Not from zero, and not from two. The index appears in the JSON and in every line a
+    user reads, and it is the only handle they have on a particular utterance."""
+    result = run_capture(WavFileSource(speech_like(tmp_path / "a.wav")))
+
+    assert [record.index for record in result.utterances] == list(
+        range(1, len(result.utterances) + 1)
+    )
+
+
+@pytest.mark.parametrize(
+    ("record", "field"),
+    [
+        (
+            UtteranceRecord(
+                index=1,
+                start_seconds=0.0,
+                duration_seconds=1.0,
+                frame_count=50,
+                ended_because=EndReason.SILENCE,
+            ),
+            "index",
+        ),
+        (
+            StreamingStats(
+                frames_read=1,
+                audio_seconds=1.0,
+                wall_seconds=1.0,
+                partials=0,
+                finals=0,
+                first_text_after_seconds=None,
+                final_reap=ReapReport(),
+                entries_remaining=0,
+            ),
+            "finals",
+        ),
+    ],
+)
+def test_a_run_record_cannot_be_rewritten(record: object, field: str) -> None:
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(record, field, 99)
+
+
+def test_an_utterance_starts_out_having_recognised_something(tmp_path: Path) -> None:
+    """`decode_fell_back` defaults to False: a recogniser that says nothing about its own
+    answer has not complained about it, and a default of True would put a warning on every
+    utterance the batch tier produced (ADR 0042)."""
+    record = UtteranceRecord(
+        index=1,
+        start_seconds=0.0,
+        duration_seconds=1.0,
+        frame_count=50,
+        ended_because=EndReason.SILENCE,
+    )
+
+    assert record.decode_fell_back is False
+    assert record.confidence is None
+
+
+def test_a_run_with_no_recogniser_reports_nothing_about_decoding(tmp_path: Path) -> None:
+    """`segment` runs without one. Every utterance it produces has nothing to say about a
+    decode that never happened, and a default saying otherwise would be a warning on a
+    command that does not recognise anything (ADR 0042)."""
+    result = run_capture(WavFileSource(speech_like(tmp_path / "a.wav")))
+
+    assert result.utterances
+    for record in result.utterances:
+        assert record.decode_fell_back is False
+        assert record.confidence is None
+        assert record.recognition_seconds is None
+
+
+def test_a_pipeline_result_cannot_be_rewritten(tmp_path: Path) -> None:
+    result = run_capture(WavFileSource(speech_like(tmp_path / "a.wav")))
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.wall_seconds = 0.0  # type: ignore[misc]
