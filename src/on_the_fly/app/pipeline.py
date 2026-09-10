@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import statistics
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass
 
 from on_the_fly.domain.audio import (
@@ -400,6 +400,7 @@ class StreamingRun:
         project_id: str = DEFAULT_PROJECT_ID,
         store: EphemeralStore | None = None,
         detector: VoiceActivityDetector | None = None,
+        on_frame: Callable[[], None] | None = None,
     ) -> None:
         self._source = source
         self._recognizer = recognizer
@@ -409,6 +410,13 @@ class StreamingRun:
         # transducer does its own endpointing and does not need one — but "there was speech
         # and nothing came out" is a thing only something like this can say (ADR 0044).
         self._detector = detector if detector is not None else EnergyVoiceActivityDetector()
+        # Called after every frame, whether or not it produced anything. A caller that only
+        # learns something when an event arrives learns nothing at all from a recogniser that
+        # is producing none — which is what the window did while a wrong-language run went by
+        # in silence, input-quality warnings included (ADR 0045).
+        self._on_frame = on_frame
+        self._speech_seconds = 0.0
+        self._finals = 0
         self._final_handles: list[TransientHandle] = []
         self._stats: StreamingStats | None = None
 
@@ -420,6 +428,16 @@ class StreamingRun:
     def final_handles(self) -> tuple[TransientHandle, ...]:
         """Handles to the finalised transcripts, in order. Identifiers, not content."""
         return tuple(self._final_handles)
+
+    @property
+    def speech_seconds(self) -> float:
+        """How much speech has been heard so far. Readable while the run is in flight."""
+        return self._speech_seconds
+
+    @property
+    def finals_so_far(self) -> int:
+        """How many utterances have been finalised so far, for a caller mid-run."""
+        return self._finals
 
     @property
     def stats(self) -> StreamingStats | None:
@@ -437,7 +455,8 @@ class StreamingRun:
         partials = 0
         finals = 0
         confidences: list[float] = []
-        speech_seconds = 0.0
+        self._speech_seconds = 0.0
+        self._finals = 0
         first_text_after: float | None = None
         started = time.monotonic()
 
@@ -447,13 +466,14 @@ class StreamingRun:
                 frame_seconds = self._format.duration_seconds(len(frame))
                 audio_seconds += frame_seconds
                 if self._detector.is_speech(frame):
-                    speech_seconds += frame_seconds
+                    self._speech_seconds += frame_seconds
 
                 for event in self._recognizer.accept(frame):
                     if first_text_after is None:
                         first_text_after = audio_seconds
                     if event.is_final:
                         finals += 1
+                        self._finals = finals
                         if event.confidence is not None:
                             confidences.append(event.confidence)
                         self._final_handles.append(
@@ -462,6 +482,9 @@ class StreamingRun:
                     else:
                         partials += 1
                     yield event
+
+                if self._on_frame is not None:
+                    self._on_frame()
 
             for event in self._recognizer.finish():
                 if event.is_final:
@@ -488,5 +511,5 @@ class StreamingRun:
                 final_reap=reap,
                 entries_remaining=len(self._store),
                 confidences=tuple(confidences),
-                speech_seconds=speech_seconds,
+                speech_seconds=self._speech_seconds,
             )

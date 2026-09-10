@@ -21,7 +21,12 @@ from typing import TYPE_CHECKING, Any
 from on_the_fly.app.catalogue import recognisable_languages, translation_targets
 from on_the_fly.domain.audio.levels import LevelWatchingSource
 from on_the_fly.domain.audio.settling import SettlingSource
-from on_the_fly.ui.caption import NO_TRANSLATION, NO_TRANSLATION_LABEL, CaptionModel
+from on_the_fly.ui.caption import (
+    NO_TRANSLATION,
+    NO_TRANSLATION_LABEL,
+    SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS,
+    CaptionModel,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import shape only
     from collections.abc import Sequence
@@ -81,6 +86,7 @@ def build_worker() -> Any:
         attribution = QtCore.Signal(str)
         overflowed = QtCore.Signal(int)
         input_quality = QtCore.Signal(str)
+        nothing_recognised = QtCore.Signal(bool)
         failed = QtCore.Signal(str)
         finished = QtCore.Signal()
 
@@ -162,16 +168,42 @@ def build_worker() -> Any:
                 f"listening at {source.capture_rate_hz or source.audio_format.sample_rate_hz} Hz"
             )
 
-            run = StreamingRun(watched, recognizer)
             reported = InputQuality.OK
+            reported_silence = False
+            # Declared before the closure below refers to it: the module has a `run`
+            # function, and without this the name resolves to that one.
+            run: StreamingRun
 
-            def report_levels() -> None:
-                """Emit only on change: a signal per frame would be a repaint per frame."""
-                nonlocal reported
+            def report_state() -> None:
+                """After every frame, whether or not it produced anything.
+
+                Emitting only on change: a signal per frame would be a repaint per frame.
+                Called from the run rather than from the event loop below, because a
+                recogniser producing nothing produces no iterations of that loop either — so
+                a wrong-language run used to go by with the window saying "listening" and not
+                even its input-quality warnings updating (ADR 0045).
+                """
+                nonlocal reported, reported_silence
                 current = watched.level.quality
                 if current is not reported:
                     reported = current
                     self.input_quality.emit(current.value)
+
+                silent = (
+                    run.finals_so_far == 0
+                    and run.speech_seconds >= SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS
+                )
+                if silent != reported_silence:
+                    reported_silence = silent
+                    self.nothing_recognised.emit(silent)
+
+                if source.overflow_count:
+                    self.overflowed.emit(source.overflow_count)
+
+            run = StreamingRun(watched, recognizer, on_frame=report_state)
+
+            def report_levels() -> None:
+                report_state()
 
             events = run.events()
             stream = (
@@ -281,6 +313,10 @@ def run(argv: Sequence[str] | None = None) -> int:
             model.note_input_quality(InputQuality(value))
             render()
 
+        def on_nothing_recognised(nothing: bool) -> None:
+            model.note_nothing_recognised(nothing)
+            render()
+
         def on_failed(reason: str) -> None:
             model.failed(reason)
             render()
@@ -292,6 +328,7 @@ def run(argv: Sequence[str] | None = None) -> int:
         worker.attribution.connect(on_attribution)
         worker.overflowed.connect(on_overflow)
         worker.input_quality.connect(on_input_quality)
+        worker.nothing_recognised.connect(on_nothing_recognised)
         worker.failed.connect(on_failed)
 
         def cleanup() -> None:

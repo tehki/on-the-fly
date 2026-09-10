@@ -37,6 +37,16 @@ NO_TRANSLATION = ""
 NO_TRANSLATION_LABEL = "no translation"
 
 
+# How much speech has to arrive with no text at all behind it before the window says so.
+#
+# Longer than the command line's half second, and deliberately: that figure is retrospective,
+# reported once a run has finished, where this one interrupts somebody who is still talking.
+# The measured wrong-language runs produced nothing from 5.3 s and 10.8 s of speech (ADR
+# 0044), and a run that is working shows its first text about 1.1 s in — so five seconds is
+# late enough to be sure and early enough that nobody has repeated themselves twice.
+SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS = 5.0
+
+
 class Status(Enum):
     """What the application is doing, in the user's terms rather than the pipeline's."""
 
@@ -83,6 +93,11 @@ class ViewState:
     # rather than nothing, so it is the one pipeline problem a user cannot see for
     # themselves (ADR 0019).
     input_quality: InputQuality = InputQuality.OK
+    # Set when speech has been heard for a while and the recogniser has produced nothing at
+    # all. The command line says this at the end of a run; a window has to say it while the
+    # run is still going, because that is when a user is sitting in front of it wondering
+    # why nothing is appearing (ADR 0044, ADR 0045).
+    nothing_recognised: bool = False
 
     @property
     def can_start(self) -> bool:
@@ -141,6 +156,7 @@ class CaptionModel:
             overflow_count=0,
             # A verdict about a device that is no longer open describes nothing.
             input_quality=InputQuality.OK,
+            nothing_recognised=False,
         )
         return self._state
 
@@ -188,6 +204,16 @@ class CaptionModel:
         controls, not in the text someone is reading.
         """
         self._state = replace(self._state, input_quality=quality)
+        return self._state
+
+    def note_nothing_recognised(self, nothing: bool) -> ViewState:
+        """Record that speech is arriving and no text is coming out of it.
+
+        Cleared the moment anything is recognised, because by then the user can see for
+        themselves — and a warning that stays up after the thing it warned about has stopped
+        is how a user learns to ignore the row it lives in.
+        """
+        self._state = replace(self._state, nothing_recognised=nothing)
         return self._state
 
     def note_overflow(self, count: int) -> ViewState:
