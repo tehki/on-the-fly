@@ -57,6 +57,9 @@ every user's machine under Article 12.
 > So Spanish is still refused, for a better reason and a more hopeful one. It needs one dead
 > link to come back, or one export of a release that still exists — not a model nobody has
 > trained.
+>
+> `scripts/survey_translation_models.py` now performs this check for every unserved pair, so
+> the next person does not have to remember to.
 
 **German publishes three releases per direction and two of them are the same trap.**
 `opus-2019-12-04` and `opus-2019-12-18` are BPE; `opus-2020-02-26` is sentencepiece. The pin is
