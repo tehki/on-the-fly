@@ -36,9 +36,27 @@ subword-models:
 
 [ADR 0032](0032-french-translation.md) refused a release for exactly this: every artefact here
 tokenises with sentencepiece, and loading a BPE model means admitting a BPE implementation on
-every user's machine under Article 12. The largest of the four remaining languages is the one
-this project cannot serve, and no amount of effort here changes that — it needs a release
-somebody else has not published.
+every user's machine under Article 12.
+
+> **The last sentence of this section said Spanish "needs a release somebody else has not
+> published". Re-checked 2026-09-10: that is wrong, and the door is shut by something else.**
+>
+> The release exists — in the other bucket. `Tatoeba-MT-models/spa-eng/opus-2021-02-19.zip`
+> and its `eng-spa` twin are **sentencepiece** (`spm32k`), and `onnx-community` publishes
+> `opus-mt-es-en` and `opus-mt-en-es` declaring `cc-by-4.0`, naming `Helsinki-NLP/opus-mt-es-en`
+> as their base and shipping `source.spm`. On the ONNX side Spanish is admissible today.
+>
+> What fails is [ADR 0033](0033-french-on-onnx.md)'s chain, at its last link. That checkpoint
+> names its original weights as `Tatoeba-MT-models/spa-eng/opus-2020-08-18.zip`, and **that
+> file is gone** — HTTP 404, `NoSuchKey`. The archive the export derives from is no longer
+> published, so the CTranslate2 side would have to pin a *different* release than the one the
+> ONNX side carries. That puts two different models behind one pair, which is exactly what the
+> chain check exists to prevent: ADR 0033 wrote down the consequence, that a difference
+> "would then have been attributed to the runtime".
+>
+> So Spanish is still refused, for a better reason and a more hopeful one. It needs one dead
+> link to come back, or one export of a release that still exists — not a model nobody has
+> trained.
 
 **German publishes three releases per direction and two of them are the same trap.**
 `opus-2019-12-04` and `opus-2019-12-18` are BPE; `opus-2020-02-26` is sentencepiece. The pin is
@@ -142,9 +160,12 @@ honest description of what this project can do with it.
 
 - **It does not make German stream.** The licence problem ADR 0007 recorded is unchanged, and
   no measurement here touches it.
-- **It does not add Spanish, Italian or Portuguese.** Spanish is blocked on a BPE-only release,
-  which is somebody else's to fix. Italian and Portuguese have not been checked and this ADR
-  claims nothing about them.
+- **It does not add Spanish, Italian or Portuguese.** Spanish is blocked — on a broken link
+  rather than on the BPE release this ADR first blamed, see the note above. Italian and
+  Portuguese have not been checked and this ADR claims nothing about them.
+
+  > Italian was taken in one direction by [ADR 0039](0039-italian-one-way.md); Portuguese is
+  > blocked twice over, and the same ADR records both reasons.
 - **It does not make `de→en` a live path.** German audio goes through the batch tier — an
   utterance at a time, after the speaker stops ([ADR 0035](0035-the-batch-tier-measured.md)).
   The live direction is *into* German.
