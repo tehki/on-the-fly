@@ -859,3 +859,67 @@ def test_a_recogniser_with_no_opinion_is_not_reported_as_failing(
     utterance = json.loads(capsys.readouterr().out)["utterances"][0]
     assert utterance["confidence"] is None
     assert utterance["failed_decode"] is False
+
+
+def test_a_transcript_with_no_timing_reports_zero_rather_than_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`recognition_seconds` is `None` when nothing recognised the utterance, and the JSON
+    carries a number in that field. A mutation turning `or 0.0` into `and 0.0` survived,
+    which would have put `null` where a consumer expects seconds — or a `TypeError`.
+    """
+    path = speech_like_wav(tmp_path / "speech.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.FasterWhisperRecognizer", lambda *a, **k: FakeRecognizer("")
+    )
+
+    assert main(["transcribe", str(path), "--cache-dir", str(tmp_path), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    for utterance in payload["utterances"]:
+        assert isinstance(utterance["recognition_seconds"], float)
+
+
+def test_a_transcript_that_cannot_be_deleted_is_reported_and_changes_the_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`docs/SECURITY_PRIVACY.md` lists this as a control: "Deletion failure is reported,
+    never swallowed... returns a distinct exit code when it could not delete what it held."
+
+    The `segment` path had a test. This one — the path that reads transcripts out of the
+    store and then purges — did not, and a mutation to its condition survived.
+    """
+    path = speech_like_wav(tmp_path / "speech.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.FasterWhisperRecognizer",
+        lambda *a, **k: FakeRecognizer("something worth deleting"),
+    )
+
+    from on_the_fly.domain.retention import EphemeralStore, ReapReport
+
+    def refuse(self: EphemeralStore) -> ReapReport:
+        return ReapReport(deleted=(), failed=("entry-1",))
+
+    monkeypatch.setattr(EphemeralStore, "purge_all", refuse)
+
+    exit_code = main(["transcribe", str(path), "--cache-dir", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 3, "a run that could not delete what it held reported success"
+    assert "could not be deleted" in captured.err
+
+
+def test_a_run_that_deletes_everything_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other half: the distinct exit code has to be distinct from something."""
+    path = speech_like_wav(tmp_path / "speech.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.FasterWhisperRecognizer", lambda *a, **k: FakeRecognizer("fine")
+    )
+
+    assert main(["transcribe", str(path), "--cache-dir", str(tmp_path)]) == 0
+    assert "could not be deleted" not in capsys.readouterr().err
