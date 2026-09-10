@@ -392,6 +392,16 @@ def test_a_batch_language_fetches_the_batch_model(fetched: dict[str, object]) ->
     assert fetched["pin"] == DEFAULT_MODEL.name
 
 
+def test_the_batch_branch_asks_for_the_download_too(fetched: dict[str, object]) -> None:
+    """The streaming branch was asserted and this one was not, so a mutation setting it to
+    false survived: `fetch` for a batch language would have refused to download the very
+    thing it exists to fetch, silently."""
+    assert main(["fetch", "--language", "it", "--translate-to", "en"]) == 0
+
+    assert fetched["allow_download"] is True
+    assert fetched["translation_allow_download"] is True
+
+
 def test_a_batch_language_can_be_asked_for_a_different_size(fetched: dict[str, object]) -> None:
     assert main(["fetch", "--language", "it", "--model", "small"]) == 0
 
@@ -419,3 +429,28 @@ def test_a_language_into_itself_is_refused(
     assert main(["fetch", "--language", "fr", "--translate-to", "fr"]) == 1
 
     assert "nothing to translate" in capsys.readouterr().err
+
+
+def test_fetching_without_a_language_is_refused_by_the_parser(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """There is no sensible default: fetching "the models" without saying for what would
+    either fetch everything or guess."""
+    with pytest.raises(SystemExit):
+        main(["fetch", "--translate-to", "en"])
+
+    assert "--language" in capsys.readouterr().err
+
+
+def test_a_language_that_streams_is_labelled_live_and_one_that_does_not_is_not(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The label is the difference between "speak and read it" and "record it first", which
+    is most of what a user needs from this command."""
+    output = spoken(capsys)
+
+    for line in output.splitlines():
+        if line.startswith("  en -> "):
+            assert "(live)" in line
+        if line.startswith("  it -> "):
+            assert "(from a file)" in line, "Italian does not stream (ADR 0039)"

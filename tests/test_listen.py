@@ -329,3 +329,64 @@ def test_a_recogniser_that_cannot_count_endpoints_is_not_required_to(
 
     assert exit_code == 0
     assert "endpoints " not in capsys.readouterr().out
+
+
+def test_partials_are_shown_while_somebody_is_still_speaking(
+    patched: dict[str, object], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The whole argument for a streaming recogniser is that text exists before the speaker
+    has finished (ADR 0006). A run that showed only finals would be a slower batch run."""
+    assert main(["listen", "--seconds", "30", "--cache-dir", str(tmp_path)]) == 0
+
+    assert "partial]" in capsys.readouterr().out, "no partial caption was printed"
+
+
+def test_finals_only_hides_them_and_keeps_the_text(
+    patched: dict[str, object], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """For somebody reading over a shoulder rather than watching a caption rewrite itself."""
+    assert main(["listen", "--seconds", "30", "--cache-dir", str(tmp_path), "--finals-only"]) == 0
+
+    output = capsys.readouterr().out
+    # The caption lines, not the summary — which counts partials whether or not they were
+    # shown, and should keep doing so.
+    assert "partial]" not in output
+    assert "1 partial, 1 final" in output
+    assert "hello there" in output, "the finals went with the partials"
+
+
+def test_a_translated_listen_reports_how_many_of_how_many(
+    patched: dict[str, object],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The counter is incremented in the live loop, and nothing asserted it there: a
+    mutation starting it at one, or never adding to it, survived every test."""
+    monkeypatch.setattr("on_the_fly.app.cli.open_translator", lambda *a, **k: FixedTranslator())
+
+    assert (
+        main(
+            [
+                "listen",
+                "--seconds",
+                "30",
+                "--cache-dir",
+                str(tmp_path),
+                "--translate-to",
+                "ru",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr().out
+    assert "→ переведено" in output, "the translation is not marked as one"
+    assert "translation   1 of 1 final(s)" in output
+
+
+class FixedTranslator:
+    """Answers instantly, so the summary line has something to report."""
+
+    def translate(self, text: str, *, source_language: str, target_language: str) -> str:
+        return "переведено"

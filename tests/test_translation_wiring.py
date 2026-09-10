@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from on_the_fly.app import TranslatedEvent, build_store, translate_finals
-from on_the_fly.app.cli import main
+from on_the_fly.app.cli import _translation_summary, main
 from on_the_fly.domain.audio import TranscriptEvent
 from on_the_fly.domain.retention import EphemeralStore
 
@@ -307,3 +307,119 @@ def test_russian_is_accepted_for_streaming(
     assert "not a streaming language" not in captured.err
     assert "streaming-ru" in captured.err
     assert "downloading is not enabled" in captured.err
+
+
+# ---------------------------------------------------------------------------------------
+# The translation summary line
+#
+# There were two copies of it, in `stream` and in `listen`. A mutation sweep found neither
+# tested: the median could be taken at a third of the way through the list, and the
+# milliseconds could be seconds, without anything failing.
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_median_is_the_middle_of_the_timings() -> None:
+    line = _translation_summary(3, 3, [0.100, 0.500, 0.300])
+
+    assert "median 300ms" in line
+
+
+def test_an_even_count_takes_the_upper_middle() -> None:
+    """Which is a choice, and the one that does not invent a value between two samples."""
+    line = _translation_summary(4, 4, [0.100, 0.200, 0.300, 0.400])
+
+    assert "median 300ms" in line
+
+
+def test_the_worst_one_is_reported_beside_it() -> None:
+    """A p50 alone hides the utterance somebody actually waited for."""
+    line = _translation_summary(3, 3, [0.100, 0.500, 0.300])
+
+    assert "max 500ms" in line
+
+
+def test_seconds_are_reported_as_milliseconds() -> None:
+    """The unit everything else in this output uses. A factor of a thousand out is a number
+    that still looks plausible."""
+    assert "median 250ms" in _translation_summary(1, 1, [0.25])
+
+
+def test_nothing_translated_says_so_rather_than_reporting_zero() -> None:
+    """A silent `0ms` reads as success, and the two are opposites."""
+    line = _translation_summary(0, 4, [])
+
+    assert line == "translation   none produced from 4 final(s)"
+
+
+def test_it_says_how_many_of_how_many() -> None:
+    """A translation failure does not end a run (ADR 0009), so the counts can differ and the
+    difference is the interesting part."""
+    assert "2 of 5 final(s)" in _translation_summary(2, 5, [0.1, 0.2])
+
+
+def test_a_translated_line_carries_the_arrow_a_reader_looks_for(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one piece of punctuation that separates what was said from what it means. It is a
+    constant nothing asserted, so any character at all would have passed."""
+    path = utterance_wav(tmp_path / "a.wav")
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", lambda self, pin: tmp_path)
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.FasterWhisperRecognizer",
+        lambda *a, **k: _FixedRecognizer("bonjour"),
+    )
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.open_translator", lambda *a, **k: _FixedTranslator("hello")
+    )
+
+    assert (
+        main(
+            [
+                "transcribe",
+                str(path),
+                "--language",
+                "fr",
+                "--translate-to",
+                "en",
+                "--cache-dir",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr().out
+    assert "→ hello" in output, "the translation is not marked as one"
+
+
+class _FixedRecognizer:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def transcribe(self, audio: bytes, audio_format: object) -> str:
+        return self._text
+
+
+class _FixedTranslator:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def translate(self, text: str, *, source_language: str, target_language: str) -> str:
+        return self._text
+
+
+def utterance_wav(path: Path) -> Path:
+    """Silence, a burst, silence — one utterance the segmenter will actually find.
+
+    A continuous tone is not one: the detector adapts its floor to it within a second and
+    then hears nothing, which is the behaviour ADR 0025 gave it on purpose.
+    """
+    quiet = [0] * int(RATE * 0.4)
+    loud = [int(9000 * math.sin(2 * math.pi * 220 * i / RATE)) for i in range(int(RATE * 1.2))]
+    samples = quiet + loud + quiet
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(RATE)
+        writer.writeframes(struct.pack(f"<{len(samples)}h", *samples))
+    return path

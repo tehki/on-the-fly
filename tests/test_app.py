@@ -683,3 +683,48 @@ def test_the_frame_size_it_suggests_actually_reads_the_file(
     assert main(["segment", str(path), "--frame-ms", "40"]) == 0
 
     assert "11025 Hz mono 16-bit" in capsys.readouterr().out
+
+
+def test_the_json_keeps_millisecond_precision_on_timings(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Three decimal places on a duration in seconds is a millisecond, which is the unit
+    everything else in this project reports. A mutation to two or four survived every test."""
+    path = speech_like(tmp_path / "a.wav")
+
+    assert main(["segment", str(path), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    for utterance in payload["utterances"]:
+        for key in ("start_seconds", "duration_seconds"):
+            rendered = repr(utterance[key])
+            assert len(rendered.partition(".")[2]) <= 4, f"{key} carries {rendered}"
+
+
+def test_a_truncated_file_says_so_beside_the_duration_it_contradicts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every duration this project reports is computed from the audio that arrived, so none
+    of them can reveal what did not. A half-copied recording is still worth transcribing; it
+    just must not be mistaken for a whole one — and nothing asserted the line that says so.
+    """
+    path = write_wav(tmp_path / "half.wav", samples_of(2.0, 9000))
+    with path.open("r+b") as handle:
+        # The header keeps its claim; half the audio goes away. This is what an interrupted
+        # copy leaves behind.
+        handle.truncate(44 + (path.stat().st_size - 44) // 2)
+
+    assert main(["segment", str(path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "truncated" in output
+    assert "header declares" in output
+
+
+def test_a_whole_file_says_nothing_about_truncation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Otherwise the line is furniture and a real truncation reads as normal."""
+    assert main(["segment", str(speech_like(tmp_path / "whole.wav"))]) == 0
+
+    assert "truncated" not in capsys.readouterr().out

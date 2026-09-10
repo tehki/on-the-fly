@@ -838,6 +838,26 @@ def _nothing_recognised_lines(stats: StreamingStats, language: Any) -> list[str]
     ]
 
 
+def _translation_summary(translated: int, finals: int, seconds: Sequence[float]) -> str:
+    """How the translation stage behaved, in one line.
+
+    A single copy because there were two, in `stream` and in `listen`, and the last time this
+    file held two copies of a line one of them had not learned that a pair can be bridged
+    (ADR 0037). Timings are `OPERATIONAL_METADATA`: durations and a count, no text.
+
+    Nothing translated is reported as such rather than as a fast zero — a silent `0ms` reads
+    as success, and the two are the opposite of each other.
+    """
+    if not seconds:
+        return f"translation   none produced from {finals} final(s)"
+    ordered = sorted(seconds)
+    median = ordered[len(ordered) // 2]
+    return (
+        f"translation   {translated} of {finals} final(s), "
+        f"median {median * 1000:.0f}ms, max {max(ordered) * 1000:.0f}ms"
+    )
+
+
 def _confidence_lines(stats: StreamingStats) -> list[str]:
     """What the recogniser thought of the run. A number, and no verdict on it.
 
@@ -937,17 +957,7 @@ def run_stream(args: argparse.Namespace) -> int:
     for line in _nothing_recognised_lines(stats, language):
         print(line)
     if translator is not None:
-        if translation_times:
-            ordered = sorted(translation_times)
-            median = ordered[len(ordered) // 2]
-            print(
-                f"translation   {translated} of {stats.finals} final(s), "
-                f"median {median * 1000:.0f}ms, max {max(ordered) * 1000:.0f}ms"
-            )
-        else:
-            # Distinguishable from "fast": nothing was translated at all. A silent zero
-            # would read as success.
-            print(f"translation   none produced from {stats.finals} final(s)")
+        print(_translation_summary(translated, stats.finals, translation_times))
     if stats.retention_clean:
         print("retention     clean - nothing retained, no deletion failed")
     else:
@@ -1098,15 +1108,7 @@ def run_listen(args: argparse.Namespace) -> int:
         # the same output: a long gap between finals and no way to tell which happened.
         print(f"endpoints     {stats.finals} with text, {silent} with none (silence)")
     if translator is not None:
-        if translation_times:
-            ordered = sorted(translation_times)
-            median = ordered[len(ordered) // 2]
-            print(
-                f"translation   {translated} of {stats.finals} final(s), "
-                f"median {median * 1000:.0f}ms, max {max(ordered) * 1000:.0f}ms"
-            )
-        else:
-            print(f"translation   none produced from {stats.finals} final(s)")
+        print(_translation_summary(translated, stats.finals, translation_times))
 
     level = watched.overall_level
     print(f"input         {level}")
