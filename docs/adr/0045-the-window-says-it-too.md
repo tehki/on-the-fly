@@ -67,9 +67,14 @@ thing it warned about has stopped is how a user learns to ignore the row it live
   `speech_seconds` counts; the transducer still does its own endpointing.
 - **It does not catch a wrong model that has something to say**, which is ADR 0043's finding
   and unchanged: confident nonsense arrives as finals and looks like success from here.
-- **It has not been seen by a person in the window.** The condition, the state and the
-  rendering are tested; that the row appears where a user will read it is asserted through the
-  view model rather than observed on screen, as with every other row in that area.
+- ~~**It has not been seen by a person in the window.**~~ **Rendered and asserted, 2026-09-10.**
+  `tests/test_ui_window_render.py` builds the real window under Qt's `offscreen` platform and
+  pushes states through it, so the label's text — and the priority between the three warning
+  rows — is checked against the widget rather than against the model that feeds it. That
+  covers every row in that area, none of which had ever been rendered in a test.
+
+  What is still unobserved is a **person** reading it. The wording is the part a test cannot
+  judge, and "is this English?" may read as an accusation rather than a hint.
 
 ## Review trigger
 
