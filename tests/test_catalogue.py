@@ -13,6 +13,8 @@ makes them describe the new state instead of failing.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from on_the_fly.app.catalogue import (
@@ -22,7 +24,9 @@ from on_the_fly.app.catalogue import (
     streaming_pin_name,
     translation_targets,
 )
+from on_the_fly.app.cli import main
 from on_the_fly.domain.languages import SUPPORTED, Language, RecognitionTier
+from on_the_fly.infrastructure.asr import DEFAULT_MODEL
 from on_the_fly.infrastructure.asr.models import KNOWN_MODELS
 from on_the_fly.infrastructure.model_store import ModelPin
 from on_the_fly.infrastructure.translation import KNOWN_ARTIFACTS, KNOWN_ONNX_MODELS
@@ -240,3 +244,178 @@ def test_no_option_row_is_ever_ambiguous() -> None:
     for source_code, _ in streaming_languages():
         codes = [code for code, _ in translation_options(source_code)]
         assert len(codes) == len(set(codes))
+
+
+# ---------------------------------------------------------------------------------------
+# `languages`: what this build serves, printed rather than looked up in a README
+#
+# Everything it prints comes from the same resolvers a run will use moments later, which is
+# the property that keeps it from going stale the way the window's pickers once did
+# (ADR 0034).
+# ---------------------------------------------------------------------------------------
+
+
+def spoken(capsys: pytest.CaptureFixture[str], *argv: str) -> str:
+    assert main(["languages", *argv]) == 0
+    return capsys.readouterr().out
+
+
+def test_it_lists_what_is_recognised_live_and_what_is_not(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output = spoken(capsys)
+
+    for language in recognisable_languages():
+        assert f"{language.name} ({language.code})" in output
+    assert "from a file only" in output
+
+
+def test_every_language_appears_exactly_once_in_the_translation_list(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A language missing from it is one a user would conclude does not work."""
+    output = spoken(capsys)
+
+    for code in SUPPORTED:
+        assert output.count(f"\n  {code} -> ") == 1, f"{code} is listed {output.count(code)} times"
+
+
+def test_a_language_with_no_pinned_pair_says_so_rather_than_being_omitted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert "es -> nothing is pinned to translate it" in spoken(capsys)
+
+
+def test_a_bridged_pair_is_marked_and_the_mark_is_explained(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Two models rather than one is a thing to be told, not to infer from a footnote
+    nobody explained (ADR 0037)."""
+    output = spoken(capsys)
+
+    assert "ru*" in output or "fr*" in output
+    assert "reached through English" in output
+
+
+def test_the_count_it_prints_is_the_one_the_catalogue_computes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output = spoken(capsys)
+
+    assert f"{len(servable_pairs())} pair(s) work end to end" in output
+
+
+def test_it_answers_for_the_engine_it_was_asked_about(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert "engine        onnx" in spoken(capsys, "--translation-engine", "onnx")
+
+
+def test_it_opens_nothing_and_downloads_nothing(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one command a user runs to find out what is possible must not need a model, a
+    microphone or a network to answer."""
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("languages reached for a model")
+
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", refuse)
+
+    assert main(["languages"]) == 0
+
+
+# ---------------------------------------------------------------------------------------
+# `fetch`: get a pair ready, then stop
+#
+# Every other command discovers a missing model in the middle of doing something. On this
+# machine a translation model takes 9 to 15 minutes to arrive and 13 seconds to convert,
+# which is a bad thing to find out once somebody is already talking.
+# ---------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fetched(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    """Records what `fetch` asked for without fetching anything."""
+    seen: dict[str, object] = {}
+
+    def fake_ensure(self: object, pin: object) -> Path:
+        seen["pin"] = getattr(pin, "name", pin)
+        seen["allow_download"] = getattr(self, "allow_download", None)
+        return Path("/nowhere")
+
+    def fake_open(choice: object, cache_dir: object, **kwargs: object) -> object:
+        seen["choice"] = str(choice)
+        seen["translation_allow_download"] = kwargs.get("allow_download")
+        return object()
+
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", fake_ensure)
+    monkeypatch.setattr("on_the_fly.app.cli.open_translator", fake_open)
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.SherpaStreamingRecognizer", lambda *a, **k: _QuietRecognizer()
+    )
+    monkeypatch.setattr("on_the_fly.app.cli.FasterWhisperRecognizer", lambda *a, **k: object())
+    return seen
+
+
+class _QuietRecognizer:
+    def warm_up(self) -> None: ...
+
+    def validate_format(self, audio_format: object) -> None: ...
+
+
+def test_fetching_a_streaming_pair_prepares_both_models(
+    fetched: dict[str, object], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["fetch", "--language", "fr", "--translate-to", "ru"]) == 0
+
+    assert fetched["pin"] == "streaming-fr"
+    assert "fr->en->ru" in str(fetched["choice"]), "the bridged route was not prepared"
+    assert "nothing left to download" in capsys.readouterr().out
+
+
+def test_fetching_asks_for_the_download_that_every_other_command_refuses(
+    fetched: dict[str, object],
+) -> None:
+    """`--allow-download` defaults to false everywhere else, which is the control this
+    command exists to spend deliberately."""
+    assert main(["fetch", "--language", "fr", "--translate-to", "ru"]) == 0
+
+    assert fetched["allow_download"] is True
+    assert fetched["translation_allow_download"] is True
+
+
+def test_a_batch_language_fetches_the_batch_model(fetched: dict[str, object]) -> None:
+    """Italian does not stream, so there is no streaming pin to fetch for it (ADR 0039)."""
+    assert main(["fetch", "--language", "it", "--translate-to", "en"]) == 0
+
+    assert fetched["pin"] == DEFAULT_MODEL.name
+
+
+def test_a_batch_language_can_be_asked_for_a_different_size(fetched: dict[str, object]) -> None:
+    assert main(["fetch", "--language", "it", "--model", "small"]) == 0
+
+    assert fetched["pin"] == "small"
+
+
+def test_captions_only_needs_no_translation_model(fetched: dict[str, object]) -> None:
+    assert main(["fetch", "--language", "fr"]) == 0
+
+    assert "choice" not in fetched
+
+
+def test_a_pair_nothing_serves_is_refused_before_anything_is_downloaded(
+    fetched: dict[str, object], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["fetch", "--language", "es", "--translate-to", "en"]) == 1
+
+    assert "no pinned translation model" in capsys.readouterr().err
+    assert fetched == {}, "something was fetched for a pair that cannot be served"
+
+
+def test_a_language_into_itself_is_refused(
+    fetched: dict[str, object], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["fetch", "--language", "fr", "--translate-to", "fr"]) == 1
+
+    assert "nothing to translate" in capsys.readouterr().err
