@@ -452,6 +452,42 @@ clipping threshold would never have found it. Thirty seconds of live speech at t
 gain measures a floor of 0.015 against a threshold of 0.15, so the margin is an order of
 magnitude — from one speaker, one room and one microphone.
 
+## What it serves, and getting ready to serve it
+
+```bash
+python -m on_the_fly languages
+```
+
+```text
+recognised live   English (en), French (fr), Russian (ru)
+from a file only  Spanish (es), Italian (it), Portuguese (pt), German (de)
+                  through base, an utterance at a time
+
+translation, by what is speaking:
+  en -> fr, de, ru   (live)
+  fr -> en, de*, ru*   (live)
+  it -> en, fr*, de*, ru*   (from a file)
+  es -> nothing is pinned to translate it
+
+* reached through English, using two models rather than one (ADR 0037)
+9 pair(s) work end to end from live speech.
+```
+
+Every line of that comes from the same resolvers a run uses moments later, so it cannot drift
+from what the product actually does — which is the defect
+[ADR 0034](docs/adr/0034-tiers-describe-this-project.md) removed from the window's pickers. It
+downloads nothing and opens no device.
+
+```bash
+python -m on_the_fly fetch --language fr --translate-to ru
+```
+
+Fetches, verifies, converts **and loads** everything that pair needs, then stops. Loading is
+the point rather than an accident: a pair that downloaded but cannot be built is not ready, and
+this is a much better place to find that out. On this machine a translation model takes 9 to 15
+minutes to arrive and about 13 seconds to convert on first use — which is a bad thing to
+discover once somebody is already talking.
+
 ## Listening, without a window
 
 ```bash

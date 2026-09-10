@@ -24,6 +24,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from on_the_fly.app.catalogue import (
+    recognisable_languages,
+    servable_pairs,
+    streaming_pin_name,
+    translation_targets,
+)
 from on_the_fly.app.pipeline import (
     PipelineResult,
     StreamingRun,
@@ -43,7 +49,7 @@ from on_the_fly.domain.audio import (
     SettlingSource,
 )
 from on_the_fly.domain.audio.ports import Translator
-from on_the_fly.domain.languages import RecognitionTier
+from on_the_fly.domain.languages import SUPPORTED, RecognitionTier
 from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure import parallel
 from on_the_fly.infrastructure.asr import (
@@ -263,6 +269,51 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="recogniser threads (default: 1). More is slower, not faster (ADR 0014)",
+    )
+
+    languages = subcommands.add_parser(
+        "languages",
+        help="list what this can recognise and translate, and which pairs work end to end",
+        description=(
+            "What this build can actually do, derived from the pinned models rather than "
+            "from a list somebody maintains. Downloads nothing and opens no device."
+        ),
+    )
+    languages.add_argument(
+        "--translation-engine",
+        type=TranslationEngine,
+        choices=list(TranslationEngine),
+        default=DEFAULT_ENGINE,
+        help="which engine to answer for (default: ctranslate2). Both serve the same pairs",
+    )
+
+    fetch = subcommands.add_parser(
+        "fetch",
+        help="download and prepare everything a language pair needs, then stop",
+        description=(
+            "Fetches, verifies and converts the models for one pair so a later run has "
+            "nothing left to do. Useful before going offline, or on a connection where "
+            "discovering the download halfway through a conversation is the wrong time."
+        ),
+    )
+    fetch.add_argument("--language", required=True, help="the language being spoken")
+    fetch.add_argument(
+        "--translate-to", default=None, metavar="LANG", help="the language to translate into"
+    )
+    fetch.add_argument(
+        "--translation-engine",
+        type=TranslationEngine,
+        choices=list(TranslationEngine),
+        default=DEFAULT_ENGINE,
+    )
+    fetch.add_argument("--cache-dir", type=Path, default=DEFAULT_MODEL_CACHE)
+    fetch.add_argument(
+        "--model",
+        default=DEFAULT_MODEL.name,
+        choices=sorted(batch_pins()),
+        help=(
+            f"batch model to fetch when --language does not stream (default: {DEFAULT_MODEL.name})"
+        ),
     )
 
     subcommands.add_parser(
@@ -1018,6 +1069,87 @@ def run_listen(args: argparse.Namespace) -> int:
     return EXIT_OK if stats.retention_clean else EXIT_RETENTION_FAILURE
 
 
+def run_languages(args: argparse.Namespace) -> int:
+    """Print what this build serves, derived from the pins rather than from a list.
+
+    A user should not have to read a README to find out whether their pair works, and a list
+    maintained by hand is a list that goes stale — which is the defect ADR 0034 removed from
+    the window's pickers. Everything here comes from the same resolvers the run itself will
+    use moments later, so what is printed is what would happen.
+    """
+    engine = args.translation_engine
+    streaming = recognisable_languages()
+    batch = [language for language in SUPPORTED.values() if language not in streaming]
+
+    print(f"engine        {engine}\n")
+    print("recognised live   " + ", ".join(f"{lang.name} ({lang.code})" for lang in streaming))
+    print("from a file only  " + ", ".join(f"{lang.name} ({lang.code})" for lang in batch))
+    print(f"{'':18}through {DEFAULT_MODEL.name}, an utterance at a time")
+
+    print("\ntranslation, by what is speaking:")
+    for language in (*streaming, *batch):
+        targets = translation_targets(language.code, engine=engine)
+        if not targets:
+            print(f"  {language.code} -> nothing is pinned to translate it")
+            continue
+        rendered = []
+        for target in targets:
+            choice = resolve_artifact((language.code, target.code), engine)
+            rendered.append(f"{target.code}*" if choice.is_pivot else target.code)
+        live = "live" if language in streaming else "from a file"
+        print(f"  {language.code} -> {', '.join(rendered)}   ({live})")
+
+    print("\n* reached through English, using two models rather than one (ADR 0037)")
+    servable = servable_pairs(engine=engine)
+    print(f"{len(servable)} pair(s) work end to end from live speech.")
+    return 0
+
+
+def run_fetch(args: argparse.Namespace) -> int:
+    """Download, verify and convert everything a pair needs, then stop.
+
+    The models are also *loaded*, which is slower than fetching and is the point: a pair that
+    fetched but cannot be built is not ready, and finding that out here is much better than
+    finding it out when somebody is already talking. The CTranslate2 route additionally
+    converts on first load, which is around 13 s a model and is otherwise paid by whoever
+    starts the first conversation.
+    """
+    language = resolve_language(args.language)
+    choice = None
+    if args.translate_to is not None:
+        target = resolve_language(args.translate_to)
+        if target.code == language.code:
+            raise ValueError(f"source and target are both {target.name}; nothing to translate.")
+        choice = resolve_artifact((language.code, target.code), args.translation_engine)
+
+    if language.tier is RecognitionTier.STREAMING:
+        pin = resolve(streaming_pin_name(language.code))
+    else:
+        pin = resolve(args.model)
+
+    print(f"language      {language.name} ({language.code}, {language.tier})")
+    print(f"model         {pin.name} ({pin.licence})")
+    if choice is not None:
+        print(f"translation   {choice}")
+    print()
+
+    started = time.monotonic()
+    settings = argparse.Namespace(
+        cache_dir=args.cache_dir, allow_download=True, threads=1, model=pin.name
+    )
+    if language.tier is RecognitionTier.STREAMING:
+        _load_both(settings, pin, choice)
+    else:
+        directory = ModelStore(args.cache_dir, allow_download=True).ensure(pin)
+        FasterWhisperRecognizer(directory)
+        if choice is not None:
+            open_translator(choice, args.cache_dir, allow_download=True)
+
+    print(f"ready         {time.monotonic() - started:.1f}s, nothing left to download")
+    print(f"cached in     {args.cache_dir}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1031,6 +1163,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_stream(args)
         if args.command == "listen":
             return run_listen(args)
+        if args.command == "languages":
+            return run_languages(args)
+        if args.command == "fetch":
+            return run_fetch(args)
         if args.command == "gui":
             # Imported here so the command line never needs a GUI toolkit installed.
             from on_the_fly.ui.app import run as run_gui
