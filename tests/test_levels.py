@@ -12,6 +12,7 @@ what those numbers imply.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from array import array
 
@@ -21,6 +22,7 @@ from on_the_fly.domain.audio.formats import AudioFormat
 from on_the_fly.domain.audio.levels import (
     CLIPPED_SAMPLE,
     CLIPPING_FRACTION,
+    DEFAULT_WINDOW_FRAMES,
     FLOOR_WINDOW_FRAMES,
     FULL_SCALE,
     LOUD_FLOOR,
@@ -670,3 +672,50 @@ def test_a_finished_recording_reports_the_numbers_it_actually_saw() -> None:
     assert after.peak == pytest.approx(1500 / FULL_SCALE), "reset kept the louder past"
     assert after.rms == pytest.approx(1500 / FULL_SCALE)
     assert after.clipped_fraction == 0.0
+
+
+# ---------------------------------------------------------------------------------------
+# The three numbers ADR 0019 and ADR 0021 chose
+#
+# Every test above uses these constants to build its input, so all of them move together
+# when one is edited and none of them notices. What follows pins the values themselves —
+# not because a number is sacred, but because each was chosen against a measurement and
+# changing it should mean revisiting that measurement.
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_clipping_threshold_sits_just_below_full_scale() -> None:
+    """A sample at 32700 of 32767 is 0.2 dB from the top: the analog path is already
+    saturated there, and waiting for the exact maximum would count a saturated signal as
+    clean (ADR 0019)."""
+    assert CLIPPED_SAMPLE == 32_700
+    assert CLIPPED_SAMPLE < FULL_SCALE
+
+
+def test_a_sample_on_the_threshold_counts_as_clipped() -> None:
+    """The boundary itself, which every other test in this file steps over rather than onto."""
+    _, _, clipped_at, count = frame_levels(array("h", [CLIPPED_SAMPLE] * 160).tobytes())
+    _, _, clipped_below, _ = frame_levels(array("h", [CLIPPED_SAMPLE - 1] * 160).tobytes())
+
+    assert (clipped_at, count) == (160, 160)
+    assert clipped_below == 0
+
+
+def test_the_floor_window_is_the_five_seconds_that_separates_speech_from_a_room() -> None:
+    """ADR 0021 measured it: at one second, heavily amplified speech and an amplified room
+    are indistinguishable (0.45 against 0.43); at five they are not (0.12 against 0.33)."""
+    assert FLOOR_WINDOW_FRAMES * 20 == 5_000, "the floor window is no longer five seconds"
+
+
+def test_the_level_window_is_one_second() -> None:
+    """Long enough that one loud syllable does not condemn a device, short enough that a user
+    who fixes their gain sees the warning clear while they are still looking at it."""
+    assert DEFAULT_WINDOW_FRAMES * 20 == 1_000
+
+
+def test_a_reading_cannot_be_rewritten() -> None:
+    """It is the evidence behind an accusation about somebody's microphone."""
+    reading = LevelReading(peak=0.5, rms=0.2, clipped_fraction=0.0, quality=InputQuality.OK)
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        reading.peak = 1.0  # type: ignore[misc]

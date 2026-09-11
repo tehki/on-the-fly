@@ -10,6 +10,10 @@ difference — and it would break the promise `docs/RETENTION_POLICY.md` makes.
 
 from __future__ import annotations
 
+import dataclasses
+
+import pytest
+
 from on_the_fly.app.cli import SPEECH_BEFORE_SILENCE_IS_A_FINDING_SECONDS
 from on_the_fly.domain.audio.levels import InputQuality
 from on_the_fly.ui.caption import (
@@ -17,6 +21,7 @@ from on_the_fly.ui.caption import (
     Caption,
     CaptionModel,
     Status,
+    ViewState,
 )
 
 
@@ -286,3 +291,16 @@ def test_the_finding_waits_longer_than_the_command_line_does() -> None:
     working shows its first text about 1.1s in."""
     assert SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS >= 5.0
     assert SPEECH_WITHOUT_TEXT_IS_A_FINDING_SECONDS > SPEECH_BEFORE_SILENCE_IS_A_FINDING_SECONDS
+
+
+def test_a_caption_starts_out_still_being_revised() -> None:
+    """`is_final` decides whether the window renders the text dimmed. A caption that
+    defaulted to final would show a half-sentence as though the speaker had stopped."""
+    assert Caption().is_final is False
+
+
+def test_a_view_state_cannot_be_rewritten() -> None:
+    """The window renders one immutable value; anything able to edit it after the model has
+    produced it would put the window and the model out of step."""
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        ViewState().status = Status.LISTENING  # type: ignore[misc]

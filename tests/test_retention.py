@@ -22,13 +22,17 @@ import pytest
 import yaml
 
 from on_the_fly.domain.retention import (
+    DEFAULT_MAX_DELETION_ATTEMPTS,
+    DEFAULT_MAX_ENTRIES,
     DEFAULT_TRANSIENT_RETENTION_SECONDS,
     IDLE_WAKE_SECONDS,
     ContentExpiredError,
+    DeletionFailureEvent,
     EntryState,
     EphemeralStore,
     ManualClock,
     ProjectIsolationError,
+    ReapReport,
     RecordingEventSink,
     RetentionConfigurationError,
     RetentionOverride,
@@ -930,3 +934,68 @@ def test_a_validated_window_cannot_be_widened_afterwards() -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         policy.seconds = 99999.0  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------------------
+# The bounds, and what a record is allowed to be
+#
+# Each of these numbers exists because something unbounded would otherwise be: memory, a
+# retry loop, an audit log. A mutation sweep found none of them asserted.
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_store_is_finite_by_default() -> None:
+    """A store that can grow without limit turns any noisy input into memory exhaustion
+    (handbook 8). Generous for an audio pipeline and still finite."""
+    assert DEFAULT_MAX_ENTRIES == 4096
+
+
+def test_a_store_must_be_allowed_to_hold_something() -> None:
+    """Zero is not a smaller limit, it is a store that refuses every `put` it is given."""
+    with pytest.raises(ValueError):
+        EphemeralStore("on-the-fly", max_entries=0)
+
+
+def test_deletion_is_retried_a_bounded_number_of_times() -> None:
+    """Retrying forever is not persistence, it is an unbounded background loop that never
+    reports the problem (handbook 37)."""
+    assert DEFAULT_MAX_DELETION_ATTEMPTS == 3
+
+
+def test_the_failure_log_keeps_a_bounded_tail() -> None:
+    """It exists to be read after something went wrong, not to grow until something else
+    does. The oldest goes first, so what is kept is what just happened."""
+    recorder = RecordingEventSink(max_events=2)
+
+    for index in range(4):
+        recorder.deletion_failed(
+            DeletionFailureEvent(
+                entry_id=f"entry-{index}",
+                project_id="on-the-fly",
+                label="captured_audio_frames",
+                location="memory",
+                attempts=1,
+                error_type="OSError",
+                final=True,
+            )
+        )
+
+    assert [event.entry_id for event in recorder.events] == ["entry-2", "entry-3"]
+
+
+def test_a_reap_report_cannot_be_rewritten() -> None:
+    """It is the store's honest account of itself, and a caller decides an exit code on it."""
+    report = ReapReport(deleted=("a",), failed=())
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        report.failed = ("b",)  # type: ignore[misc]
+
+
+def test_a_handle_cannot_be_rewritten() -> None:
+    """A handle is an identifier for content nobody outside the store may hold; one that
+    could be edited would be a way to ask for somebody else's entry."""
+    store = EphemeralStore("on-the-fly")
+    handle = store.put(b"audio", label="captured_audio_frames")
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        handle.entry_id = "another"  # type: ignore[misc]
