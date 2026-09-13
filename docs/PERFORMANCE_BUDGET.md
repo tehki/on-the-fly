@@ -1722,6 +1722,18 @@ would be gone. 0.96x is inside real time by 4%, thin enough to state rather than
 The 0.45x single-recogniser figure is consistent with the 0.399x this document records for
 English streaming, on a different clip mix and a differently loaded machine.
 
+### Taking it again
+
+```bash
+python scripts/measure_conversation.py --languages en fr
+```
+
+The sweep is a script rather than a session, because both halves of it are claims a reader
+cannot check by reading. Re-run on 2026-09-13 with a single pass on a quieter machine (load
+1.4–2.6) it reproduces the identification exactly — 8 of 10, two comparisons, margins 0.52 and
+0.68 — and puts the cost at 0.54x for one recogniser and 0.98x for two, the same ordering a
+little further from the line.
+
 ### What the sweep does not cover
 
 Five single-speaker clips, each played through both models — not one recording of two people

@@ -159,6 +159,10 @@ enough to state plainly rather than round away.
 Memory is about 140 MB per recogniser and adds up honestly: 306 MB resident for a conversation
 against 157 MB for one language, before either translation model is loaded.
 
+Both halves of this are `scripts/measure_conversation.py`, so the next person can take them
+again rather than trust them. A single-pass re-run on a quieter machine reproduces the
+identification exactly and puts the cost at 0.54x and 0.98x.
+
 ## What this does not do
 
 - **It does not identify a language this build has no recogniser for.** The comparison is
