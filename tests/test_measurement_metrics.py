@@ -14,6 +14,7 @@ is not a control. These are.
 
 from __future__ import annotations
 
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -576,3 +577,101 @@ def test_reading_a_process_that_has_gone_is_not_an_error() -> None:
     """The process being measured is meant to exit, and doing so between the poll and the
     read is the expected race rather than a failure."""
     assert measure_memory.read_kb(2**22, "VmRSS:") is None
+
+
+# --------------------------------------------------------------------------------------
+# `measure_conversation.py` — the sweep behind ADR 0047
+# --------------------------------------------------------------------------------------
+
+
+def test_a_decision_with_one_model_speaking_has_no_margin() -> None:
+    """The finding the thirty-third measurement is mostly about: most decisions are not
+    comparisons, because the recognisers endpoint independently."""
+    import measure_conversation
+
+    alone = measure_conversation.Decision("clip", "fr", {"en": -1.68}, "en")
+
+    assert alone.margin is None
+    assert alone.correct is False
+
+
+def test_a_margin_is_the_distance_to_the_runner_up() -> None:
+    import measure_conversation
+
+    compared = measure_conversation.Decision("clip", "fr", {"en": -0.87, "fr": -0.35}, "fr")
+
+    assert compared.margin == pytest.approx(0.52)
+    assert compared.correct is True
+
+
+def test_only_the_languages_under_test_are_looked_for(tmp_path: Path) -> None:
+    """A clip in a third language has no correct answer: the winner can only be one of the
+    models that is running."""
+    import measure_conversation
+
+    for code in ("en", "fr", "de"):
+        (tmp_path / code).mkdir()
+        (tmp_path / code / f"{code}0.wav").write_bytes(b"")
+
+    found = measure_conversation.reference_clips(tmp_path, ["en", "fr"])
+
+    assert [code for code, _ in found] == ["en", "fr"]
+
+
+def test_a_language_with_no_clips_is_not_an_error(tmp_path: Path) -> None:
+    import measure_conversation
+
+    (tmp_path / "en").mkdir()
+    (tmp_path / "en" / "0.wav").write_bytes(b"")
+
+    assert len(measure_conversation.reference_clips(tmp_path, ["en", "ru"])) == 1
+
+
+def test_a_trailing_partial_frame_is_dropped_rather_than_padded(tmp_path: Path) -> None:
+    """A padded frame is audio nobody recorded, and the models are being asked what they
+    heard."""
+    import measure_conversation
+
+    path = tmp_path / "odd.wav"
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16_000)
+        # Two 20 ms frames (320 samples each) and 100 samples left over.
+        handle.writeframes(b"\x01\x00" * 740)
+
+    frames = measure_conversation.frames_of(path)
+
+    assert len(frames) == 2
+    assert all(len(frame) == 640 for frame in frames)
+
+
+def test_the_sweep_interleaves_the_configurations() -> None:
+    """Not a convenience. Run one configuration at a time, this machine's drifting load is
+    measured as though it were the configuration — which produced an impossible ordering
+    (0.91x, 1.49x, 1.36x) the first time the thirty-third measurement was taken."""
+    import measure_conversation
+
+    class Counting:
+        def __init__(self) -> None:
+            self.frames = 0
+
+        def reset(self) -> None:
+            return None
+
+        def accept(self, frame: bytes) -> tuple[()]:
+            self.frames += 1
+            return ()
+
+        def finish(self) -> tuple[()]:
+            return ()
+
+    one, two = Counting(), Counting()
+
+    times = measure_conversation.sweep([[one], [one, two]], [[b"\x00" * 640] * 3], repeats=2)
+
+    assert sorted(times) == [1, 2]
+    assert len(times[1]) == 2, "each configuration is timed once per pass"
+    assert all(value >= 0.0 for values in times.values() for value in values)
+    assert one.frames == 12, "the shared recogniser ran in both groups, both passes"
+    assert two.frames == 6

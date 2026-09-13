@@ -129,6 +129,16 @@ security_sensitive_paths:
   # sorted the wrong way names the wrong release and every judgement after that is about a
   # model nobody meant to look at.
   - /scripts/survey_translation_models.py
+  # Re-derives ADR 0047's two claims — what a two-language conversation identifies and what
+  # running N recognisers costs — against the shipped ConversationRecognizer. It reads the
+  # published reference clips and the pinned models, prints which language won each utterance
+  # and never the text of one, writes no file, runs no subprocess, and decides nothing: no
+  # pin is produced and nothing shipped imports it. Its decision arithmetic and its
+  # interleaving are tested in tests/test_measurement_metrics.py, because a sweep that runs
+  # one configuration at a time measures this machine's drifting load as though it were the
+  # configuration — which is how the first attempt at that measurement produced an ordering
+  # that cannot be true.
+  - /scripts/measure_conversation.py
   - /requirements.txt
 development_flow:
   one_pull_request_per_commit_required: false
