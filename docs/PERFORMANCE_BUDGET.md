@@ -1741,6 +1741,73 @@ talking. Nobody has yet held a conversation into this and counted the turns it g
 that measurement is the one that would revise the 0.13 margin, which currently rests on two
 decisions.
 
+## Thirty-fourth measurement - 2026-09-13, how far apart two endpointers land
+
+[ADR 0047](adr/0047-two-people-two-languages.md) shipped with a visible defect and two
+candidate answers to it, neither taken, because *"both need the distance between the two
+endpointers measured before either is worth shipping."* This is that distance.
+
+The defect: on a French clip the English model finalised twice at instants the French model
+did not, scoring −1.68 and −1.07, and with one model speaking there is nothing to compare
+against. The two candidates were a **grace period** — hold the decision briefly so a model
+whose endpointer is merely later can still be compared — and **one utterance per region of
+audio**, dropping a final whose audio span has already been spoken for.
+
+```bash
+python scripts/measure_conversation.py --languages en fr --endpoints
+```
+
+```text
+fr/common_voice_fr_19364697    en ended at  7.12s    fr ended at  7.12s    gap 0.00s
+fr/common_voice_fr_19738183    en ended at  3.80s    fr ended at  3.80s    gap 0.00s
+fr/common_voice_fr_27024649    fr ended at  1.38s                          gap 2.94s
+                               en ended at  4.32s
+                               fr ended at  6.18s    en ended at  6.24s    gap 0.06s
+
+gaps: 0.00s, 0.00s, 0.06s, 2.94s
+```
+
+**The distribution is bimodal, and that is the finding.** When the two endpointers agree they
+agree *exactly* — the same 20 ms frame, twice — and when they disagree they disagree by
+**2.94 s**. One gap in four sits in between, at 0.06 s.
+
+Neither English clip appears in that list at all: the French model produced no final whatever
+on English speech, which is [ADR 0044](adr/0044-speech-went-in-and-nothing-came-out.md)
+measured again from a different direction.
+
+### The grace period is refused
+
+Of the two wrong decisions, one — the English final at 6.24 s — has a French counterpart
+0.06 s away and would be compared if the decision waited three frames. The other, at 4.32 s,
+has nothing within 2.94 s and no wait a caption can afford would reach it. So a 100 ms grace
+period buys **one decision in ten** and charges every caption in every run 100 ms for it,
+against a p50 caption latency of 332 ms idle and 710 ms loaded. That is a 14–30% latency
+increase to fix one utterance out of ten on five clips.
+
+### The de-duplication is refused, and this one is closer
+
+Working the emitted spans through by hand, *"a final whose start precedes the end of one
+already emitted is a duplicate"* removes **both** spurious captions on that clip and loses
+nothing:
+
+| emitted | span | already spoken for | verdict |
+| --- | --- | --- | --- |
+| fr at 1.38s | [0.00, 1.38] | — | shown, correct |
+| en at 4.32s | [0.00, 4.32] | [0.00, 1.38] | **dropped** — was wrong |
+| fr at 6.18s | [1.38, 6.18] | [0.00, 1.38] | shown, correct |
+| en at 6.24s | [4.32, 6.24] | [1.38, 6.18] | **dropped** — was wrong |
+
+8 of 10 becomes 8 of 8. It is still refused, because **the rule that does that is the rule
+that swallows an interruption.** Somebody who starts speaking before the other has stopped
+produces a final whose span begins inside the one already emitted, and it is dropped by the
+same test that drops the two nonsense captions — with nothing shown in its place. What this
+repository has is five recordings of one person reading; it has no recording of two people
+talking over each other, and the cost of this rule can only be measured against one.
+
+Trading a measured problem for an unmeasured one is not an improvement, so the behaviour is
+unchanged and the trigger is named instead: **get a recording of two people, including one
+interruption.**
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.

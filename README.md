@@ -693,6 +693,12 @@ translation   opus-mt-fr-en on ctranslate2 (local, verified, CC-BY-4.0)
 **Two turns identified and translated with nothing configured between them — and a third line
 that is the limitation, left in.** That is the English model's own reading of the French audio,
 finalised at its own endpoint just after the French model had already spoken for those seconds.
+Two fixes for it were measured and **both refused**: the gaps between the two endpointers are
+bimodal — the same 20 ms frame twice, then 2.94 s — so a grace period charges every caption to
+reach one decision in ten; and de-duplicating a region of audio would remove both spurious
+captions and lose nothing on these clips, but it is the same rule that swallows an
+interruption, and nobody here has a recording of two people talking over each other to measure
+that against.
 
 **The identification is a comparison, not a threshold**, which is why it works at all.
 [ADR 0043](docs/adr/0043-what-the-streaming-recogniser-thought.md) went looking for a

@@ -675,3 +675,36 @@ def test_the_sweep_interleaves_the_configurations() -> None:
     assert all(value >= 0.0 for values in times.values() for value in values)
     assert one.frames == 12, "the shared recogniser ran in both groups, both passes"
     assert two.frames == 6
+
+
+def test_the_gap_to_the_nearest_other_model_is_measured_both_ways() -> None:
+    """The number a grace period would be an answer to. Measured on the reference clips it
+    comes out bimodal — 0.00s when the two endpointers agree and seconds when they do not —
+    so the arithmetic that separates those cases is worth pinning."""
+    import measure_conversation
+
+    found = {
+        "fr": [
+            measure_conversation.Endpoint("fr", 1.38, 0.00, 1.38),
+            measure_conversation.Endpoint("fr", 6.18, 1.38, 4.80),
+        ],
+        "en": [
+            measure_conversation.Endpoint("en", 4.32, 0.00, 4.32),
+            measure_conversation.Endpoint("en", 6.24, 4.32, 1.92),
+        ],
+    }
+
+    assert measure_conversation.nearest_gaps(found, "fr") == pytest.approx([2.94, 0.06])
+
+
+def test_a_language_the_other_model_said_nothing_about_has_no_gap() -> None:
+    """ADR 0044's case: the French model produces nothing at all on English speech. There is
+    no distance to a final that was never emitted."""
+    import measure_conversation
+
+    found = {
+        "en": [measure_conversation.Endpoint("en", 6.62, 0.0, 6.62)],
+        "fr": [],
+    }
+
+    assert measure_conversation.nearest_gaps(found, "en") == []

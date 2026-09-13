@@ -179,22 +179,35 @@ identification exactly and puts the cost at 0.54x and 0.98x.
 - **It does not appear in the window.** The desktop interface still picks one language from
   a list ([ADR 0016](0016-desktop-interface.md)). Wiring a mode with two captions
   into an interface built for one is a separate decision.
-- **It does not wait for a second opinion, and it does not de-duplicate a region of audio.**
-  The decision is made at the first final, on whoever produced it, and a second model
-  finalising over the same seconds later produces a second caption — the third line in the run
-  above. Two things would address that, and neither is taken here because neither is measured:
-  a **grace period**, holding the decision briefly so a model whose endpointer is merely later
-  can still be compared; and **one utterance per region of audio**, dropping a final whose
-  audio span has already been spoken for. The second is tempting because the spurious final
-  above overlaps the French one almost exactly — and it is a coin toss in the case the sweep
-  found, where the wrong model finalised *first*. Both need the distance between the two
-  endpointers measured before either is worth shipping.
+- ~~**It does not wait for a second opinion, and it does not de-duplicate a region of audio.**~~
+  **Measured 2026-09-13, and both candidates are refused.** The decision is made at the first
+  final, on whoever produced it, and a second model finalising over the same seconds later
+  produces a second caption — the third line in the run above. The two answers to that were a
+  **grace period** and **one utterance per region of audio**, and the thirty-fourth measurement
+  took the number both of them rest on: where each model's endpointer actually fires.
+
+  **The gaps are bimodal.** When the two endpointers agree they agree *exactly*, in the same
+  20 ms frame, twice; when they disagree they disagree by **2.94 s**. One gap in four sits in
+  between, at 0.06 s. So a grace period long enough to matter reaches one of the two wrong
+  decisions and not the other, and charges every caption in every run for it — 100 ms against
+  a p50 of 332 ms idle, 710 ms loaded.
+
+  **De-duplication is closer and still refused.** Worked through the emitted spans it removes
+  *both* spurious captions and loses nothing: 8 of 10 becomes 8 of 8. But the rule that does
+  that — a final beginning inside one already emitted is a duplicate — is the same rule that
+  **swallows an interruption**, showing nothing in its place. This repository has five
+  recordings of one person reading and none of two people talking over each other, so that
+  cost cannot be measured here. Trading a measured problem for an unmeasured one is not an
+  improvement.
 - **It is not tested on real two-speaker audio.** What is measured above is five
   single-speaker clips from published model releases, each run through both models. Nobody has
   yet held a conversation into this and counted the turns it got wrong.
 
 ## Review trigger
 
-When somebody runs a real two-language conversation through it and counts the switches; when
-the distance between the two endpointers is measured, which is what a grace period would rest
-on; or if threading the recognisers makes a third language affordable.
+**A recording of two people, including one interruption.** That single artefact would settle
+both questions this ADR left open: how many turns a real conversation gets wrong, and what
+de-duplication would cost when somebody starts speaking before the other has stopped. Until it
+exists, the spurious caption stays and is documented rather than papered over.
+
+Also: if threading the recognisers makes a third language affordable.

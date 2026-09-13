@@ -138,6 +138,100 @@ def reference_clips(root: Path, languages: Sequence[str]) -> list[tuple[str, Pat
     ]
 
 
+@dataclass(frozen=True)
+class Endpoint:
+    """One final, and when the recogniser that produced it decided the utterance had ended.
+
+    `at` is audio time, not wall time: two recognisers fed the same frames are compared on
+    where in the audio each of them stopped, which is what a grace period would have to
+    cover.
+    """
+
+    language: str
+    at: float
+    started: float
+    duration: float
+
+
+def endpoints_of(
+    recognisers: dict[str, object], path: Path, frame_ms: int
+) -> dict[str, list[Endpoint]]:
+    """Every final each recogniser produced on one clip, with the audio time it landed at.
+
+    Each recogniser is run alone, because the question is where *its own* endpointer fires
+    rather than what the conversation decided.
+    """
+    found: dict[str, list[Endpoint]] = {}
+    batch = frames_of(path, frame_ms)
+    seconds = frame_ms / 1000
+    for code, recogniser in recognisers.items():
+        recogniser.reset()  # type: ignore[attr-defined]
+        rows: list[Endpoint] = []
+        for number, frame in enumerate(batch, 1):
+            for event in recogniser.accept(frame):  # type: ignore[attr-defined]
+                if event.is_final:
+                    rows.append(
+                        Endpoint(
+                            code,
+                            number * seconds,
+                            event.audio_offset_seconds,
+                            event.duration_seconds or 0.0,
+                        )
+                    )
+        for event in recogniser.finish():  # type: ignore[attr-defined]
+            if event.is_final:
+                rows.append(
+                    Endpoint(
+                        code,
+                        len(batch) * seconds,
+                        event.audio_offset_seconds,
+                        event.duration_seconds or 0.0,
+                    )
+                )
+        found[code] = rows
+    return found
+
+
+def nearest_gaps(found: dict[str, list[Endpoint]], language: str) -> list[float]:
+    """For each of `language`'s finals, how far away the closest other model's final was.
+
+    The number a grace period is an answer to: an utterance whose counterpart landed 60 ms
+    later could be compared by waiting, and one whose counterpart landed three seconds later
+    could not be compared by any wait a caption can afford.
+    """
+    others = [row.at for code, rows in found.items() if code != language for row in rows]
+    if not others:
+        return []
+    return [min(abs(row.at - other) for other in others) for row in found.get(language, [])]
+
+
+def report_endpoints(
+    recognisers: dict[str, object], clips: Sequence[tuple[str, Path]], frame_ms: int
+) -> None:
+    every: list[float] = []
+    for spoken, path in clips:
+        found = endpoints_of(recognisers, path, frame_ms)
+        print(f"\n{path.parent.name}/{path.stem}  (spoken {spoken})")
+        for code, rows in found.items():
+            for row in rows:
+                print(
+                    f"  {code}  ended at {row.at:6.2f}s   "
+                    f"utterance {row.started:6.2f}s +{row.duration:5.2f}s"
+                )
+        gaps = nearest_gaps(found, spoken)
+        every.extend(gaps)
+        if gaps:
+            for row, gap in zip(found.get(spoken, []), gaps, strict=True):
+                print(f"  the {spoken} final at {row.at:.2f}s: nearest other model {gap:.2f}s away")
+        else:
+            # ADR 0044's case: no other model said anything, so there is no distance to
+            # report. Said out loud, because a clip with no gaps line and a clip whose gaps
+            # were all zero would otherwise look the same.
+            print("  no other model produced a final on this clip")
+    if every:
+        print(f"\ngaps: {', '.join(f'{gap:.2f}s' for gap in sorted(every))}")
+
+
 def identify(
     recognisers: dict[str, object], clips: Sequence[tuple[str, Path]], frame_ms: int
 ) -> list[Decision]:
@@ -212,6 +306,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frame-ms", type=int, default=DEFAULT_FRAME_MS)
     parser.add_argument("--repeats", type=int, default=2)
     parser.add_argument("--cost-only", action="store_true")
+    parser.add_argument(
+        "--endpoints",
+        action="store_true",
+        help="report where each model's endpointer fired instead of running the sweep",
+    )
     parser.add_argument("--allow-download", action="store_true")
     return parser
 
@@ -255,6 +354,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     recognisers = build_recognisers(
         args.languages, args.cache_dir, allow_download=args.allow_download
     )
+
+    if args.endpoints:
+        report_endpoints(recognisers, clips, args.frame_ms)
+        return 0
 
     if not args.cost_only:
         print()
