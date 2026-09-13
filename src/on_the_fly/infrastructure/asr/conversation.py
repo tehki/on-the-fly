@@ -84,7 +84,16 @@ class ConversationRecognizer:
     def languages(self) -> tuple[str, ...]:
         return tuple(self._order)
 
+    @property
     def emits_partials(self) -> bool:
+        """True. Callers must expect text to be replaced, not appended.
+
+        A property, like every other recogniser's, and this was a *method* until a mutation
+        sweep pointed at it: nothing reads it, so nothing noticed that
+        `recognizer.emits_partials` was handing callers a bound method — truthy whatever it
+        would have returned, which is the right answer here by accident and the wrong one
+        for any caller asking `is False`.
+        """
         return True
 
     def validate_format(self, audio_format: AudioFormat) -> None:
@@ -144,8 +153,9 @@ class ConversationRecognizer:
         if not scored:
             # Nobody reported a confidence. Whoever produced a final at all is the only
             # evidence available, and the current language breaks the tie.
+            # Never empty: `_decide` only asks this when some recogniser produced a final.
             speaking = [code for code, events in finals.items() if events]
-            return self._current if self._current in speaking else (speaking or [self._current])[0]
+            return self._current if self._current in speaking else speaking[0]
 
         ranked = sorted(scored.items(), key=lambda item: item[1], reverse=True)
         best, best_score = ranked[0]

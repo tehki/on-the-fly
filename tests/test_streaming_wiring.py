@@ -695,3 +695,36 @@ def test_a_second_run_that_recognises_nothing_says_nothing_was_recognised(
     list(run.events())
 
     assert run.finals_so_far == 0, "the second run inherited the first one's finals"
+
+
+def test_a_run_that_has_not_started_has_recognised_nothing(tmp_path: Path) -> None:
+    """The window constructs a run and reads this before the first frame (ADR 0045), so the
+    initial value is a state somebody observes rather than a formality. A mutation setting
+    it to one survived the whole suite."""
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        ScriptedRecognizer([confident("later", is_final=True)]),
+    )
+
+    assert run.finals_so_far == 0
+    assert run.speech_seconds == 0.0
+    assert run.stats is None
+
+
+def test_a_partial_from_the_flush_tail_is_counted_as_one(tmp_path: Path) -> None:
+    """The port says `finish` finalises or drops what was in flight, so this should not
+    happen — and the counting handles it anyway, because the event is still yielded to the
+    caller and an event that reaches a reader uncounted makes the summary a lie. Nothing
+    exercised that branch: `partials += 1` in the tail loop could count two and no test in
+    the suite noticed.
+    """
+    run = StreamingRun(
+        WavFileSource(speech_wav(tmp_path / "a.wav")),
+        ScriptedRecognizer([], tail=[confident("still talking", is_final=False)]),
+    )
+
+    texts = [event.text for event in run.events()]
+
+    assert texts == ["still talking"]
+    assert run.stats is not None
+    assert (run.stats.partials, run.stats.finals) == (1, 0)

@@ -346,12 +346,15 @@ def translate_conversation(
             continue
 
         target = _other_language(event.language, translators)
-        translator = translators.get((event.language, target)) if target is not None else None
-        if translator is None or target is None:
+        if target is None:
             # Nothing pinned for this direction. The caption still reaches the reader, which
             # is the half that was working.
             yield TranslatedEvent(event)
             continue
+        # Not `.get`: `_other_language` found this target *in* the mapping, so asking whether
+        # the key is there is asking a second time. It was written as a `.get` and a second
+        # `is None` check, and a mutation sweep pointed out that the check could never fire.
+        translator = translators[(event.language, target)]
 
         started = time.monotonic()
         try:

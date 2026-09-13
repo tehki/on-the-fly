@@ -346,3 +346,21 @@ def test_how_long_a_translation_took_is_reported() -> None:
 
     assert out[0].translation_seconds is not None
     assert out[0].translation_seconds >= 0.0
+
+
+def test_it_promises_partials_the_way_every_other_recogniser_does() -> None:
+    """A property, not a method. It was a method until a mutation sweep pointed at it:
+    nothing reads it, so nothing noticed callers were being handed a bound method."""
+    assert heard(en=[[]], fr=[[]]).emits_partials is True
+
+
+def test_a_final_with_no_confidence_switches_when_only_the_other_side_spoke() -> None:
+    """The other half of the no-confidence path. Whoever produced a final is the only
+    evidence there is, so a lone final from the other language takes it."""
+    conversation = heard(en=[[], []], fr=[[], [final("pas de chiffres", None)]])
+    conversation.accept(FRAME)
+
+    events = conversation.accept(FRAME)
+
+    assert conversation.language == "fr"
+    assert [event.language for event in events] == ["fr"]
