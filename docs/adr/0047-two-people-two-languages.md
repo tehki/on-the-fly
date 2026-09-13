@@ -36,36 +36,56 @@ was defeated by. Clipping that drags one model's confidence down drags the other
 
 ## Decision
 
-**`listen --conversation en:fr`.** Two streaming recognisers hear every frame; whichever one
-is more confident about a finished utterance is the one whose text is shown, and that utterance
-is translated into *the other* language.
+**`--conversation en:fr`, on `listen` and on `stream`.** Two streaming recognisers hear every
+frame; whichever one is more confident about a finished utterance is the one whose text is
+shown, and that utterance is translated into *the other* language. It takes the place of
+`--language` and of `--translate-to`, and argparse refuses it beside either.
 
-This is a real run of the shipped code, on 2026-09-13 — the published English clip and a
-published French one, played back to back through the conversation path with a second of
-silence between them, because opening the reference machine's microphone to make a
-demonstration is not something an agent should do unasked:
+This is a real run of the shipped command, on 2026-09-13 — the published English clip and a
+published French one in one file, a second of silence between them, because opening the
+reference machine's microphone to make a demonstration is not something an agent should do
+unasked. `--conversation` is on `stream` as well as `listen` for exactly that reason: a record
+nobody can reproduce is a claim, not a record.
+
+```bash
+python -m on_the_fly stream conversation.wav --conversation en:fr --finals-only
+```
 
 ```text
+file          conversation.wav
+language      English (en, streaming), French (fr, streaming)
 model         streaming-en (local, verified, Apache-2.0)
 model         streaming-fr (local, verified, Apache-2.0)
+model load    10.17s
 translation   opus-mt-en-fr on ctranslate2 (local, verified, CC-BY-4.0)
+attribution   English-French translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26,
+              licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT
 translation   opus-mt-fr-en on ctranslate2 (local, verified, CC-BY-4.0)
-model load    19.88s
+attribution   French-English translation by OPUS-MT (Helsinki-NLP), model opus-2020-02-26,
+              licensed CC-BY-4.0. https://github.com/Helsinki-NLP/Opus-MT
 
   [en] [   0.00s final  ] AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND
-                          THERE THE SQUALID QUARTER OF THE BROTHELS  (7.52s SILENCE)
+                          THERE THE SQUALID QUARTER OF THE BROTHELS
            → [fr] Après la tombée de la nuit, les lampes jaunes allumaient ici et là le
                   quartier sordide des maisons closes
   [fr] [   7.78s final  ] CE SITE CONTIENT QUATRE TOMBEAUX DE LA DYNASTIE HACHÉMÉNIDE ET
-                          SEPT DES SASSANDIDES  (7.36s SILENCE)
+                          SEPT DES SASSANDIDES
            → [en] This site contains four tombs of the Hashemenid dynasty and seven of the
                   Sassandids
-  [en] [   7.52s final  ] SUSTE CONCON CAT TONUD REGINIZZI AS SHE MAY NEED A SECT DE SASIN
-                          NEED  (7.68s SILENCE)
-           → [fr] Susté concon chat tonud reginizzi car elle peut avoir besoin d'une secte
-                  de sasin besoin
+  [en] [   7.52s final  ] SUSID CONTENCA TONUD REGINIZZI AS SHE MAY NEED A SECT DE SASIN
+                          NEED
+           → [fr] Susid contenca tonud reginizzi car elle peut avoir besoin d'une secte de
+                  sasin
 
+audio         15.74s in 787 frames
+wall time     15.46s
+real-time     0.982x  (keeps up)  excludes model load
+first text    1.12s into the audio
 events        33 partial, 3 final
+confidence    -0.43 median over 3 final(s)
+speakers      en 2, fr 1 final(s)
+translation   3 of 3 final(s), median 418ms, max 470ms
+retention     clean - nothing retained, no deletion failed
 ```
 
 **Two turns, both identified, both translated — and a third line that is the whole limitation

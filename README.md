@@ -661,7 +661,8 @@ endpointing and never touched it.
 ## Two people, one microphone
 
 ```bash
-python -m on_the_fly listen --conversation en:fr
+python -m on_the_fly listen --conversation en:fr        # a microphone
+python -m on_the_fly stream conversation.wav --conversation en:fr   # or a recording
 ```
 
 Every other command in this project asks who is speaking before anyone speaks, which serves
@@ -670,10 +671,12 @@ and nothing recognises it. `--conversation` runs both recognisers over every fra
 whichever one understood the utterance, and translates it into *the other* language
 ([ADR 0047](docs/adr/0047-two-people-two-languages.md)).
 
-A real run of it, on two published clips played back to back — a microphone is not something
-this repository's agents open to make a demonstration:
+The second form is why a real run of this can be shown at all — a microphone is not something
+this repository's agents open to make a demonstration, and a record nobody can reproduce is a
+claim rather than a record. Two published clips in one file, a second of silence between them:
 
 ```text
+language      English (en, streaming), French (fr, streaming)
 model         streaming-en (local, verified, Apache-2.0)
 model         streaming-fr (local, verified, Apache-2.0)
 translation   opus-mt-en-fr on ctranslate2 (local, verified, CC-BY-4.0)
@@ -685,9 +688,12 @@ translation   opus-mt-fr-en on ctranslate2 (local, verified, CC-BY-4.0)
            sordide des maisons closes
   [fr] CE SITE CONTIENT QUATRE TOMBEAUX DE LA DYNASTIE HACHÉMÉNIDE ET SEPT DES SASSANDIDES
     → [en] This site contains four tombs of the Hashemenid dynasty and seven of the Sassandids
-  [en] SUSTE CONCON CAT TONUD REGINIZZI AS SHE MAY NEED A SECT DE SASIN NEED
-    → [fr] Susté concon chat tonud reginizzi car elle peut avoir besoin d'une secte de sasin
-           besoin
+  [en] SUSID CONTENCA TONUD REGINIZZI AS SHE MAY NEED A SECT DE SASIN NEED
+    → [fr] Susid contenca tonud reginizzi car elle peut avoir besoin d'une secte de sasin
+
+real-time     0.982x  (keeps up)  excludes model load
+speakers      en 2, fr 1 final(s)
+translation   3 of 3 final(s), median 418ms, max 470ms
 ```
 
 **Two turns identified and translated with nothing configured between them — and a third line

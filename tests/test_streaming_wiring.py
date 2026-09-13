@@ -728,3 +728,119 @@ def test_a_partial_from_the_flush_tail_is_counted_as_one(tmp_path: Path) -> None
     assert texts == ["still talking"]
     assert run.stats is not None
     assert (run.stats.partials, run.stats.finals) == (1, 0)
+
+
+# --------------------------------------------------------------------------------------
+# A conversation from a file (ADR 0047)
+# --------------------------------------------------------------------------------------
+
+
+class Confident:
+    """A recogniser that finalises once, with a confidence it was told to have."""
+
+    def __init__(self, text: str, confidence: float | None, *, at: int = 20) -> None:
+        self._text = text
+        self._confidence = confidence
+        self._at = at
+        self.frames = 0
+        self.warmed = False
+        self.validated = 0
+
+    def warm_up(self) -> None:
+        self.warmed = True
+
+    def validate_format(self, audio_format: AudioFormat) -> None:
+        self.validated += 1
+
+    def reset(self) -> None:
+        return None
+
+    def accept(self, frame: bytes) -> Sequence[TranscriptEvent]:
+        self.frames += 1
+        if self.frames != self._at:
+            return ()
+        return (
+            TranscriptEvent(
+                utterance_index=1,
+                text=self._text,
+                is_final=True,
+                audio_offset_seconds=0.0,
+                latency_seconds=0.0,
+                confidence=self._confidence,
+            ),
+        )
+
+    def finish(self) -> Sequence[TranscriptEvent]:
+        return ()
+
+
+def patch_conversation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Confident]:
+    """Two recognisers told apart by the directory the model store hands them.
+
+    Not by construction order: `_load_conversation` builds them on threads, and the order
+    they are asked for is not the order they are built in.
+    """
+    built = {
+        "en": Confident("hello there", -0.30),
+        "fr": Confident("allo la la", -1.20),
+    }
+
+    def ensure(self: object, pin: object) -> Path:
+        directory = tmp_path / str(getattr(pin, "name", pin))
+        directory.mkdir(exist_ok=True)
+        return directory
+
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", ensure)
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.SherpaStreamingRecognizer",
+        lambda directory, **kwargs: built[Path(directory).name.removeprefix("streaming-")],
+    )
+    monkeypatch.setattr("on_the_fly.app.cli.open_translator", lambda *a, **k: SayingWhichWay())
+    return built
+
+
+class SayingWhichWay:
+    def translate(self, text: str, *, source_language: str, target_language: str) -> str:
+        return f"{text} in {target_language}"
+
+
+def test_a_file_can_be_a_conversation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The run ADR 0047 records was taken from files, because a demonstration is not a
+    reason to open somebody's microphone. The shipped command has to be able to reproduce
+    it."""
+    path = speech_wav(tmp_path / "a.wav")
+    patch_conversation(monkeypatch, tmp_path)
+
+    exit_code = main(["stream", str(path), "--conversation", "en:fr", "--cache-dir", str(tmp_path)])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "English (en, streaming), French (fr, streaming)" in output
+    assert "[en] " in output, "the winning language is not named"
+    assert "hello there" in output
+    assert "allo la la" not in output, "the losing model's text was printed"
+    assert "[fr] hello there in fr" in output
+    assert "speakers      en 1, fr 0 final(s)" in output
+
+
+def test_both_models_check_the_file_before_anything_is_streamed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file one of the two cannot read is refused by that one, not by the first to be
+    asked on a thread."""
+    path = speech_wav(tmp_path / "a.wav")
+    built = patch_conversation(monkeypatch, tmp_path)
+
+    main(["stream", str(path), "--conversation", "en:fr", "--cache-dir", str(tmp_path)])
+
+    assert all(recogniser.validated for recogniser in built.values())
+    assert all(recogniser.warmed for recogniser in built.values())
+
+
+def test_a_file_conversation_cannot_also_name_one_language(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(["stream", "x.wav", "--conversation", "en:fr", "--language", "ru"])
+
+    assert raised.value.code == 2
