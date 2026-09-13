@@ -20,6 +20,11 @@ Live speech translation. Speak without bounds with anyone worldwide.
 > ([ADR 0039](docs/adr/0039-italian-one-way.md)) — a source that is not a target, four more
 > pairs, and the only one of the remaining three languages that could be taken at all.
 >
+> **Two people can now share one microphone**: `listen --conversation en:fr` runs both
+> recognisers over every frame, shows whichever one understood the utterance and translates it
+> into the other language ([ADR 0047](docs/adr/0047-two-people-two-languages.md)) — 8 of 10
+> published utterances identified, at 0.96x real time for the pair.
+>
 > **Three of the seven languages stream**, using sherpa-onnx with pinned Apache-2.0 models
 > ([ADR 0008](docs/adr/0008-sherpa-onnx-streaming.md),
 > [ADR 0012](docs/adr/0012-russian-streams-after-all.md),
@@ -652,6 +657,64 @@ and made it deaf from the first frame. Scored against a reference labelling it m
 where it now manages 93–96%. The floor now falls fast and rises slowly, which is the whole
 fix. It affects `segment` and `transcribe`; the live path uses the recogniser's own
 endpointing and never touched it.
+
+## Two people, one microphone
+
+```bash
+python -m on_the_fly listen --conversation en:fr
+```
+
+Every other command in this project asks who is speaking before anyone speaks, which serves
+one half of a conversation: English goes in, French comes out, the reply comes back in French
+and nothing recognises it. `--conversation` runs both recognisers over every frame, shows
+whichever one understood the utterance, and translates it into *the other* language
+([ADR 0047](docs/adr/0047-two-people-two-languages.md)).
+
+A real run of it, on two published clips played back to back — a microphone is not something
+this repository's agents open to make a demonstration:
+
+```text
+model         streaming-en (local, verified, Apache-2.0)
+model         streaming-fr (local, verified, Apache-2.0)
+translation   opus-mt-en-fr on ctranslate2 (local, verified, CC-BY-4.0)
+translation   opus-mt-fr-en on ctranslate2 (local, verified, CC-BY-4.0)
+
+  [en] AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID
+       QUARTER OF THE BROTHELS
+    → [fr] Après la tombée de la nuit, les lampes jaunes allumaient ici et là le quartier
+           sordide des maisons closes
+  [fr] CE SITE CONTIENT QUATRE TOMBEAUX DE LA DYNASTIE HACHÉMÉNIDE ET SEPT DES SASSANDIDES
+    → [en] This site contains four tombs of the Hashemenid dynasty and seven of the Sassandids
+  [en] SUSTE CONCON CAT TONUD REGINIZZI AS SHE MAY NEED A SECT DE SASIN NEED
+    → [fr] Susté concon chat tonud reginizzi car elle peut avoir besoin d'une secte de sasin
+           besoin
+```
+
+**Two turns identified and translated with nothing configured between them — and a third line
+that is the limitation, left in.** That is the English model's own reading of the French audio,
+finalised at its own endpoint just after the French model had already spoken for those seconds.
+
+**The identification is a comparison, not a threshold**, which is why it works at all.
+[ADR 0043](docs/adr/0043-what-the-streaming-recogniser-thought.md) went looking for a
+confidence score that separates the right model from the wrong one and could not find one —
+the populations overlap, because a hard clip recognised correctly scores like a mismatched
+model. But *which of two models scored better on the same audio* needs no threshold, and the
+audio being identical on both sides removes every variable that defeated the absolute version:
+clipping drags both scores down together. A model that produces **nothing** is excluded before
+any comparison ([ADR 0044](docs/adr/0044-speech-went-in-and-nothing-came-out.md) measured that
+the French recogniser says nothing whatever about English speech), and a win narrower than 0.13
+keeps the language already being spoken.
+
+Over every clip with a published reference, two recognisers each: **8 of 10 utterances
+identified correctly** — and only **two** of those ten decisions were comparisons at all,
+because the two recognisers endpoint independently and most of the time one finalises alone.
+Both failures are the third line above: one model speaking alone over audio in the other
+language, which is exactly what ADR 0043 said no score can catch.
+
+**It is two languages because three do not fit.** All three configurations timed in one
+process, 40.56 s of audio, best of two passes: one recogniser is 0.45x real time, two are
+0.96x, **three are 1.11x** — slower than the speech, which on a live microphone means losing
+it. 157 MB, 306 MB and 432 MB resident, before any translation model.
 
 ## Repository layout
 

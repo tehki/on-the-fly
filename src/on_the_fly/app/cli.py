@@ -20,7 +20,9 @@ import json
 import sys
 import threading
 import time
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,7 @@ from on_the_fly.app.pipeline import (
     StreamingStats,
     TranslatedEvent,
     run_capture,
+    translate_conversation,
     translate_finals,
 )
 from on_the_fly.domain.audio import (
@@ -54,6 +57,7 @@ from on_the_fly.domain.languages import resolve as resolve_language
 from on_the_fly.infrastructure import parallel
 from on_the_fly.infrastructure.asr import (
     DEFAULT_MODEL,
+    ConversationRecognizer,
     FasterWhisperRecognizer,
     RecognitionError,
     SherpaStreamingRecognizer,
@@ -236,10 +240,23 @@ def build_parser() -> argparse.ArgumentParser:
             "a pinned streaming model can be used."
         ),
     )
-    listen.add_argument(
+    # One language or two, never both: `--conversation en:ru` already says what is being
+    # listened for, and a `--language` beside it would be either redundant or a contradiction.
+    spoken = listen.add_mutually_exclusive_group()
+    spoken.add_argument(
         "--language",
         default="en",
         help="language to recognise (default: en). Only streaming-tier languages are accepted",
+    )
+    spoken.add_argument(
+        "--conversation",
+        default=None,
+        metavar="A:B",
+        help=(
+            "listen for two languages at once, e.g. en:ru, translating each utterance into "
+            "the other one (ADR 0047). Replaces --language and --translate-to; costs twice "
+            "the memory and about twice the CPU"
+        ),
     )
     listen.add_argument(
         "--translate-to",
@@ -732,14 +749,13 @@ def format_transcript(
     return LINE_BREAK.join(header + body + footer)
 
 
-def resolve_streaming(args: argparse.Namespace) -> tuple[Any, Any, Any, TranslationChoice | None]:
-    """`(language, pin, target, translation choice)` for a streaming command.
+def streaming_pin(language: Any) -> Any:
+    """The pinned streaming model for a language, or a refusal saying why there is none.
 
-    Everything that can be refused is resolved here, before a device is opened or a model
-    is fetched. Asking for a pair this project cannot serve should cost a message, not a
-    73 MB recogniser download first (handbook 14: validate before you execute).
+    Shared by the one-language path and the conversation one, which ask the same two
+    questions — is this language streamable, and is a model pinned for it — and owe the same
+    answers whichever of them asked.
     """
-    language = resolve_language(args.language)
     if language.tier is not RecognitionTier.STREAMING:
         # Refused rather than silently downgraded. A user who asked to stream and got batch
         # latency would reasonably conclude the tool was broken — and since ADR 0035 measured
@@ -754,12 +770,23 @@ def resolve_streaming(args: argparse.Namespace) -> tuple[Any, Any, Any, Translat
 
     pin_name = f"streaming-{language.code}"
     try:
-        pin = resolve(pin_name)
+        return resolve(pin_name)
     except KeyError:
         raise ValueError(
             f"{language.name} has no pinned streaming model yet (looked for {pin_name!r}). "
             "Pin one with scripts/pin_model.py after checking its licence."
         ) from None
+
+
+def resolve_streaming(args: argparse.Namespace) -> tuple[Any, Any, Any, TranslationChoice | None]:
+    """`(language, pin, target, translation choice)` for a streaming command.
+
+    Everything that can be refused is resolved here, before a device is opened or a model
+    is fetched. Asking for a pair this project cannot serve should cost a message, not a
+    73 MB recogniser download first (handbook 14: validate before you execute).
+    """
+    language = resolve_language(args.language)
+    pin = streaming_pin(language)
 
     target = None
     choice = None
@@ -769,6 +796,99 @@ def resolve_streaming(args: argparse.Namespace) -> tuple[Any, Any, Any, Translat
             raise ValueError(f"source and target are both {target.name}; nothing to translate.")
         choice = resolve_artifact((language.code, target.code), args.translation_engine)
     return language, pin, target, choice
+
+
+@dataclass(frozen=True)
+class ConversationPlan:
+    """A two-language run, resolved before a device is opened or a model is fetched.
+
+    Both directions are resolved, not just the one the first speaker will need: a
+    conversation where the reply cannot be translated is not a conversation, and finding
+    that out after the second person has spoken is finding out too late.
+    """
+
+    languages: tuple[Any, ...]
+    pins: tuple[Any, ...]
+    choices: tuple[TranslationChoice, ...]
+
+    @property
+    def codes(self) -> tuple[str, ...]:
+        return tuple(language.code for language in self.languages)
+
+
+def resolve_conversation(args: argparse.Namespace) -> ConversationPlan:
+    """Everything `--conversation A:B` needs, or the reason it cannot be served.
+
+    Two languages, deliberately. Three recognisers measured at 1.03x real time on the
+    reference machine (ADR 0047) — past the point where a live microphone can be kept up
+    with — so the limit is a measurement rather than a simplification.
+    """
+    if args.translate_to is not None:
+        raise ValueError(
+            "--conversation translates each utterance into the other language already; "
+            "--translate-to has nothing left to say."
+        )
+    codes = [part.strip() for part in str(args.conversation).split(":")]
+    if len(codes) != 2 or not all(codes):
+        raise ValueError(
+            f"--conversation takes two languages separated by a colon, got {args.conversation!r}; "
+            "try --conversation en:ru"
+        )
+    languages = tuple(resolve_language(code) for code in codes)
+    if languages[0].code == languages[1].code:
+        raise ValueError(
+            f"both sides of the conversation are {languages[0].name}; "
+            "that is what --language already does."
+        )
+    pins = tuple(streaming_pin(language) for language in languages)
+    first, second = (language.code for language in languages)
+    choices = (
+        resolve_artifact((first, second), args.translation_engine),
+        resolve_artifact((second, first), args.translation_engine),
+    )
+    return ConversationPlan(languages=languages, pins=pins, choices=choices)
+
+
+def _load_conversation(
+    args: argparse.Namespace, plan: ConversationPlan
+) -> tuple[ConversationRecognizer, dict[tuple[str, str], Translator]]:
+    """Two recognisers and two translators, built at the same time.
+
+    Four models rather than two, so building them in series would be four waits: measured
+    5.17 s for one direct pair on CTranslate2 (ADR 0041), and a user watching eleven seconds
+    of nothing before their microphone opens would reasonably stop waiting.
+    """
+    store = ModelStore(args.cache_dir, allow_download=args.allow_download)
+
+    def recogniser(pin: Any) -> Callable[[], SherpaStreamingRecognizer]:
+        def build() -> SherpaStreamingRecognizer:
+            built = SherpaStreamingRecognizer(
+                store.ensure(pin), num_threads=args.threads, layout=layout_for(pin)
+            )
+            built.warm_up()
+            return built
+
+        return build
+
+    def translation(choice: TranslationChoice) -> Callable[[], Translator]:
+        def build() -> Translator:
+            return open_translator(choice, args.cache_dir, allow_download=args.allow_download)
+
+        return build
+
+    # Nested rather than one flat list of four, because `each` returns one type and these
+    # are two: the recognisers and the translators are separated here instead of being
+    # separated again by index at every use.
+    heard, spoken = parallel.both(
+        lambda: parallel.each([recogniser(pin) for pin in plan.pins]),
+        lambda: parallel.each([translation(choice) for choice in plan.choices]),
+    )
+    recognisers = {language.code: heard[index] for index, language in enumerate(plan.languages)}
+    translators = {
+        (choice.source_language, choice.target_language): spoken[index]
+        for index, choice in enumerate(plan.choices)
+    }
+    return ConversationRecognizer(recognisers), translators
 
 
 def _load_both(
@@ -815,7 +935,7 @@ def _load_both(
 SPEECH_BEFORE_SILENCE_IS_A_FINDING_SECONDS = 0.5
 
 
-def _nothing_recognised_lines(stats: StreamingStats, language: Any) -> list[str]:
+def _nothing_recognised_lines(stats: StreamingStats, *languages: Any) -> list[str]:
     """Said when audible speech went in and no text came out.
 
     The one case where this project can tell a user something about the *model* rather than
@@ -834,7 +954,8 @@ def _nothing_recognised_lines(stats: StreamingStats, language: Any) -> list[str]
     return [
         f"no text       {stats.speech_seconds:.1f}s of this audio is speech and none of it "
         "was recognised.",
-        f"              If it is not {language.name}, --language is the thing to check.",
+        f"              If it is not {' or '.join(language.name for language in languages)}, "
+        f"{'--language' if len(languages) == 1 else '--conversation'} is the thing to check.",
     ]
 
 
@@ -987,21 +1108,38 @@ def run_listen(args: argparse.Namespace) -> int:
     was discarded while the input settled (ADR 0020), and how much was dropped because the
     pipeline could not keep up.
     """
-    language, pin, target, choice = resolve_streaming(args)
+    plan = resolve_conversation(args) if args.conversation is not None else None
 
     load_started = time.monotonic()
-    recognizer, translator = _load_both(args, pin, choice)
+    recognizer: Any
+    translator: Translator | None = None
+    translators: dict[tuple[str, str], Translator] = {}
+    if plan is not None:
+        recognizer, translators = _load_conversation(args, plan)
+        languages, pins, choices = plan.languages, plan.pins, plan.choices
+    else:
+        language, pin, target, choice = resolve_streaming(args)
+        recognizer, translator = _load_both(args, pin, choice)
+        languages, pins = (language,), (pin,)
+        choices = () if choice is None else (choice,)
     load_seconds = time.monotonic() - load_started
 
-    print(f"language      {language.name} ({language.code}, streaming)")
-    print(f"model         {pin.name} (local, verified, {pin.licence})")
+    # Written as lists of one in the single-language case rather than as two code paths:
+    # what a conversation prints is what one language prints, twice, and a second copy of
+    # these four lines is a second place for them to drift.
+    print(
+        "language      "
+        + ", ".join(f"{spoken.name} ({spoken.code}, streaming)" for spoken in languages)
+    )
+    for model in pins:
+        print(f"model         {model.name} (local, verified, {model.licence})")
     print(f"model load    {load_seconds:.2f}s")
 
-    if choice is not None:
+    for served in choices:
         # The same two lines a file run prints, from the same place. This was a third copy
         # of them, and the copy did not know that a pair can be bridged (ADR 0037) — so the
         # one command that reads a live microphone was the one that did not say so.
-        _describe_translation(choice)
+        _describe_translation(served)
 
     # The device is opened here and not before: nothing above this point needs a
     # microphone, and holding one open while validating arguments is a privacy problem
@@ -1027,19 +1165,26 @@ def run_listen(args: argparse.Namespace) -> int:
     translation_times: list[float] = []
     translated = 0
     interrupted = False
+    # Who spoke, counted as it happens. A conversation where one side was never recognised
+    # looks, in every other line of this summary, exactly like one where they never spoke.
+    spoken_by: Counter[str] = Counter()
 
     events = run.events()
-    stream_out = (
-        translate_finals(
+    stream_out: Iterable[TranslatedEvent]
+    if plan is not None:
+        # Which language an utterance was in is not known until it has finished, so the
+        # direction is chosen per utterance rather than once for the run (ADR 0047).
+        stream_out = translate_conversation(events, translators, store=run.store)
+    elif translator is not None and target is not None:
+        stream_out = translate_finals(
             events,
             translator,
             source_language=language.code,
             target_language=target.code,
             store=run.store,
         )
-        if translator is not None and target is not None
-        else (TranslatedEvent(event) for event in events)
-    )
+    else:
+        stream_out = (TranslatedEvent(event) for event in events)
 
     limit = f"{args.seconds:g}s" if args.seconds is not None else "Ctrl-C to stop"
     print()
@@ -1048,17 +1193,24 @@ def run_listen(args: argparse.Namespace) -> int:
 
     try:
         for item in stream_out:
+            if item.is_final and item.event.language is not None:
+                spoken_by[item.event.language] += 1
             if item.is_final or not args.finals_only:
                 # The shape of a live utterance — how long it ran and what stopped it — is
                 # the reading a recording cannot give and this command exists to take. It
                 # is timings, never text (ADR 0023).
                 shape = f"  ({item.event.shape})" if item.event.shape else ""
-                print(f"  {item.event}{shape}")
+                said = f"[{item.event.language}] " if item.event.language is not None else ""
+                print(f"  {said}{item.event}{shape}")
             if item.translation is not None:
                 translated += 1
                 if item.translation_seconds is not None:
                     translation_times.append(item.translation_seconds)
-                print(f"  {'':>7}  {ARROW} {item.translation}")
+                # Tagged from the event rather than from the plan: in a conversation the
+                # direction was chosen after the utterance finished, and a label derived
+                # from anything else is a second opinion about what already happened.
+                into = f"[{item.target_language}] " if item.target_language is not None else ""
+                print(f"  {'':>7}  {ARROW} {into}{item.translation}")
     except KeyboardInterrupt:
         # A deliberate stop, not a failure. The summary below is the point of the run.
         interrupted = True
@@ -1100,14 +1252,20 @@ def run_listen(args: argparse.Namespace) -> int:
     print(f"events        {stats.partials} partial, {stats.finals} final")
     for line in _confidence_lines(stats):
         print(line)
-    for line in _nothing_recognised_lines(stats, language):
+    for line in _nothing_recognised_lines(stats, *languages):
         print(line)
+    if plan is not None:
+        print(
+            "speakers      "
+            + ", ".join(f"{code} {spoken_by[code]}" for code in plan.codes)
+            + " final(s)"
+        )
     silent = getattr(recognizer, "silent_endpoints", None)
     if silent is not None:
         # Without this, a room nobody spoke in and an endpointer that never fires produce
         # the same output: a long gap between finals and no way to tell which happened.
         print(f"endpoints     {stats.finals} with text, {silent} with none (silence)")
-    if translator is not None:
+    if translator is not None or translators:
         print(_translation_summary(translated, stats.finals, translation_times))
 
     level = watched.overall_level

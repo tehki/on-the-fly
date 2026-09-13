@@ -1655,6 +1655,80 @@ Fixed to count samples, with the error naming a frame size that works. 11.025 kH
 correctly at `--frame-ms 40`, scoring **-0.24** median confidence against -0.25 for the same
 clip at 16 kHz.
 
+## Thirty-third measurement - 2026-09-13, two languages at once
+
+[ADR 0047](adr/0047-two-people-two-languages.md) asks something no earlier measurement here
+did: **can two recognisers listening to the same audio tell which of them the speech belongs
+to, and can a CPU-only machine afford to ask?**
+
+The first half rests on a comparison ADR 0043 never tried. That ADR looked for an absolute
+confidence threshold separating the right model from the wrong one and found none — the
+populations overlap. *Which of two models scored better on the same audio* needs no threshold
+at all, and the audio being identical removes every variable the absolute version was defeated
+by.
+
+### What it identifies
+
+Every clip this project holds a published reference for — two English, three French — through
+an `en:fr` conversation. Each row is one decision: a frame at which some recogniser finalised,
+and the scores it was decided on.
+
+```text
+clip                           utterance scores                    chose  spoken
+en/0                           en  -0.25                              en   en
+en/1                           en  -0.26                              en   en
+                               en  -0.31                              en   en
+                               en  -0.36                              en   en
+fr/common_voice_fr_19364697    en  -0.87 fr  -0.35                    fr   fr
+fr/common_voice_fr_19738183    en  -1.11 fr  -0.44                    fr   fr
+fr/common_voice_fr_27024649    fr  -1.10                              fr   fr
+                               en  -1.68                              en   fr   <- wrong
+                               fr  -0.55                              fr   fr
+                               en  -1.07                              en   fr   <- wrong
+
+8 of 10 utterances identified correctly
+the two decisions that were comparisons: margins 0.52 and 0.68, both correct
+```
+
+**The shape matters more than the score.** Only **two of ten decisions were comparisons** —
+the two recognisers endpoint independently, so most of the time one of them finalises alone and
+there is nothing to compare it against. What carries this mode is the exclusion rule (a model
+with nothing to say is out) rather than the ordering, and both failures are the case the
+exclusion rule cannot help with: the English model finalising by itself over French audio,
+scoring −1.68 and −1.07, which ADR 0043 established no absolute score can reject.
+
+### What it costs
+
+All three configurations in **one process**, so the load they were measured under is the same
+load — which matters more here than usual, because a separate-process run of the same sweep
+earlier the same day produced 0.91x, 1.49x and 1.36x, an ordering that cannot be true and is
+entirely this machine's background load moving under the measurement.
+
+40.56 s of audio over the same five clips, best of two passes, background load 2.3–3.9 on four
+cores:
+
+| recognisers | resident | wall time | real time |
+| --- | --- | --- | --- |
+| baseline, none loaded | 25 MB | | |
+| 1 (en) | 157 MB | 18.31s | **0.45x** |
+| 2 (en, fr) | 306 MB | 38.84s | **0.96x** |
+| 3 (en, fr, ru) | 432 MB | 44.86s | **1.11x** |
+
+**Two fit inside real time and three do not**, which is why the flag takes a pair. At 1.11x a
+third recogniser is slower than the speech it is listening to, and on a live microphone that is
+not a slower answer but lost audio — `listen` would report overflows and the words in them
+would be gone. 0.96x is inside real time by 4%, thin enough to state rather than round.
+
+The 0.45x single-recogniser figure is consistent with the 0.399x this document records for
+English streaming, on a different clip mix and a differently loaded machine.
+
+### What the sweep does not cover
+
+Five single-speaker clips, each played through both models — not one recording of two people
+talking. Nobody has yet held a conversation into this and counted the turns it got wrong, and
+that measurement is the one that would revise the 0.13 margin, which currently rests on two
+decisions.
+
 ## Status
 
 **PROVISIONAL.** The budget is **met on an idle machine and sits on the line under heavy load** — p50 710 ms against a 700 ms target, p95 1662 ms against 1500 ms with the hard limit intact.
