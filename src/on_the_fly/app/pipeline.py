@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import statistics
 import time
-from collections.abc import Callable, Generator, Iterable
+from collections.abc import Callable, Generator, Iterable, Mapping
 from dataclasses import dataclass
 
 from on_the_fly.domain.audio import (
@@ -267,6 +267,11 @@ class TranslatedEvent:
     event: TranscriptEvent
     translation: str | None = None
     translation_seconds: float | None = None
+    # Which language the translation is *in*, when the caller did not choose it: in a
+    # conversation the direction is decided per utterance (ADR 0047), so a presenter that
+    # wants to label the line has nowhere else to read it from. `None` when the caller
+    # named the target itself and telling it back would be noise.
+    target_language: str | None = None
 
     @property
     def is_final(self) -> bool:
@@ -316,6 +321,59 @@ def translate_finals(
         if store is not None and translation:
             store.put(translation, label="translation_output")
         yield TranslatedEvent(event, translation or None, elapsed)
+
+
+def translate_conversation(
+    events: Iterable[TranscriptEvent],
+    translators: Mapping[tuple[str, str], Translator],
+    *,
+    store: EphemeralStore | None = None,
+) -> Generator[TranslatedEvent]:
+    """Translate each final into whatever the *other* person is speaking (ADR 0047).
+
+    The one-language version takes a fixed pair because it knows who is talking. Here the
+    recogniser decides that per utterance, so the pair is chosen per utterance too: an
+    English final goes to French and a French one goes back to English.
+
+    Everything else matches `translate_finals` deliberately — partials pass through
+    untranslated (ADR 0009), a translation failure yields the caption without its
+    translation rather than ending the run, and a translation is `EPHEMERAL` the moment it
+    exists and goes into the store under the same profile.
+    """
+    for event in events:
+        if not event.is_final or event.language is None:
+            yield TranslatedEvent(event)
+            continue
+
+        target = _other_language(event.language, translators)
+        translator = translators.get((event.language, target)) if target is not None else None
+        if translator is None or target is None:
+            # Nothing pinned for this direction. The caption still reaches the reader, which
+            # is the half that was working.
+            yield TranslatedEvent(event)
+            continue
+
+        started = time.monotonic()
+        try:
+            translation = translator.translate(
+                event.text, source_language=event.language, target_language=target
+            )
+        except Exception:
+            yield TranslatedEvent(event)
+            continue
+        elapsed = time.monotonic() - started
+
+        if store is not None and translation:
+            store.put(translation, label="translation_output")
+        yield TranslatedEvent(event, translation or None, elapsed, target_language=target)
+
+
+def _other_language(spoken: str, translators: Mapping[tuple[str, str], Translator]) -> str | None:
+    """Who the translation is for: the language in the conversation that was not spoken."""
+    for source, target in translators:
+        if source == spoken:
+            return target
+    return None
 
 
 @dataclass(frozen=True)

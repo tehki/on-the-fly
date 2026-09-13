@@ -17,6 +17,7 @@ from on_the_fly.app.pipeline import (
     UtteranceRecord,
     build_store,
     run_capture,
+    translate_conversation,
     translate_finals,
 )
 
@@ -29,5 +30,6 @@ __all__ = [
     "UtteranceRecord",
     "build_store",
     "run_capture",
+    "translate_conversation",
     "translate_finals",
 ]

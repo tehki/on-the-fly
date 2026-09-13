@@ -66,6 +66,10 @@ class TranscriptEvent:
     # probability, 0 being certain and more negative less sure. Finals only, and `None` from
     # a recogniser that reports nothing — which is not the same as certainty (ADR 0043).
     confidence: float | None = None
+    # Which language recognised this, when more than one was listening (ADR 0047). `None`
+    # from a run with a single language, where the caller already knows and repeating it on
+    # every event would be noise.
+    language: str | None = None
 
     def __str__(self) -> str:
         # The text is the whole point of this object, so it appears. Callers that log

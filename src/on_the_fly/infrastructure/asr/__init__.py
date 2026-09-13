@@ -19,6 +19,10 @@ this package imports it like every other caller rather than re-exporting it.
 
 from __future__ import annotations
 
+from on_the_fly.infrastructure.asr.conversation import (
+    CONFIDENT_MARGIN,
+    ConversationRecognizer,
+)
 from on_the_fly.infrastructure.asr.models import (
     BASE,
     DEFAULT_MODEL,
@@ -45,6 +49,7 @@ from on_the_fly.infrastructure.asr.whisper_recognizer import (
 
 __all__ = [
     "BASE",
+    "CONFIDENT_MARGIN",
     "DEFAULT_MODEL",
     "FAILED_DECODE_CONFIDENCE",
     "KNOWN_MODELS",
@@ -53,6 +58,7 @@ __all__ = [
     "STREAMING_EN",
     "STREAMING_LAYOUTS",
     "TINY",
+    "ConversationRecognizer",
     "FasterWhisperRecognizer",
     "RecognitionError",
     "SherpaStreamingRecognizer",

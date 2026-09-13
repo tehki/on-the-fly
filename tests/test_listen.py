@@ -390,3 +390,184 @@ class FixedTranslator:
 
     def translate(self, text: str, *, source_language: str, target_language: str) -> str:
         return "переведено"
+
+
+# --------------------------------------------------------------------------------------
+# Two languages at once (ADR 0047)
+# --------------------------------------------------------------------------------------
+
+
+class Scripted:
+    """A recogniser that says what it was told to, on the frames it was told to.
+
+    One per language, so the two are distinguishable: a single shared fake would make every
+    comparison between them a comparison of an object with itself.
+    """
+
+    def __init__(self, script: dict[int, tuple[str, bool, float | None]]) -> None:
+        self._script = script
+        self.frames = 0
+        self.warmed = False
+        self.validated = 0
+
+    def warm_up(self) -> None:
+        self.warmed = True
+
+    def validate_format(self, audio_format: AudioFormat) -> None:
+        self.validated += 1
+
+    def reset(self) -> None:
+        return None
+
+    def accept(self, frame: bytes) -> Sequence[TranscriptEvent]:
+        self.frames += 1
+        entry = self._script.get(self.frames)
+        if entry is None:
+            return ()
+        text, is_final, confidence = entry
+        return (
+            TranscriptEvent(
+                utterance_index=0,
+                text=text,
+                is_final=is_final,
+                audio_offset_seconds=self.frames * 0.02,
+                latency_seconds=0.0,
+                confidence=confidence,
+                duration_seconds=1.0 if is_final else None,
+                end_reason=EndReason.SILENCE if is_final else None,
+            ),
+        )
+
+    def finish(self) -> Sequence[TranscriptEvent]:
+        return ()
+
+
+class Directed:
+    """A translator that says which way it was asked to go."""
+
+    def translate(self, text: str, *, source_language: str, target_language: str) -> str:
+        return f"{text} in {target_language}"
+
+
+@pytest.fixture
+def conversing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Scripted]:
+    """Two recognisers, two translators, and a device, none of them real.
+
+    The recognisers are told apart by the directory the model store hands them, because
+    `_load_conversation` builds them on threads and the order they are *constructed* in is
+    not the order they were asked for.
+    """
+    scripts = {
+        # English wins the first utterance clearly, Russian the second.
+        "en": Scripted({15: ("hello", False, None), 20: ("hello there", True, -0.30)}),
+        "ru": Scripted({20: ("khello zer", True, -1.20), 40: ("привет", True, -0.28)}),
+    }
+
+    def ensure(self: object, pin: object) -> Path:
+        directory = tmp_path / str(getattr(pin, "name", pin))
+        directory.mkdir(exist_ok=True)
+        return directory
+
+    def build(directory: Path, **kwargs: object) -> Scripted:
+        return scripts[Path(directory).name.removeprefix("streaming-")]
+
+    monkeypatch.setattr("on_the_fly.app.cli.ModelStore.ensure", ensure)
+    monkeypatch.setattr("on_the_fly.app.cli.SherpaStreamingRecognizer", build)
+    monkeypatch.setattr("on_the_fly.app.cli.open_translator", lambda *a, **k: Directed())
+    monkeypatch.setattr(
+        "on_the_fly.app.cli.MicrophoneSource",
+        lambda **kwargs: FakeMicrophone(frames=[quiet()] * 60),
+    )
+    return scripts
+
+
+def test_each_utterance_is_recognised_by_whichever_model_fits(
+    conversing: dict[str, Scripted], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The point of the mode. Both models hear both utterances; the confident one speaks."""
+    assert main(["listen", "--conversation", "en:ru", "--cache-dir", str(tmp_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "[en] " in output, "the winning language is not named"
+    assert "hello there" in output
+    assert "привет" in output
+    assert "khello zer" not in output, "the losing model's text was printed"
+
+
+def test_an_utterance_is_translated_into_the_other_language(
+    conversing: dict[str, Scripted], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Neither direction is fixed for the run: English goes to Russian and Russian back."""
+    main(["listen", "--conversation", "en:ru", "--cache-dir", str(tmp_path)])
+
+    output = capsys.readouterr().out
+    assert "[ru] hello there in ru" in output
+    assert "[en] привет in en" in output
+
+
+def test_both_models_are_named_and_both_directions_attributed(
+    conversing: dict[str, Scripted], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CC-BY-4.0 attribution is owed for every model that ran, not for the first of them."""
+    main(["listen", "--conversation", "en:ru", "--cache-dir", str(tmp_path)])
+
+    output = capsys.readouterr().out
+    assert "English (en, streaming), Russian (ru, streaming)" in output
+    assert "streaming-en" in output
+    assert "streaming-ru" in output
+    assert output.count("translation   opus-mt") == 2, "one direction went unattributed"
+
+
+def test_who_spoke_is_counted(
+    conversing: dict[str, Scripted], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A side that was never recognised looks, in every other line, like a silent one."""
+    main(["listen", "--conversation", "en:ru", "--cache-dir", str(tmp_path)])
+
+    assert "speakers      en 1, ru 1 final(s)" in capsys.readouterr().out
+
+
+def test_every_recogniser_is_warmed_and_format_checked(
+    conversing: dict[str, Scripted], tmp_path: Path
+) -> None:
+    """A model warmed on the second utterance costs its load time in the middle of speech."""
+    main(["listen", "--conversation", "en:ru", "--cache-dir", str(tmp_path)])
+
+    assert all(scripted.warmed for scripted in conversing.values())
+    assert all(scripted.validated for scripted in conversing.values())
+
+
+def test_a_language_with_no_streaming_model_is_refused_before_the_microphone_opens(
+    conversing: dict[str, Scripted], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["listen", "--conversation", "en:it", "--cache-dir", str(tmp_path)]) == 1
+    assert "not a streaming language" in capsys.readouterr().err
+
+
+def test_a_conversation_cannot_also_name_a_translation_target(
+    conversing: dict[str, Scripted], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = main(
+        ["listen", "--conversation", "en:ru", "--translate-to", "fr", "--cache-dir", str(tmp_path)]
+    )
+
+    assert exit_code == 1
+    assert "--translate-to has nothing left to say" in capsys.readouterr().err
+
+
+def test_a_conversation_cannot_also_name_a_single_language(
+    conversing: dict[str, Scripted], tmp_path: Path
+) -> None:
+    """argparse refuses this, so the contradiction never reaches the resolver."""
+    with pytest.raises(SystemExit) as raised:
+        main(["listen", "--conversation", "en:ru", "--language", "fr"])
+
+    assert raised.value.code == 2
+
+
+@pytest.mark.parametrize("spec", ["en", "en:ru:fr", "en:", ":ru"])
+def test_a_malformed_pair_says_what_the_shape_is(
+    conversing: dict[str, Scripted], tmp_path: Path, capsys: pytest.CaptureFixture[str], spec: str
+) -> None:
+    assert main(["listen", "--conversation", spec, "--cache-dir", str(tmp_path)]) == 1
+    assert "try --conversation en:ru" in capsys.readouterr().err
