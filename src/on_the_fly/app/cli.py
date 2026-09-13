@@ -215,10 +215,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     stream.add_argument("path", type=Path, help="path to a mono 16 kHz WAV file")
-    stream.add_argument(
+    # The same pairing `listen` has, for the same reason: a language and a conversation are
+    # two answers to one question. Here it also makes ADR 0047's recorded run reproducible
+    # without a microphone, which is how that run was taken.
+    heard = stream.add_mutually_exclusive_group()
+    heard.add_argument(
         "--language",
         default="en",
         help="language to recognise (default: en). Only streaming-tier languages are accepted",
+    )
+    heard.add_argument(
+        "--conversation",
+        default=None,
+        metavar="A:B",
+        help=(
+            "recognise two languages at once, e.g. en:fr, translating each utterance into "
+            "the other one (ADR 0047). Replaces --language and --translate-to"
+        ),
     )
     stream.add_argument("--cache-dir", type=Path, default=DEFAULT_MODEL_CACHE)
     stream.add_argument(
@@ -998,8 +1011,14 @@ def _confidence_lines(stats: StreamingStats) -> list[str]:
 
 
 def run_stream(args: argparse.Namespace) -> int:
-    """Stream a file through the streaming recogniser, printing text as it appears."""
-    language, pin, target, choice = resolve_streaming(args)
+    """Stream a file through the streaming recogniser, printing text as it appears.
+
+    `--conversation` works here as well as on a microphone, and that is deliberate rather
+    than incidental: the run ADR 0047 records was produced from files, because a
+    demonstration is not a reason to open somebody's microphone. Anyone re-reading that ADR
+    should be able to reproduce it with the shipped command.
+    """
+    plan = resolve_conversation(args) if args.conversation is not None else None
 
     source = _open_audio(args)
 
@@ -1007,16 +1026,34 @@ def run_stream(args: argparse.Namespace) -> int:
     # into the streaming measurement would make a recogniser that keeps up comfortably
     # look like one that cannot.
     load_started = time.monotonic()
-    recognizer, translator = _load_both(args, pin, choice, source.audio_format)
+    recognizer: Any
+    translator: Translator | None = None
+    translators: dict[tuple[str, str], Translator] = {}
+    if plan is not None:
+        recognizer, translators = _load_conversation(args, plan)
+        # Checked after building rather than during, because a conversation builds its
+        # recognisers on threads: a format refusal from inside one of them would surface as
+        # whichever thread happened to raise first.
+        recognizer.validate_format(source.audio_format)
+        languages, pins, choices = plan.languages, plan.pins, plan.choices
+    else:
+        language, pin, target, choice = resolve_streaming(args)
+        recognizer, translator = _load_both(args, pin, choice, source.audio_format)
+        languages, pins = (language,), (pin,)
+        choices = () if choice is None else (choice,)
     load_seconds = time.monotonic() - load_started
 
     print(f"file          {source.path.name}")
-    print(f"language      {language.name} ({language.code}, streaming)")
-    print(f"model         {pin.name} (local, verified, {pin.licence})")
+    print(
+        "language      "
+        + ", ".join(f"{spoken.name} ({spoken.code}, streaming)" for spoken in languages)
+    )
+    for model in pins:
+        print(f"model         {model.name} (local, verified, {model.licence})")
     print(f"model load    {load_seconds:.2f}s")
 
-    if choice is not None:
-        _describe_translation(choice)
+    for served in choices:
+        _describe_translation(served)
 
     print()
 
@@ -1027,28 +1064,35 @@ def run_stream(args: argparse.Namespace) -> int:
     run = StreamingRun(watched, recognizer)
     translation_times: list[float] = []
     translated = 0
+    spoken_by: Counter[str] = Counter()
 
     events = run.events()
-    stream_out = (
-        translate_finals(
+    stream_out: Iterable[TranslatedEvent]
+    if plan is not None:
+        stream_out = translate_conversation(events, translators, store=run.store)
+    elif translator is not None and target is not None:
+        stream_out = translate_finals(
             events,
             translator,
             source_language=language.code,
             target_language=target.code,
             store=run.store,
         )
-        if translator is not None and target is not None
-        else (TranslatedEvent(event) for event in events)
-    )
+    else:
+        stream_out = (TranslatedEvent(event) for event in events)
 
     for item in stream_out:
+        if item.is_final and item.event.language is not None:
+            spoken_by[item.event.language] += 1
         if item.is_final or not args.finals_only:
-            print(f"  {item.event}")
+            said = f"[{item.event.language}] " if item.event.language is not None else ""
+            print(f"  {said}{item.event}")
         if item.translation is not None:
             translated += 1
             if item.translation_seconds is not None:
                 translation_times.append(item.translation_seconds)
-            print(f"  {'':>7}  {ARROW} {item.translation}")
+            into = f"[{item.target_language}] " if item.target_language is not None else ""
+            print(f"  {'':>7}  {ARROW} {into}{item.translation}")
 
     stats = run.stats
     if stats is None:  # pragma: no cover - events() always sets it
@@ -1075,9 +1119,15 @@ def run_stream(args: argparse.Namespace) -> int:
     print(f"events        {stats.partials} partial, {stats.finals} final")
     for line in _confidence_lines(stats):
         print(line)
-    for line in _nothing_recognised_lines(stats, language):
+    for line in _nothing_recognised_lines(stats, *languages):
         print(line)
-    if translator is not None:
+    if plan is not None:
+        print(
+            "speakers      "
+            + ", ".join(f"{code} {spoken_by[code]}" for code in plan.codes)
+            + " final(s)"
+        )
+    if translator is not None or translators:
         print(_translation_summary(translated, stats.finals, translation_times))
     if stats.retention_clean:
         print("retention     clean - nothing retained, no deletion failed")
